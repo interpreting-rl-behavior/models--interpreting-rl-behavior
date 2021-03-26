@@ -5,7 +5,7 @@ from torch.utils.tensorboard import SummaryWriter
 import time
 
 class Logger(object):
-    
+
     def __init__(self, n_envs, logdir):
         self.start_time = time.time()
         self.n_envs = n_envs
@@ -16,27 +16,51 @@ class Logger(object):
             self.episode_rewards.append([])
         self.episode_len_buffer = deque(maxlen = 40)
         self.episode_reward_buffer = deque(maxlen = 40)
-        
-        self.log = pd.DataFrame(columns = ['timesteps', 'wall_time', 'num_episodes',
+
+        #valid
+        self.episode_rewards_v = []
+        for _ in range(n_envs):
+            self.episode_rewards_v.append([])
+        self.episode_len_buffer_v = deque(maxlen = 40)
+        self.episode_reward_buffer_v = deque(maxlen = 40)
+
+        self.log = pd.DataFrame(columns = ['timesteps', 'wall_time', 'num_episodes', 'num_episodes_val',
                                'max_episode_rewards', 'mean_episode_rewards','min_episode_rewards',
-                               'max_episode_len', 'mean_episode_len', 'min_episode_len'])
+                               'max_episode_len', 'mean_episode_len', 'min_episode_len',
+                               'val_max_episode_rewards', 'val_mean_episode_rewards', 'val_min_episode_rewards',
+                               'val_max_episode_len', 'val_mean_episode_len', 'val_min_episode_len'])
         self.writer = SummaryWriter(logdir)
         self.timesteps = 0
         self.num_episodes = 0
+        self.num_episodes_val = 0
 
-    def feed(self, rew_batch, done_batch):
+    def feed(self, rew_batch, done_batch, rew_batch_v=None, done_batch_v=None):
         steps = rew_batch.shape[0]
         rew_batch = rew_batch.T
         done_batch = done_batch.T
 
+        valid = rew_batch_v is not None and done_batch_v is not None
+        if valid:
+            rew_batch_v = rew_batch_v.T
+            done_batch_v = done_batch_v.T
+
         for i in range(self.n_envs):
             for j in range(steps):
                 self.episode_rewards[i].append(rew_batch[i][j])
+                if valid:
+                    self.episode_rewards_v[i].append(rew_batch_v[i][j])
                 if done_batch[i][j]:
                     self.episode_len_buffer.append(len(self.episode_rewards[i]))
                     self.episode_reward_buffer.append(np.sum(self.episode_rewards[i]))
                     self.episode_rewards[i] = []
                     self.num_episodes += 1
+                if valid:
+                    if done_batch_v[i][j]:
+                        self.episode_len_buffer_v.append(len(self.episode_rewards_v[i]))
+                        self.episode_reward_buffer_v.append(np.sum(self.episode_rewards_v[i]))
+                        self.episode_rewards_v[i] = []
+                        self.num_episodes_val += 1
+
         self.timesteps += (self.n_envs * steps)
 
     def write_summary(self, summary):
@@ -51,8 +75,8 @@ class Logger(object):
             for key, value in episode_statistics.items():
                 self.writer.add_scalar(key, value, self.timesteps)
         else:
-            episode_statistics_list = [None] * 6
-        log = [self.timesteps] + [wall_time] + [self.num_episodes] + episode_statistics_list
+            episode_statistics_list = [None] * 12
+        log = [self.timesteps] + [wall_time] + [self.num_episodes] + [self.num_episodes_val] + episode_statistics_list
         self.log.loc[len(self.log)] = log
 
         # TODO: logger to append, not write!
@@ -68,4 +92,12 @@ class Logger(object):
         episode_statistics['Len/max_episodes']  = np.max(self.episode_len_buffer)
         episode_statistics['Len/mean_episodes'] = np.mean(self.episode_len_buffer)
         episode_statistics['Len/min_episodes']  = np.min(self.episode_len_buffer)
+
+        # valid
+        episode_statistics['[Valid] Rewards/max_episodes'] = np.max(self.episode_reward_buffer_v)
+        episode_statistics['[Valid] Rewards/mean_episodes'] = np.mean(self.episode_reward_buffer_v)
+        episode_statistics['[Valid] Rewards/min_episodes'] = np.min(self.episode_reward_buffer_v)
+        episode_statistics['[Valid] Len/max_episodes'] = np.max(self.episode_len_buffer_v)
+        episode_statistics['[Valid] Len/mean_episodes'] = np.max(self.episode_len_buffer_v)
+        episode_statistics['[Valid] Len/min_episodes'] = np.max(self.episode_len_buffer_v)
         return episode_statistics

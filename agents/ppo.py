@@ -13,6 +13,8 @@ class PPO(BaseAgent):
                  storage,
                  device,
                  n_checkpoints,
+                 env_valid=None,
+                 storage_valid=None,
                  n_steps=128,
                  n_envs=8,
                  epoch=3,
@@ -30,7 +32,8 @@ class PPO(BaseAgent):
                  use_gae=True,
                  **kwargs):
 
-        super(PPO, self).__init__(env, policy, logger, storage, device, n_checkpoints)
+        super(PPO, self).__init__(env, policy, logger, storage, device,
+                                  n_checkpoints, env_valid, storage_valid)
 
         self.n_steps = n_steps
         self.n_envs = n_envs
@@ -119,6 +122,10 @@ class PPO(BaseAgent):
         hidden_state = np.zeros((self.n_envs, self.storage.hidden_state_size))
         done = np.zeros(self.n_envs)
 
+        obs_v = self.env_valid.reset()
+        hidden_state_v = np.zeros((self.n_envs, self.storage.hidden_state_size))
+        done_v = np.zeros(self.n_envs)
+
         while self.t < num_timesteps:
             # Run Policy
             self.policy.eval()
@@ -133,12 +140,27 @@ class PPO(BaseAgent):
             # Compute advantage estimates
             self.storage.compute_estimates(self.gamma, self.lmbda, self.use_gae, self.normalize_adv)
 
+            #valid
+            if self.env_valid is not None:
+                for _ in range(self.n_steps):
+                    act_v, log_prob_act_v, value_v, next_hidden_state_v = self.predict(obs_v, hidden_state_v, done_v)
+                    next_obs_v, rew_v, done_v, info_v = self.env_valid.step(act_v)
+                    self.storage_valid.store(obs_v, hidden_state_v, act_v,
+                                             rew_v, done_v, info_v,
+                                             log_prob_act_v, value_v)
+                    obs_v = next_obs_v
+                    hidden_state_v = next_hidden_state_v
+                _, _, last_val_v, hidden_state_v = self.predict(obs_v, hidden_state_v, done_v)
+                self.storage_valid.store_last(obs_v, hidden_state_v, last_val_v)
+                self.storage_valid.compute_estimates(self.gamma, self.lmbda, self.use_gae, self.normalize_adv)
+
             # Optimize policy & valueq
             summary = self.optimize()
             # Log the training-procedure
             self.t += self.n_steps * self.n_envs
             rew_batch, done_batch = self.storage.fetch_log_data()
-            self.logger.feed(rew_batch, done_batch)
+            rew_batch_v, done_batch_v = self.storage_valid.fetch_log_data()
+            self.logger.feed(rew_batch, done_batch, rew_batch_v, done_batch_v)
             self.logger.write_summary(summary)
             self.logger.dump()
             self.optimizer = adjust_lr(self.optimizer, self.learning_rate, self.t, num_timesteps)
@@ -148,3 +170,5 @@ class PPO(BaseAgent):
                            '/model_' + str(self.t) + '.pth')
                 checkpoint_cnt += 1
         self.env.close()
+        if self.env_valid is not None:
+            self.env_valid.close()

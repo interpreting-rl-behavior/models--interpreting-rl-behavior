@@ -66,23 +66,26 @@ if __name__=='__main__':
     ## ENVIRONMENT ##
     #################
     print('INITIALIZAING ENVIRONMENTS...')
+    def create_venv(args, hyperparameters, is_valid=False):
+        venv = ProcgenEnv(num_envs=hyperparameters.get('n_envs', 256),
+                          env_name=args.env_name,
+                          num_levels=0 if is_valid else args.num_levels,
+                          start_level=0 if is_valid else args.start_level,
+                          distribution_mode=args.distribution_mode,
+                          num_threads=args.num_threads)
+        venv = VecExtractDictObs(venv, "rgb")
+        normalize_rew = hyperparameters.get('normalize_rew', True)
+        if normalize_rew:
+            venv = VecNormalize(venv, ob=False) # normalizing returns, but not
+            #the img frames
+        venv = TransposeFrame(venv)
+        venv = ScaledFloatFrame(venv)
+        return venv
     n_steps = hyperparameters.get('n_steps', 256)
     n_envs = hyperparameters.get('n_envs', 64)
-    # By default, pytorch utilizes multi-threaded cpu
-    # Procgen is able to handle thousand of steps on a single core
-    #torch.set_num_threads(1)
-    env = ProcgenEnv(num_envs=n_envs,
-                     env_name=env_name,
-                     start_level=start_level,
-                     num_levels=num_levels,
-                     distribution_mode=distribution_mode
-                     num_threads=args.num_threads)
-    normalize_rew = hyperparameters.get('normalize_rew', True)
-    env = VecExtractDictObs(env, "rgb")
-    if normalize_rew:
-        env = VecNormalize(env, ob=False) # normalizing returns, but not the img frames.
-    env = TransposeFrame(env)
-    env = ScaledFloatFrame(env)
+
+    env = create_venv(args, hyperparameters)
+    env_valid = create_venv(args, hyperparameters, is_valid=True)
 
     ############
     ## LOGGER ##
@@ -126,6 +129,7 @@ if __name__=='__main__':
     print('INITIALIZAING STORAGE...')
     hidden_state_dim = model.output_dim
     storage = Storage(observation_shape, hidden_state_dim, n_steps, n_envs, device)
+    storage_valid = Storage(observation_shape, hidden_state_dim, n_steps, n_envs, device)
 
     ###########
     ## AGENT ##
@@ -136,7 +140,8 @@ if __name__=='__main__':
         from agents.ppo import PPO as AGENT
     else:
         raise NotImplementedError
-    agent = AGENT(env, policy, logger, storage, device, num_checkpoints, **hyperparameters)
+    agent = AGENT(env, policy, logger, storage, device, num_checkpoints,
+                  env_valid, storage_valid,  **hyperparameters)
 
     ##############
     ## TRAINING ##

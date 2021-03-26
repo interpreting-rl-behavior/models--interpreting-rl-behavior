@@ -12,7 +12,9 @@ class BaseAgent(object):
                  logger,
                  storage,
                  device,
-                 num_checkpoints):
+                 num_checkpoints,
+                 env_valid=None,
+                 storage_valid=None):
         """
         env: (gym.Env) environment following the openAI Gym API
         """
@@ -22,21 +24,22 @@ class BaseAgent(object):
         self.storage = storage
         self.device = device
         self.num_checkpoints = num_checkpoints
-        
+        self.env_valid = env_valid
+        self.storage_valid = storage_valid
         self.t = 0
-        
+
     def predict(self, obs):
         """
-        Predict the action with the given input 
+        Predict the action with the given input
         """
         pass
-        
+
     def update_policy(self):
         """
         Train the neural network model
         """
         pass
-        
+
     def train(self, num_timesteps):
         """
         Train the agent with collecting the trajectories
