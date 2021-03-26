@@ -27,6 +27,9 @@ if __name__=='__main__':
     parser.add_argument('--log_level',        type=int, default = int(40), help='[10,20,30,40]')
     parser.add_argument('--num_checkpoints',  type=int, default = int(1), help='number of checkpoints to store')
 
+    #multi threading
+    parser.add_argument('--num-threads', type=int, default=8)
+
     args = parser.parse_args()
     exp_name = args.exp_name
     env_name = args.env_name
@@ -67,12 +70,13 @@ if __name__=='__main__':
     n_envs = hyperparameters.get('n_envs', 64)
     # By default, pytorch utilizes multi-threaded cpu
     # Procgen is able to handle thousand of steps on a single core
-    torch.set_num_threads(1)
+    #torch.set_num_threads(1)
     env = ProcgenEnv(num_envs=n_envs,
                      env_name=env_name,
                      start_level=start_level,
                      num_levels=num_levels,
-                     distribution_mode=distribution_mode)
+                     distribution_mode=distribution_mode
+                     num_threads=args.num_threads)
     normalize_rew = hyperparameters.get('normalize_rew', True)
     env = VecExtractDictObs(env, "rgb")
     if normalize_rew:
