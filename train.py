@@ -26,9 +26,10 @@ if __name__=='__main__':
     parser.add_argument('--seed',             type=int, default = random.randint(0,9999), help='Random generator seed')
     parser.add_argument('--log_level',        type=int, default = int(40), help='[10,20,30,40]')
     parser.add_argument('--num_checkpoints',  type=int, default = int(1), help='number of checkpoints to store')
+    parser.add_argument('--model_file', type=str)
 
     #multi threading
-    parser.add_argument('--num-threads', type=int, default=8)
+    parser.add_argument('--num_threads', type=int, default=8)
 
     args = parser.parse_args()
     exp_name = args.exp_name
@@ -145,6 +146,9 @@ if __name__=='__main__':
         raise NotImplementedError
     agent = AGENT(env, policy, logger, storage, device, num_checkpoints,
                   env_valid, storage_valid,  **hyperparameters)
+    if args.model_file is not None:
+        print("Loading agent from %s" % args.model_file)
+        agent.policy.load_state_dict(torch.load(args.model_file)["state_dict"])
 
     ##############
     ## TRAINING ##

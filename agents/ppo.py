@@ -167,6 +167,7 @@ class PPO(BaseAgent):
             self.optimizer = adjust_lr(self.optimizer, self.learning_rate, self.t, num_timesteps)
             # Save the model
             if self.t > ((checkpoint_cnt+1) * save_every):
+                print("Saving model.")
                 torch.save({'state_dict': self.policy.state_dict()}, self.logger.logdir +
                            '/model_' + str(self.t) + '.pth')
                 checkpoint_cnt += 1
