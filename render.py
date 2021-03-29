@@ -28,7 +28,7 @@ if __name__=='__main__':
     parser.add_argument('--num_checkpoints',  type=int, default = int(1), help='number of checkpoints to store')
 
     #multi threading
-    parser.add_argument('--num-threads', type=int, default=8)
+    parser.add_argument('--num_threads', type=int, default=8)
 
     #render parameters
     parser.add_argument('--tps', type=int, default=15, help="env fps")
