@@ -94,7 +94,7 @@ if __name__=='__main__':
     ############
     ## LOGGER ##
     ############
-    print('INITIALIZAING LOGGER...')
+    print('INITIALIZING LOGGER...')
     logdir = 'procgen/' + env_name + '/' + exp_name + '/' + 'seed' + '_' + \
              str(seed) + '_' + time.strftime("%d-%m-%Y_%H-%M-%S")
     logdir = os.path.join('logs', logdir)
@@ -131,7 +131,7 @@ if __name__=='__main__':
     #############
     ## STORAGE ##
     #############
-    print('INITIALIZAING STORAGE...')
+    print('INITIALIZING STORAGE...')
     hidden_state_dim = model.output_dim
     storage = Storage(observation_shape, hidden_state_dim, n_steps, n_envs, device)
     storage_valid = Storage(observation_shape, hidden_state_dim, n_steps, n_envs, device)
@@ -149,7 +149,9 @@ if __name__=='__main__':
                   env_valid, storage_valid,  **hyperparameters)
     if args.model_file is not None:
         print("Loading agent from %s" % args.model_file)
-        agent.policy.load_state_dict(torch.load(args.model_file)["state_dict"])
+        checkpoint = torch.load(args.model_file)
+        agent.policy.load_state_dict(checkpoint["model_state_dict"])
+        agent.optimizer.load_state_dict(checkpoint["optimizer_state_dict"])
 
     ##############
     ## TRAINING ##

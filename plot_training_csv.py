@@ -17,35 +17,30 @@ def plot():
 
     data = pd.read_csv(args.datapath + "/log.csv")
     cols = list(data.columns)
-    # cols
+
+    # Get rid of columns we don't plot
     cols.remove('wall_time')
     cols.remove('num_episodes')
     cols.remove('num_episodes_val')
-
     cols.remove('max_episode_len')
     cols.remove('min_episode_len')
     cols.remove('val_max_episode_len')
     cols.remove('val_min_episode_len')
-
     cols.remove('max_episode_rewards')
     cols.remove('min_episode_rewards')
     cols.remove('val_max_episode_rewards')
     cols.remove('val_min_episode_rewards')
-
     cols.remove('timesteps')
 
-
+    # Plot episode len with some preprocessing, then remove
     plt.subplots(figsize=[10, 7])
     for name in ['mean_episode_len', 'val_mean_episode_len']:
         plt.plot(data['timesteps'], data[name]/100, label=name+"/100",
                  alpha=0.8)
-    # cols.remove('max_episode_len')
     cols.remove('mean_episode_len')
-    # cols.remove('min_episode_len')
-    # cols.remove('val_max_episode_len')
     cols.remove('val_mean_episode_len')
-    # cols.remove('val_min_episode_len')
 
+    # Plot the rest
     for name in cols:
         plt.plot(data['timesteps'], data[name], label=name)
     plt.xlabel('timesteps')
