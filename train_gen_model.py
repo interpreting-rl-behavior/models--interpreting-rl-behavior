@@ -53,6 +53,9 @@ def run():
     parser.add_argument('--save_interval', type=int, default=100)
     parser.add_argument('--log_interval', type=int, default=100)
     parser.add_argument('--lr', type=float, default=5e-4)
+    parser.add_argument('--batch_size', type=int, default=128)
+    parser.add_argument('--num_recon_obs', type=int, default=8)
+    parser.add_argument('--num_pred_steps', type=int, default=22)
 
 
     # multi threading
@@ -161,9 +164,9 @@ def run():
 
     ## Make (fake) dataset
     train_loader = None
-    batch_size = 20
-    num_recon_obs = 3
-    num_pred_steps = 8
+    batch_size = args.batch_size
+    num_recon_obs = args.num_recon_obs
+    num_pred_steps = args.num_pred_steps
     total_seq_len = num_recon_obs + num_pred_steps
     train_dataset = ProcgenDataset('generative/data/data_gen_model.csv',
                                    total_seq_len=total_seq_len,
