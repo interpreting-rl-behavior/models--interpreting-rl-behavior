@@ -63,6 +63,42 @@ class PPO(BaseAgent):
 
         return act.cpu().numpy(), log_prob_act.cpu().numpy(), value.cpu().numpy(), hidden_state.cpu().numpy()
 
+    def predict_record(self, obs, hidden_state, done):
+        with torch.no_grad():
+            obs = torch.FloatTensor(obs).to(device=self.device)
+            hidden_state = torch.FloatTensor(hidden_state).to(device=self.device)
+            mask = torch.FloatTensor(1-done).to(device=self.device)
+            dist, value, hidden_state = self.policy(obs, hidden_state, mask)
+            act = dist.sample()
+            log_prob_act = dist.log_prob(act)
+
+        return act.cpu().numpy(), dist.logits.cpu().numpy(), value.cpu().numpy(), hidden_state.cpu().numpy()
+
+
+    def predict_STE(self, obs, hidden_state, done):
+        """Stepse agent forward once but uses a straight through estimator:
+        the action is passed forward as a one hot vector, but the gradient is
+        back through the action logits. """
+        # with torch.no_grad():
+        # obs = torch.FloatTensor(obs).to(device=self.device)
+        # hidden_state = torch.FloatTensor(hidden_state).to(device=self.device)
+        # mask = torch.FloatTensor(1-done).to(device=self.device)
+        mask = torch.ones_like(done).squeeze() - done.squeeze()
+        obs = obs.permute(0, 3, 1, 2)
+        dist, value, hidden_state = self.policy(obs, hidden_state, mask)
+        act = dist.logits.argmax(dim=1)
+        # log_prob_act = dist.log_prob(act)
+
+        # STE
+        act_size = dist.logits.shape[1]
+        act_1hot = torch.nn.functional.one_hot(act,
+            num_classes=act_size).to(self.device)
+        act = dist.logits + \
+                       (act_1hot - dist.logits).detach()
+
+        return act, dist.logits, value, hidden_state
+
+
     def optimize(self):
         pi_loss_list, value_loss_list, entropy_loss_list = [], [], []
         batch_size = self.n_steps * self.n_envs // self.mini_batch_per_epoch
