@@ -16,7 +16,7 @@ from gym3 import ViewerWrapper, VideoRecorderWrapper, ToBaselinesVecEnv
 if __name__=='__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument('--exp_name',         type=str, default = 'test', help='experiment name')
-    parser.add_argument('--env_name',         type=str, default = 'starpilot', help='environment ID')
+    parser.add_argument('--env_name',         type=str, default = 'coinrun', help='environment ID')
     parser.add_argument('--start_level',      type=int, default = int(0), help='start-level for environment')
     parser.add_argument('--num_levels',       type=int, default = int(0), help='number of training levels for environment')
     parser.add_argument('--distribution_mode',type=str, default = 'easy', help='distribution mode for environment')
@@ -63,8 +63,11 @@ if __name__=='__main__':
     ############
     ## DEVICE ##
     ############
-    os.environ["CUDA_VISIBLE_DEVICES"] = str(gpu_device)
-    device = torch.device('cuda')
+    if args.device == 'gpu':
+        os.environ["CUDA_VISIBLE_DEVICES"] = str(gpu_device)
+        device = torch.device('cuda')
+    else:
+        device = torch.device('cpu')
 
     #################
     ## ENVIRONMENT ##
@@ -155,8 +158,9 @@ if __name__=='__main__':
         raise NotImplementedError
     agent = AGENT(env, policy, logger, storage, device, num_checkpoints, **hyperparameters)
 
-    agent.policy.load_state_dict(torch.load(args.model_file)["state_dict"])
+    agent.policy.load_state_dict(torch.load(args.model_file, map_location=device)["state_dict"])
     agent.n_envs = n_envs
+
     ##############
     ## TRAINING ##
     ##############
