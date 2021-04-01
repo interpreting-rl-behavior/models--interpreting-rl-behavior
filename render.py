@@ -70,8 +70,10 @@ if __name__=='__main__':
     ## ENVIRONMENT ##
     #################
     print('INITIALIZAING ENVIRONMENTS...')
+    n_envs = 1
+
     def create_venv_render(args, hyperparameters, is_valid=False):
-        venv = ProcgenGym3Env(num=1,
+        venv = ProcgenGym3Env(num=n_envs,
                           env_name=args.env_name,
                           num_levels=0 if is_valid else args.num_levels,
                           start_level=0 if is_valid else args.start_level,
@@ -93,7 +95,6 @@ if __name__=='__main__':
 
         return venv
     n_steps = hyperparameters.get('n_steps', 256)
-    n_envs = hyperparameters.get('n_envs', 64)
 
     #env = create_venv(args, hyperparameters)
     #env_valid = create_venv(args, hyperparameters, is_valid=True)
@@ -155,6 +156,7 @@ if __name__=='__main__':
     agent = AGENT(env, policy, logger, storage, device, num_checkpoints, **hyperparameters)
 
     agent.policy.load_state_dict(torch.load(args.model_file)["state_dict"])
+    agent.n_envs = n_envs
     ##############
     ## TRAINING ##
     ##############
