@@ -1,11 +1,11 @@
 from common.env.procgen_wrappers import *
-# from common.logger import Logger
+import util.logger as logger # from common.logger import Logger
 from common.storage import Storage
 from common.model import NatureModel, ImpalaModel
 from common.policy import CategoricalPolicy
 from common import set_global_seeds, set_global_log_levels
 
-import os, time, yaml, argparse
+import os, yaml, argparse
 import gym
 from procgen import ProcgenEnv
 import random
@@ -16,8 +16,6 @@ from generative.procgen_dataset import ProcgenDataset
 from collections import deque
 import torchvision.io as tvio
 from torch.nn import functional as F
-import util.logger as logger
-
 
 
 def run():
@@ -57,10 +55,10 @@ def run():
     parser.add_argument('--num_recon_obs', type=int, default=8)
     parser.add_argument('--num_pred_steps', type=int, default=22)
 
-
     # multi threading
     parser.add_argument('--num_threads', type=int, default=8)
 
+    # Hyperparameters
     args = parser.parse_args()
     param_name = args.param_name
     device = args.device
@@ -69,10 +67,14 @@ def run():
     log_level = args.log_level
     num_checkpoints = args.num_checkpoints
 
+    batch_size = args.batch_size
+    num_recon_obs = args.num_recon_obs
+    num_pred_steps = args.num_pred_steps
+    total_seq_len = num_recon_obs + num_pred_steps
+
     set_global_seeds(seed)
     set_global_log_levels(log_level)
 
-    # Hyperparameters
     print('[LOADING HYPERPARAMETERS...]')
     with open('hyperparams/procgen/config.yml', 'r') as f:
         hyperparameters = yaml.safe_load(f)[param_name]
@@ -160,27 +162,19 @@ def run():
         agent.policy.load_state_dict(checkpoint["state_dict"])
         # agent.optimizer.load_state_dict(checkpoint["optimizer_state_dict"])
     print("Done loading agent.")
+
+
     # Generative model stuff:
 
-    ## Make (fake) dataset
-    train_loader = None
-    batch_size = args.batch_size
-    num_recon_obs = args.num_recon_obs
-    num_pred_steps = args.num_pred_steps
-    total_seq_len = num_recon_obs + num_pred_steps
+    ## Make dataset
     train_dataset = ProcgenDataset('generative/data/data_gen_model.csv',
                                    total_seq_len=total_seq_len,
                                    inp_seq_len=num_recon_obs)
-    train_loader = torch.utils.data.DataLoader(train_dataset, batch_size=batch_size,
-                        shuffle=True, num_workers=0)
+    train_loader = torch.utils.data.DataLoader(train_dataset,
+                                               batch_size=batch_size,
+                                               shuffle=True,
+                                               num_workers=0)
 
-    # train_loader = get_fake_data_and_labels(num_obs=1000,
-    #                                         num_inputs=num_recon_obs,
-    #                                         total_seq_len=total_seq_len,
-    #                                         obs_size=(3,64,64),
-    #                                         act_space_size=15,
-    #                                         agent_h_size=256,
-    #                                         batch_size=batch_size)
     ## Make or load generative model
     gen_model = VAE(agent, device, num_recon_obs, num_pred_steps)
     gen_model = gen_model.to(device)
@@ -260,7 +254,7 @@ def train(epoch, args, train_loader, gen_model, agent, logger, log_dir, device):
         data = {k: v.to(device).float() for k,v in data.items()}
 
         # Get input data for generative model
-        obs = data['obs'][:,0:train_loader.dataset.inp_seq_len]#gets first few timesteps
+        obs = data['obs'][:,0:train_loader.dataset.inp_seq_len] # gets first few timesteps for input to VAE
         agent_h0 = data['hx'][:,0,:]
 
         # Forward and backward pass and upate generative model parameters
@@ -290,73 +284,6 @@ def train(epoch, args, train_loader, gen_model, agent, logger, log_dir, device):
             torch.save({'gen_model_state_dict': gen_model.state_dict()},
                        model_path)
             logger.info('Generative model saved to {}'.format(model_path))
-
-def get_fake_data_and_labels(num_obs, num_inputs, total_seq_len, obs_size, act_space_size, agent_h_size, batch_size):
-    """
-    Notes from proposal doc:
-    Data:
-        K-sized minibatch where each element contains:
-            (J*observations from timestep T-J to T-1) and
-            initial recurrent states at timestep T-J, where:
-                J = the number of observations that we're feeding into the VAE
-                T = the 0th timestep that we're actually predicting (i.e. the first timestep in the future)
-                So we're feeding observations from timestep (T-J):(T-1) (inclusive) into the VAE
-                And we also want the VAE to produce initial hidden states at timestep T-J
-            Action log probabilities (vector)
-            Action (integer)
-            Agent value function output (scalar)
-            Reward at time t (scalar)
-            Timestep (integer)
-            Episode number (integer)
-            ‘Done’ (boolean/integer)
-            Level seed (will help us reinstantiate the same levels later if we want to study them.
-    Labels:
-        Reconstruction part:
-            the observations (same as data)
-            The initial hidden states (same as data)
-        Prediction part:
-            k*(L*observations from timestep T to T+L))
-    ############################################################
-    Args:
-        num_obs: total number of observations in the dataset
-        total_seq_len: the number of observations in each sequence. (=J+L in the docstring)
-        obs_size: (tuple) - size of each observation (I think for coinrun we will use 64x64x3?)
-        act_space_size: number of actions available (15 for coinrun?)
-        batch_size: the number of VAE inputs in each batch
-    Returns:
-        batches of data of size batch_size
-    """
-
-    num_batches = num_obs // total_seq_len // batch_size
-    obs_seq_size = (batch_size, total_seq_len,) + obs_size  # (B, T, C, H, W)
-
-    data_and_labels = []
-    for batch in range(num_batches):
-        actions, timestep, episode, done, lvl_seed = \
-            [torch.randint(low=0, high=act_space_size,
-                           size=(batch_size, total_seq_len)) for _ in range(5)]
-        values, reward = \
-            [torch.randn(batch_size, total_seq_len) for _ in range(2)]
-        obs = torch.rand(obs_seq_size)
-        rec_h_state = torch.randn(batch_size, total_seq_len, agent_h_size)
-        # Assumes that we have 1 action for every observation in our data.
-        action_log_probs = torch.randn(batch_size, total_seq_len,act_space_size)
-
-        # Since enumerating trainloader returns batch_idx, (data,_), we make this a tuple.
-        labels = {
-            'actions': actions, 'values': values, 'reward': reward, 'timestep': timestep,
-            'episode': episode, 'done': done, 'lvl_seed': lvl_seed, 'obs': obs, 'rec_h_state': rec_h_state,
-            'action_log_probs': action_log_probs
-        }
-
-        # Just get first `num_inputs' elements of sequence for input to the VAE
-        loss_keys = ['reward', 'obs', 'rec_h_state', 'action_log_probs']
-        data = {}
-        for key in loss_keys:
-            data.update({key: labels[key][:,0:num_inputs]})
-
-        data_and_labels.append((data, labels))
-    return data_and_labels
 
 def safe_mean(xs):
     return np.nan if len(xs) == 0 else np.mean(xs)

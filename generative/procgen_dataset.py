@@ -18,29 +18,6 @@ class ProcgenDataset(Dataset):
         self.dataset_len = len(self.procgen_data)
         self.inp_seq_len = inp_seq_len
 
-        # Consider modifying recording so that you save each observation frame
-        # as a separate file and just save the filename in the dataset here.
-        # This may be more memory efficient.
-
-    def _nullify_row(self, row_to_nullify, template_row, episode_step):
-        """Using template row, go through filling the rows either with
-        zeros of their default values for that episode"""
-        keys = list(row_to_nullify.keys())
-        indice = row_to_nullify.index[0]
-        for key in keys:
-            if key in ['level_seed', 'episode',]:
-                row_to_nullify.at[key] = template_row[key]
-            if key in ['global_step']:
-                row_to_nullify.at[key] = np.nan
-            if key in ['episode_step']:
-                row_to_nullify.at[key] = episode_step
-            if key in ['done']:
-                row_to_nullify.at[key] = 1.
-            if key in ['reward', 'value', 'action', 'act_log_probs', 'hx']:
-                row_to_nullify.at[key] = np.zeros_like(template_row[key])
-            if key in ['obs']:
-                row_to_nullify.at[key] = 1.
-
     def __len__(self):
         return len(self.procgen_data)
 
@@ -48,47 +25,85 @@ class ProcgenDataset(Dataset):
         if torch.is_tensor(idx):
             idx = idx.tolist()
 
-        # Gets frames starting at idx
+        # Gets frames starting at idx #TODO proper treatment of when the end of the dataset is sampled
         end_frame_idx = idx + self.seq_len
-        if end_frame_idx >= self.dataset_len:
-            idx = idx - np.random.randint(1000,3000)###
-            # end_frame_idx = self.dataset_len
-            print("oh dear")
-            end_frame_idx = idx + self.seq_len###
-
         frames = self.procgen_data.iloc[idx:end_frame_idx]
 
-        # Make columns into lists
+        episode_number = frames['episode'].iloc[0]
+        initial_episode_step = frames['episode_step'].iloc[0]
+
+        # Put columns into data_dict
         keys = list(frames.keys())
-        data_keys = ['done', 'reward', 'value',
-                       'act_log_probs', 'hx', 'obs']
+        data_keys = ['done', 'reward', 'value',]
         data = frames.to_numpy().T.tolist()
         data_dict = {}
         for values, key in zip(data, keys):
             if key in data_keys:
+                if end_frame_idx >= self.dataset_len:
+                    # Fill with zeros if asking for data indices that are
+                    # beyond the end of the dataset (and therefore don't exist)
+                    zero_num = 0. if type(values[0])==float else 0
+                    values.extend([zero_num] * (end_frame_idx - self.dataset_len))
                 data_dict[key] = np.array(values)
 
         # Goes to end of episode and fills in the rest with zeros
         if np.any(data_dict['done']):
             segment_len = np.argmax(data_dict['done']) + 1
-            prune_len = self.seq_len - segment_len
         else:
             segment_len = self.seq_len
-            prune_len = 0
 
         for key, value in data_dict.items():
             if key == 'done':
-                value[:segment_len-1] = 0.
+                value[:segment_len-1] = 0. # -1 because the final frame of the
+                # episode should be 'done'(==1)
                 value[segment_len:] = 1.
             if key == 'reward':
                 value[segment_len:] = 0.
             if key == 'value':
                 value[segment_len:] = 0.
-            if key in ['act_log_probs', 'hx', 'obs']:
-                value = list(value)
-                value[:segment_len] = [np.load(f).squeeze() / 255.
-                                       for f in value[:segment_len]]
-                value[segment_len:] = [np.zeros_like(value[0])] * prune_len
             data_dict[key] = np.stack(value)
+
+        # Get obs, hx, and log probs and set anything after episode done to zero
+        save_path = 'generative/data/episode' + str(episode_number)
+        obs = np.load(save_path + '/ob.npy')
+        hx  = np.load(save_path + '/hx.npy')
+        lp  = np.load(save_path + '/lp.npy')
+
+        episode_len = len(obs)
+        ## observations
+        if episode_len > initial_episode_step+self.seq_len:
+            obs = obs[initial_episode_step:initial_episode_step+self.seq_len]
+        else:
+            t, c, h, w = obs.shape
+            zeros = np.zeros([self.seq_len,c,h,w])
+            obs = obs[initial_episode_step:episode_len]
+            zeros[0:episode_len-initial_episode_step] = obs
+            obs = zeros / 255.
+
+        ## hidden states
+        if episode_len > initial_episode_step+self.seq_len:
+            hx = hx[initial_episode_step:initial_episode_step+self.seq_len]
+        else:
+            t, d = hx.shape
+            zeros = np.zeros([self.seq_len, d])
+            hx = hx[initial_episode_step:episode_len]
+            zeros[0:episode_len-initial_episode_step] = hx
+            hx = zeros
+
+        ## action log probs
+        if episode_len > initial_episode_step+self.seq_len:
+            lp = lp[initial_episode_step:initial_episode_step+self.seq_len]
+        else:
+            t, d = lp.shape
+            zeros = np.zeros([self.seq_len, d])
+            lp = lp[initial_episode_step:episode_len]
+            zeros[0:episode_len-initial_episode_step] = lp
+            lp = zeros
+
+        # Add arrays to data_dict
+        array_keys = [ 'obs', 'hx', 'act_log_probs']
+        arrays = [obs, hx, lp]
+        for k, v in zip(array_keys, arrays):
+            data_dict[k] = v
 
         return data_dict

@@ -8,12 +8,9 @@ from common import set_global_seeds, set_global_log_levels
 import os, time, yaml, argparse
 import gym
 from procgen import ProcgenEnv
-
 import random
 import torch
-
 import pandas as pd
-from torch.utils.data import Dataset
 
 if __name__=='__main__':
     parser = argparse.ArgumentParser()
@@ -120,7 +117,6 @@ if __name__=='__main__':
     print('INITIALIZAING STORAGE...')
     hidden_state_dim = model.output_dim
     storage = Storage(observation_shape, hidden_state_dim, n_steps, n_envs, device)
-    #storage_valid = Storage(observation_shape, hidden_state_dim, n_steps, n_envs, device)
 
     # Agent
     print('INTIALIZING AGENT...')
@@ -134,7 +130,7 @@ if __name__=='__main__':
     agent.n_envs = n_envs
 
 
-    # Save dir
+    # Make save dirs
     logdir_base = 'generative/'
     logdir = 'generative/data/'
     if not (os.path.exists(logdir_base)):
@@ -142,11 +138,10 @@ if __name__=='__main__':
     if not (os.path.exists(logdir)):
         os.makedirs(logdir)
 
-    #######################################
-    # Making dataset for generative model #
-    #######################################
 
-    # Init dataset
+    # Making dataset for generative model
+
+    ## Init dataset
     column_names = ['level_seed',
                     'episode',
                     'global_step',
@@ -154,36 +149,37 @@ if __name__=='__main__':
                     'done',
                     'reward',
                     'value',
-                    'action',
-                    'act_log_probs',
-                    'hx',
-                    'obs']
+                    'action',]
+
     data = pd.DataFrame(columns=column_names)
 
-    # Init params for training loop
+    ## Init params for training loop
     obs = agent.env.reset()
     hidden_state = np.zeros((agent.n_envs, agent.storage.hidden_state_size))
     done = np.zeros(agent.n_envs)
-    # rew = np.zeros(1)
 
     global_steps = 0
     episode_steps = 0
     episode_number = 0
 
-    # Make dirs for files #TODO add some unique identifier so you don't end up with a bunch of partial episodes due to overwriting
+    ## Make dirs for files #TODO add some unique identifier so you don't end up with a bunch of partial episodes due to overwriting
     dir_name = logdir  + 'episode' + str(episode_number)
     if not (os.path.exists(dir_name)):
         os.makedirs(dir_name)
 
+    obs_list = []
+    hx_list = []
+    logprob_list = []
+
     while True:
         agent.policy.eval()
         for _ in range(agent.n_steps):
+
+            # Step agent and environment
             act, log_prob_act, value, next_hidden_state = agent.predict_record(obs, hidden_state, done)
             next_obs, rew, done, info = agent.env.step(act)
 
-            ob_name = dir_name + '/' + 'ob' + str(episode_steps) + '.npy'
-            hx_name = dir_name + '/' + 'hx' + str(episode_steps) + '.npy'
-            lp_name = dir_name + '/' + 'lp' + str(episode_steps) + '.npy'
+            # Save non-array variables
             data = data.append({
                 'level_seed': info[0]['level_seed'],
                 'episode': episode_number,
@@ -193,34 +189,49 @@ if __name__=='__main__':
                 'reward': rew[0],
                 'value': value[0],
                 'action': act[0],
-                'act_log_probs': lp_name,
-                'hx': hx_name,
-                'obs': ob_name
             }, ignore_index=True)
-
-            np.save(ob_name, np.array(obs * 255, dtype=np.uint8))
-            np.save(hx_name, hidden_state)
-            np.save(lp_name, log_prob_act)
-
-            # agent.storage.store(obs, hidden_state, act, rew, done, info, log_prob_act, value)
-            obs = next_obs
-            hidden_state = next_hidden_state
 
             if global_steps % 1000 == 0:
                 data.to_csv(logdir + 'data_gen_model.csv', index=False)
 
+            obs_list.append(obs)
+            hx_list.append(hidden_state)
+            logprob_list.append(log_prob_act)
+
+            # Increment for next step
+            obs = next_obs
+            hidden_state = next_hidden_state
             global_steps += 1
             episode_steps += 1
-            if done[0]:
-                print("Episode number: %i ;  Episode len: %i " % (episode_number, episode_steps))
-                episode_number += 1
-                episode_steps = 0
+
+            if done[0]:  # At end of episode
                 # Make dirs for files
                 dir_name = logdir + 'episode' + str(episode_number)
                 if not (os.path.exists(dir_name)):
                     os.makedirs(dir_name)
 
+                # Stack arrays for this episode into one array
+                obs_array = np.stack(obs_list).squeeze()
+                hx_array  = np.stack(hx_list).squeeze()
+                lp_array  = np.stack(logprob_list).squeeze()
+
+                # Prepare names for saving
+                obs_name = dir_name + '/' + 'ob.npy'
+                hx_name = dir_name + '/' + 'hx.npy'
+                lp_name = dir_name + '/' + 'lp.npy'
+
+                # Save stacked array
+                np.save(obs_name, np.array(obs_array * 255, dtype=np.uint8))
+                np.save(hx_name, hx_array)
+                np.save(lp_name, lp_array)
+
+                # Reset things for the beginning of the next episode
+                print("Episode number: %i ;  Episode len: %i " % (episode_number, episode_steps))
+                episode_number += 1
+                episode_steps = 0
+
+                obs_list = []
+                hx_list = []
+                logprob_list = []
+
         _, _, last_val, hidden_state = agent.predict(obs, hidden_state, done)
-        # agent.storage.store_last(obs, hidden_state, last_val)
-        # agent.storage.compute_estimates(agent.gamma, agent.lmbda, agent.use_gae,
-        #                                agent.normalize_adv)
