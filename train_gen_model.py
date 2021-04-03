@@ -239,6 +239,8 @@ def loss_function(preds, labels, mu, logvar, device):
     for key in preds.keys():
         pred  = torch.stack(preds[key], dim=1).squeeze()
         label = labels[key].to(device).float().squeeze()
+        if key == 'obs':
+            label = label / 255.
         mse = F.mse_loss(pred, label) # TODO test whether MSE or MAbsE is better (I think the VQ-VAE2 paper suggested MAE was better)
         mses.append(mse)
 
