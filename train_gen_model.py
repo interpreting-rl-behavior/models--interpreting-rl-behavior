@@ -237,19 +237,19 @@ def loss_function(preds, labels, mu, logvar, device):
         discriminator and loss term.
       """
 
-    # Mean Squared Error
-    mses = []
+    losses = []
     for key in preds.keys():
-        if key in ['obs']: # for debugging only
-            pred  = torch.stack(preds[key], dim=1).squeeze()
-            label = labels[key].to(device).float().squeeze()
-            if key == 'obs':
-                label = label / 255.
-            mse = F.mse_loss(pred, label) # TODO test whether MSE or MAbsE is better (I think the VQ-VAE2 paper suggested MAE was better)
-            print(key, mse)
-            mses.append(mse)
+        #if key in ['obs']: # for debugging only
+        pred  = torch.stack(preds[key], dim=1).squeeze()
+        label = labels[key].to(device).float().squeeze()
+        if key == 'obs':
+            label = label / 255.
+        loss = torch.sum(torch.abs(pred - label))
+        #mse = F.mse_loss(pred, label) # TODO test whether MSE or MAbsE is better (I think the VQ-VAE2 paper suggested MAE was better)
+        # print(key, loss)
+        losses.append(loss)
 
-    mse = sum(mses)
+    loss = sum(losses)
 
     # see Appendix B from VAE paper:
     # Kingma and Welling. Auto-Encoding Variational Bayes. ICLR, 2014
@@ -257,7 +257,7 @@ def loss_function(preds, labels, mu, logvar, device):
     # 0.5 * sum(1 + log(sigma^2) - mu^2 - sigma^2)
     kl_divergence = -0.5 * torch.sum(1 + logvar - mu.pow(2) - logvar.exp())
 
-    return mse + kl_divergence
+    return loss + kl_divergence
 
 def train(epoch, args, train_loader, optimizer, gen_model, agent, logger, log_dir, device):
 
