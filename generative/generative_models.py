@@ -389,7 +389,7 @@ class DecoderNetwork(nn.Module):
           converts it into an observation for that timestep.
         - A RewardDecoder, which does the same for the reward that agent
           received at that timestep.
-        - # TODO a DoneDecoder, which predicts whether the episode is done at
+        - A DoneDecoder, which predicts whether the episode is done at
           that timestep.
 
     Since both the agent and the EnvStepper are recurrent, they require inputs
