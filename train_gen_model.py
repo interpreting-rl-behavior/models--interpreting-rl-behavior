@@ -188,6 +188,20 @@ def run():
     # Training
     ## Epoch cycle (Train, Validate, Save samples)
     for epoch in range(0, args.epochs + 1):
+
+        if epoch== 0: #TODO temporary, for dev and debugging on cluster
+            with torch.no_grad():
+                samples = torch.randn(20, 256).to(device)
+                samples = torch.stack(gen_model.decoder(samples)[0], dim=1)
+                for b in range(batch_size):
+                    sample = samples[b].permute(0, 2, 3, 1)
+                    sample = sample - torch.min(sample)
+                    sample = sample / torch.max(sample) * 255
+                    sample = sample.clone().detach().type(torch.uint8).cpu().numpy()
+                    save_str = 'generative/results/sample_' + str(epoch) + '_' + str(
+                        b) + '.mp4'
+                    tvio.write_video(save_str, sample, fps=8)
+
         train(epoch, args, train_loader, gen_model, agent, logger, logdir,
               device)
         # test(epoch) # TODO validation step
@@ -204,6 +218,7 @@ def run():
                         b) + '.mp4'
                     tvio.write_video(save_str, sample, fps=8)
             # TODO save target sequences and compare to predicted sequences
+
 
 def loss_function(preds, labels, mu, logvar, device):
     """ Calculates the difference between predicted and actual:
@@ -223,7 +238,7 @@ def loss_function(preds, labels, mu, logvar, device):
     mses = []
     for key in preds.keys():
         pred  = torch.stack(preds[key], dim=1).squeeze()
-        label = labels[key].to(device).float()
+        label = labels[key].to(device).float().squeeze()
         mse = F.mse_loss(pred, label) # TODO test whether MSE or MAbsE is better (I think the VQ-VAE2 paper suggested MAE was better)
         mses.append(mse)
 
