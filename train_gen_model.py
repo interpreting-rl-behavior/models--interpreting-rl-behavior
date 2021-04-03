@@ -306,6 +306,20 @@ def train(epoch, args, train_loader, optimizer, gen_model, agent, logger, log_di
                        model_path)
             logger.info('Generative model saved to {}'.format(model_path))
 
+        # viz for debugging only
+        if batch_idx % 1000 == 0:
+            with torch.no_grad():
+                viz_batch_size = 20
+                samples = torch.randn(viz_batch_size, 256).to(device)
+                samples = torch.stack(gen_model.decoder(samples)[0], dim=1)
+                for b in range(viz_batch_size):
+                    sample = samples[b].permute(0, 2, 3, 1)
+                    sample = sample * 255
+                    sample = sample.clone().detach().type(torch.uint8).cpu().numpy()
+                    save_str = 'generative/results/sample_' + str(epoch) + '_' + str(batch_idx) + '_' + str(
+                        b) + '.mp4'
+                    tvio.write_video(save_str, sample, fps=8)
+
 def safe_mean(xs):
     return np.nan if len(xs) == 0 else np.mean(xs)
 
