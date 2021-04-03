@@ -15,7 +15,7 @@ from gym3 import ViewerWrapper, VideoRecorderWrapper, ToBaselinesVecEnv
 
 if __name__=='__main__':
     parser = argparse.ArgumentParser()
-    parser.add_argument('--exp_name',         type=str, default = 'test', help='experiment name')
+    parser.add_argument('--exp_name',         type=str, default = 'render', help='experiment name')
     parser.add_argument('--env_name',         type=str, default = 'coinrun', help='environment ID')
     parser.add_argument('--start_level',      type=int, default = int(0), help='start-level for environment')
     parser.add_argument('--num_levels',       type=int, default = int(0), help='number of training levels for environment')
@@ -158,7 +158,7 @@ if __name__=='__main__':
         raise NotImplementedError
     agent = AGENT(env, policy, logger, storage, device, num_checkpoints, **hyperparameters)
 
-    agent.policy.load_state_dict(torch.load(args.model_file, map_location=device)["state_dict"])
+    agent.policy.load_state_dict(torch.load(args.model_file, map_location=device)["model_state_dict"])
     agent.n_envs = n_envs
 
     ##############
