@@ -197,7 +197,6 @@ def run():
                 for b in range(viz_batch_size):
                     sample = samples[b].permute(0, 2, 3, 1)
                     sample = sample * 255
-                    # sample = sample / torch.max(sample) * 255
                     sample = sample.clone().detach().type(torch.uint8).cpu().numpy()
                     save_str = 'generative/results/sample_' + str(epoch) + '_' + str(
                         b) + '.mp4'
@@ -208,12 +207,12 @@ def run():
         # test(epoch) # TODO validation step
         if epoch % 10 == 0:
             with torch.no_grad():
-                samples = torch.randn(20, 256).to(device)
+                viz_batch_size = 20
+                samples = torch.randn(viz_batch_size, 256).to(device)
                 samples = torch.stack(gen_model.decoder(samples)[0], dim=1)
-                for b in range(batch_size):
+                for b in range(viz_batch_size):
                     sample = samples[b].permute(0, 2, 3, 1)
-                    sample = sample - torch.min(sample)
-                    sample = sample / torch.max(sample) * 255
+                    sample = sample * 255
                     sample = sample.clone().detach().type(torch.uint8).cpu().numpy()
                     save_str = 'generative/results/sample_' + str(epoch) + '_' + str(
                         b) + '.mp4'
