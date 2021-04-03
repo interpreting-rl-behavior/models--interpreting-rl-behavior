@@ -180,10 +180,13 @@ def run():
     gen_model = gen_model.to(device)
 
     if args.model_file is not None:
-        gen_model.load_from_file(args.model_file, device)
+        gen_model.load_state_dict(torch.load(args.model_file)['gen_model_state_dict'], device)
         logger.info('Loaded generative model from {}.'.format(args.model_file))
     else:
         logger.info('Training generative model from scratch.')
+
+    optimizer = torch.optim.Adam(gen_model.parameters(), lr=args.lr)
+
 
     # Training
     ## Epoch cycle (Train, Validate, Save samples)
@@ -202,7 +205,7 @@ def run():
                         b) + '.mp4'
                     tvio.write_video(save_str, sample, fps=8)
 
-        train(epoch, args, train_loader, gen_model, agent, logger, logdir,
+        train(epoch, args, train_loader, optimizer, gen_model, agent, logger, logdir,
               device)
         # test(epoch) # TODO validation step
         if epoch % 10 == 0:
@@ -237,12 +240,14 @@ def loss_function(preds, labels, mu, logvar, device):
     # Mean Squared Error
     mses = []
     for key in preds.keys():
-        pred  = torch.stack(preds[key], dim=1).squeeze()
-        label = labels[key].to(device).float().squeeze()
-        if key == 'obs':
-            label = label / 255.
-        mse = F.mse_loss(pred, label) # TODO test whether MSE or MAbsE is better (I think the VQ-VAE2 paper suggested MAE was better)
-        mses.append(mse)
+        if key in ['obs']: # for debugging only
+            pred  = torch.stack(preds[key], dim=1).squeeze()
+            label = labels[key].to(device).float().squeeze()
+            if key == 'obs':
+                label = label / 255.
+            mse = F.mse_loss(pred, label) # TODO test whether MSE or MAbsE is better (I think the VQ-VAE2 paper suggested MAE was better)
+            print(key, mse)
+            mses.append(mse)
 
     mse = sum(mses)
 
@@ -254,14 +259,13 @@ def loss_function(preds, labels, mu, logvar, device):
 
     return mse + kl_divergence
 
-def train(epoch, args, train_loader, gen_model, agent, logger, log_dir, device):
+def train(epoch, args, train_loader, optimizer, gen_model, agent, logger, log_dir, device):
 
     # Set up logging objects
     train_info_buf = deque(maxlen=100)
     logger.info('Start training epoch {}'.format(epoch))
 
     # Prepare for training cycle
-    optimizer = torch.optim.Adam(gen_model.parameters(), lr=args.lr) # ensure that the agent params don't update
     gen_model.train()
 
 
