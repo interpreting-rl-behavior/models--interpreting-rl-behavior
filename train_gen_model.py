@@ -32,7 +32,7 @@ def run():
                         help='number of training levels for environment')
     parser.add_argument('--distribution_mode', type=str, default='easy',
                         help='distribution mode for environment')
-    parser.add_argument('--param_name', type=str, default='easy-200',
+    parser.add_argument('--param_name', type=str, default='hard-rec',
                         help='hyper-parameter ID')
     parser.add_argument('--device', type=str, default='gpu', required=False,
                         help='whether to use gpu')
@@ -275,9 +275,9 @@ def train(epoch, args, train_loader, optimizer, gen_model, agent, logger, log_di
 
         data = {k: v.to(device).float() for k,v in data.items()}
 
-        # Get input data for generative model
-        obs = data['obs'][:,0:train_loader.dataset.inp_seq_len] # gets first few timesteps for input to VAE
-        agent_h0 = data['hx'][:,0,:]
+        # Get input data for generative model (only taking inp_seq_len timesteps)
+        obs = data['obs'][:,0:train_loader.dataset.inp_seq_len]
+        agent_h0 = data['hx'][:,0:train_loader.dataset.inp_seq_len]
 
         # Forward and backward pass and upate generative model parameters
         optimizer.zero_grad()

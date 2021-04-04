@@ -203,7 +203,7 @@ class EncoderNetwork(nn.Module):
         # network to get a sequence of latent representations (one per image)
         inps = []
         for i in range(obs_seq_len):
-            inps.append(self.input_network(obs[:,i,:], agent_h0))
+            inps.append(self.input_network(obs[:,i,:], agent_h0[:,i,:]))
         inps = torch.stack(inps, dim=1) # stack along time dimension
 
         # Pass sequence of latent representations
