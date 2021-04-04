@@ -158,7 +158,7 @@ def run():
     agent = AGENT(env, policy, logger, storage, device, num_checkpoints, **hyperparameters)
     if args.agent_file is not None:
         logger.info("Loading agent from %s" % args.agent_file)
-        checkpoint = torch.load(args.agent_file)
+        checkpoint = torch.load(args.agent_file, map_location=device)
         agent.policy.load_state_dict(checkpoint["state_dict"])
         # agent.optimizer.load_state_dict(checkpoint["optimizer_state_dict"])
     print("Done loading agent.")
@@ -180,7 +180,8 @@ def run():
     gen_model = gen_model.to(device)
 
     if args.model_file is not None:
-        gen_model.load_state_dict(torch.load(args.model_file)['gen_model_state_dict'], device)
+        gen_model.load_state_dict(torch.load(args.model_file, map_location=device)['gen_model_state_dict'],
+                                  device)
         logger.info('Loaded generative model from {}.'.format(args.model_file))
     else:
         logger.info('Training generative model from scratch.')
