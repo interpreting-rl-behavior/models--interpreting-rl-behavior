@@ -137,7 +137,7 @@ class VAE(nn.Module):
         self.decoder = DecoderNetwork(device, agent,
                            num_unroll_steps=self.num_unroll_steps).to(device)
 
-    def forward(self, obs, agent_h0):
+    def forward(self, obs, agent_hxs):
 
         # Ensure the number of images in the input sequence is the same as the
         # number of observations that we're _reconstructing_.
@@ -145,7 +145,7 @@ class VAE(nn.Module):
 
         # Feed observation sequence into encoder, which returns the mean
         # and log(variance) for the latent sample (i.e. the encoded sequence)
-        mu, logvar = self.encoder(obs, agent_h0)
+        mu, logvar = self.encoder(obs, agent_hxs)
 
         sigma = torch.exp(0.5 * logvar)  # log(var) -> standard deviation
 
@@ -191,10 +191,10 @@ class EncoderNetwork(nn.Module):
         self.embedder = EncoderEmbedder(device)
         self.device = device
 
-    def forward(self, obs, agent_h0):
+    def forward(self, obs, agent_hxs):
 
         # Reset encoder RNN's hidden state (note: not to be confused with the
-        # agent's hidden state, agent_h0)
+        # agent's hidden state, agent_hxs)
         h = None
 
         obs_seq_len = obs.shape[1] # (B, *T*, Ch, H, W)
@@ -203,7 +203,7 @@ class EncoderNetwork(nn.Module):
         # network to get a sequence of latent representations (one per image)
         inps = []
         for i in range(obs_seq_len):
-            inps.append(self.input_network(obs[:,i,:], agent_h0[:,i,:]))
+            inps.append(self.input_network(obs[:,i,:], agent_hxs[:,i,:]))
         inps = torch.stack(inps, dim=1) # stack along time dimension
 
         # Pass sequence of latent representations
@@ -255,7 +255,7 @@ class EncoderInputNetwork(nn.Module):
         self.pool = nn.AvgPool2d(kernel_size=2)
         self.norm1 = nn.LayerNorm([hid_ch,32,32])
         self.resdown1 = lyr.ResBlockDown(hid_ch,hid_ch,downsample=self.pool)
-        self.assimilateh0 = lyr.AssimilatorResidualBlock(hid_ch, agent_hidden_size)
+        self.assimilatehx = lyr.AssimilatorResidualBlock(hid_ch, agent_hidden_size)
         self.norm2 = nn.LayerNorm([hid_ch,32,32])
         self.resdown2 = lyr.ResBlockDown(hid_ch,hid_ch,downsample=self.pool)
         self.norm3 = nn.LayerNorm([hid_ch,16,16])
@@ -265,12 +265,12 @@ class EncoderInputNetwork(nn.Module):
         self.resdown3 = lyr.ResBlockDown(hid_ch,hid_ch,downsample=self.pool) # was to hid_ch*2
         self.norm5 = nn.LayerNorm([hid_ch,8,8]) # was to hid_ch*2
 
-    def forward(self, ob, h0):
+    def forward(self, ob, hx):
         x  = ob
         z  = self.conv0(x)
         z  = self.resdown1(z)
         x1 = self.norm1(z)
-        z  = self.assimilateh0(x1, h0)
+        z  = self.assimilatehx(x1, hx)
         x2 = self.norm2(z)
         z  = self.resdown2(x2)
         x3 = self.norm3(z)
@@ -311,11 +311,11 @@ class EncoderRNN(nn.Module):
         hid_ch = 64
         self.rnn = lyr.ConvGRU(input_size=[8, 8], # [H,W]
                                input_dim=hid_ch, # ch      # was hid_ch*2
-                               hidden_dim=hid_ch * 2,          # was hid_ch*2
+                               hidden_dim=hid_ch,          # was hid_ch*2
                                kernel_size=(3,3),
                                num_layers=1,
                                device=device)#.to(device)
-        self.norm = nn.LayerNorm([hid_ch * 2, 8, 8])
+        self.norm = nn.LayerNorm([hid_ch, 8, 8])
 
     def forward(self, inp, h=None):
         h = self.rnn(inp, h)
@@ -350,7 +350,7 @@ class EncoderEmbedder(nn.Module):
     """
     def __init__(self, device):
         super(EncoderEmbedder, self).__init__()
-        hid_ch = 128
+        hid_ch = 64
 
         self.pool = nn.AvgPool2d(kernel_size=2)
         self.resdown = lyr.ResBlockDown(in_channels=hid_ch,
@@ -428,9 +428,10 @@ class DecoderNetwork(nn.Module):
             insize=256,
             outsize=256)
         self.env_init_network = EnvStepperInitializer(device=device)
+        hid_ch = 64
 
         # Stepper (the one that gets unrolled)
-        self.env_stepper      = EnvStepper(agent, env_h_ch=128, env_h_hw=8)
+        self.env_stepper      = EnvStepper(agent, env_h_ch=hid_ch, env_h_hw=8)
 
         # Decoders (used at every timestep
         self.reward_decoder = RewardDecoder(device)
@@ -553,24 +554,26 @@ class EnvStepperInitializer(nn.Module):
         attr2 (:obj:`int`, optional): Description of `attr2`.
 
     """
-    def __init__(self, device, vae_latent_size=256, env_h_ch=128, env_h_hw=8):
+    def __init__(self, device, vae_latent_size=256, env_h_ch=64, env_h_hw=8):
         super(EnvStepperInitializer, self).__init__()
+
+        hid_ch = 64
 
         self.env_h_ch = env_h_ch
         self.env_h_hw = env_h_hw
         self.fc = nn.Linear(vae_latent_size,
                             int((env_h_ch*env_h_hw*env_h_hw)/(2**2)))
-        self.resblockup = lyr.ResBlockUp(in_channels=128,
-                                         out_channels=128,
+        self.resblockup = lyr.ResBlockUp(in_channels=hid_ch,
+                                         out_channels=hid_ch,
                                          hw=4)
-        self.norm1 = nn.LayerNorm([128, 8, 8])
-        self.norm2 = nn.LayerNorm([128, 8, 8])
-        self.norm3 = nn.LayerNorm([128, 8, 8])
-        self.norm4 = nn.LayerNorm([128, 8, 8])
+        self.norm1 = nn.LayerNorm([hid_ch, 8, 8])
+        self.norm2 = nn.LayerNorm([hid_ch, 8, 8])
+        self.norm3 = nn.LayerNorm([hid_ch, 8, 8])
+        self.norm4 = nn.LayerNorm([hid_ch, 8, 8])
 
-        self.resblock1 = lyr.ResidualBlock(128)
-        self.resblock2 = lyr.ResidualBlock(128)
-        self.attention = lyr.Attention(128)
+        self.resblock1 = lyr.ResidualBlock(hid_ch)
+        self.resblock2 = lyr.ResidualBlock(hid_ch)
+        self.attention = lyr.Attention(hid_ch)
 
     def forward(self, x):
         x = self.fc(x)
@@ -616,15 +619,17 @@ class EnvStepper(nn.Module):
     def __init__(self, agent, env_h_ch=128, env_h_hw=8, vae_latent_size=256):
         super(EnvStepper, self).__init__()
         action_dim = 15
+        hid_ch = 64
+
         self.assimilator = \
-            lyr.AssimilatorResidualBlock(128,
+            lyr.AssimilatorResidualBlock(hid_ch,
                                          vec_size=(action_dim+vae_latent_size))
         # EnvStepper hidden state shape is 8x8x128
-        self.attention = lyr.Attention(128)
-        self.norm1 = nn.LayerNorm([128, 8, 8])
-        self.norm2 = nn.LayerNorm([128, 8, 8])
-        self.norm3 = nn.LayerNorm([128, 8, 8])
-        self.resblock = lyr.ResidualBlock(128)
+        self.attention = lyr.Attention(hid_ch)
+        self.norm1 = nn.LayerNorm([hid_ch, 8, 8])
+        self.norm2 = nn.LayerNorm([hid_ch, 8, 8])
+        self.norm3 = nn.LayerNorm([hid_ch, 8, 8])
+        self.resblock = lyr.ResidualBlock(hid_ch)
 
     def forward(self, vae_sample, act, h=None):
         vec = torch.cat([vae_sample, act], dim=1)
@@ -647,14 +652,15 @@ class ObservationDecoder(nn.Module):
     values have the same range as real pixels.
 
     """
-    def __init__(self, device, env_h_ch=128, env_h_hw=8):
+    def __init__(self, device, env_h_ch=64, env_h_hw=8):
         super(ObservationDecoder, self).__init__()
         ch0 = env_h_ch
         hw0 = env_h_hw
+
         self.resblockup1 = lyr.ResBlockUp(ch0,    ch0//2, hw=hw0)
         self.resblockup2 = lyr.ResBlockUp(ch0//2, ch0//4, hw=hw0*2)
         self.resblockup3 = lyr.ResBlockUp(ch0//4, 3,      hw=hw0*4)
-        self.attention = lyr.Attention(64)
+        self.attention = lyr.Attention(ch0 // 2)
         # self.net = nn.Sequential(self.resblockup1,
         #                          self.attention,
         #                          self.resblockup2,
@@ -692,10 +698,9 @@ class RewardDecoder(nn.Module):
         attr2 (:obj:`int`, optional): Description of `attr2`.
 
     """
-    def __init__(self, device, env_h_ch=128, env_h_hw=8):
+    def __init__(self, device, env_h_ch=64, env_h_hw=8):
         super(RewardDecoder, self).__init__()
         ch0 = env_h_ch
-        hw0 = env_h_hw
         self.resblockdown = lyr.ResBlockDown(ch0,ch0//4,
                                downsample=nn.AvgPool2d(kernel_size=2))
         self.fc = nn.Linear(4*4*(ch0//4), 1)
@@ -730,10 +735,9 @@ class DoneDecoder(nn.Module):
         attr2 (:obj:`int`, optional): Description of `attr2`.
 
     """
-    def __init__(self, device, env_h_ch=128, env_h_hw=8):
+    def __init__(self, device, env_h_ch=64, env_h_hw=8):
         super(DoneDecoder, self).__init__()
         ch0 = env_h_ch
-        hw0 = env_h_hw
         self.resblockdown = lyr.ResBlockDown(ch0,ch0//4,
                                downsample=nn.AvgPool2d(kernel_size=2))
         self.fc = nn.Linear(4*4*(ch0//4), 1)
