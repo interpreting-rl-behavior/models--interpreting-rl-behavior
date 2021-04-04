@@ -120,7 +120,7 @@ def run():
     logger.configure(dir=logdir, format_strs=['csv', 'stdout'])
 
     # Model
-    print('INTIALIZING MODEL...')
+    print('INTIALIZING AGENT MODEL...')
     observation_space = env.observation_space
     observation_shape = observation_space.shape
     architecture = hyperparameters.get('architecture', 'impala')
@@ -243,8 +243,19 @@ def loss_function(preds, labels, mu, logvar, device):
         pred  = torch.stack(preds[key], dim=1).squeeze()
         label = labels[key].to(device).float().squeeze()
         if key == 'obs':
+            # Calculate a mask to exclude loss on 'zero' observations
+            mask = torch.ones_like(labels['done']) - labels['done'] # excludes done timesteps
+            for b, argmin in enumerate(torch.argmax(labels['done'], dim=1)):
+                mask[b,argmin] = 1. # unexcludes the first 'done' timestep
+            mask = mask.unsqueeze(dim=-1).unsqueeze(dim=-1).unsqueeze(dim=-1) # so it can be broadcast to same shape as loss sum
+
+            # Calculate loss
             label = label / 255.
-        loss = torch.sum(torch.abs(pred - label))
+            loss = torch.abs(pred - label)
+            loss = loss * mask
+            loss = torch.sum(loss)
+        else:
+            loss = torch.sum(torch.abs(pred - label))
         #mse = F.mse_loss(pred, label) # TODO test whether MSE or MAbsE is better (I think the VQ-VAE2 paper suggested MAE was better)
         # print(key, loss)
         losses.append(loss)
