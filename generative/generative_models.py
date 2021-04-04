@@ -249,20 +249,21 @@ class EncoderInputNetwork(nn.Module):
     """
     def __init__(self, device, agent_hidden_size=256):
         super(EncoderInputNetwork, self).__init__()
-        self.conv0 = nn.Conv2d(in_channels=3, out_channels=128,
+        hid_ch = 64
+        self.conv0 = nn.Conv2d(in_channels=3, out_channels=hid_ch,
                                kernel_size=3, padding=1).to(device)
         self.pool = nn.AvgPool2d(kernel_size=2)
-        self.norm1 = nn.LayerNorm([128,32,32])
-        self.resdown1 = lyr.ResBlockDown(128,128,downsample=self.pool)
-        self.assimilateh0 = lyr.AssimilatorResidualBlock(128, agent_hidden_size)
-        self.norm2 = nn.LayerNorm([128,32,32])
-        self.resdown2 = lyr.ResBlockDown(128,128,downsample=self.pool)
-        self.norm3 = nn.LayerNorm([128,16,16])
-        self.attention = lyr.Attention(128)
-        self.norm4 = nn.LayerNorm([128,16,16])
-        self.res1x1   = lyr.ResOneByOne(128+128*3, 128)
-        self.resdown3 = lyr.ResBlockDown(128,256,downsample=self.pool)
-        self.norm5 = nn.LayerNorm([256,8,8])
+        self.norm1 = nn.LayerNorm([hid_ch,32,32])
+        self.resdown1 = lyr.ResBlockDown(hid_ch,hid_ch,downsample=self.pool)
+        self.assimilateh0 = lyr.AssimilatorResidualBlock(hid_ch, agent_hidden_size)
+        self.norm2 = nn.LayerNorm([hid_ch,32,32])
+        self.resdown2 = lyr.ResBlockDown(hid_ch,hid_ch,downsample=self.pool)
+        self.norm3 = nn.LayerNorm([hid_ch,16,16])
+        self.attention = lyr.Attention(hid_ch)
+        self.norm4 = nn.LayerNorm([hid_ch,16,16])
+        self.res1x1   = lyr.ResOneByOne(hid_ch+hid_ch*3, hid_ch)
+        self.resdown3 = lyr.ResBlockDown(hid_ch,hid_ch,downsample=self.pool) # was to hid_ch*2
+        self.norm5 = nn.LayerNorm([hid_ch,8,8]) # was to hid_ch*2
 
     def forward(self, ob, h0):
         x  = ob
@@ -307,13 +308,14 @@ class EncoderRNN(nn.Module):
     """
     def __init__(self, device):
         super(EncoderRNN, self).__init__()
+        hid_ch = 64
         self.rnn = lyr.ConvGRU(input_size=[8, 8], # [H,W]
-                               input_dim=256, # ch
-                               hidden_dim=256,
+                               input_dim=hid_ch, # ch      # was hid_ch*2
+                               hidden_dim=hid_ch * 2,          # was hid_ch*2
                                kernel_size=(3,3),
                                num_layers=1,
                                device=device)#.to(device)
-        self.norm = nn.LayerNorm([256, 8, 8])
+        self.norm = nn.LayerNorm([hid_ch * 2, 8, 8])
 
     def forward(self, inp, h=None):
         h = self.rnn(inp, h)
@@ -348,13 +350,15 @@ class EncoderEmbedder(nn.Module):
     """
     def __init__(self, device):
         super(EncoderEmbedder, self).__init__()
+        hid_ch = 128
+
         self.pool = nn.AvgPool2d(kernel_size=2)
-        self.resdown = lyr.ResBlockDown(in_channels=256,
-                                        out_channels=256,
+        self.resdown = lyr.ResBlockDown(in_channels=hid_ch,
+                                        out_channels=hid_ch,
                                         downsample=self.pool).to(device)
-        self.norm = nn.LayerNorm([256,4,4])
-        self.fc_mu    = nn.Linear(4*4*256, 256).to(device)
-        self.fc_sigma = nn.Linear(4*4*256, 256).to(device)
+        self.norm = nn.LayerNorm([hid_ch,4,4])
+        self.fc_mu    = nn.Linear(4*4*hid_ch, 256).to(device)
+        self.fc_sigma = nn.Linear(4*4*hid_ch, 256).to(device)
 
     def forward(self, inp):
         x = inp
