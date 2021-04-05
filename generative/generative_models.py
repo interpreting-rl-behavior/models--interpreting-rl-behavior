@@ -137,7 +137,7 @@ class VAE(nn.Module):
         self.decoder = DecoderNetwork(device, agent,
                            num_unroll_steps=self.num_unroll_steps).to(device)
 
-    def forward(self, obs, agent_hxs):
+    def forward(self, obs, agent_hxs, use_true_h0=False):
 
         # Ensure the number of images in the input sequence is the same as the
         # number of observations that we're _reconstructing_.
@@ -153,8 +153,12 @@ class VAE(nn.Module):
         sample = (torch.randn(sigma.size(), device=self.device) * sigma) + mu
 
         # Decode
-        pred_obs, pred_rews, pred_dones, pred_agent_hs, pred_agent_logprobs = \
-            self.decoder(sample)
+        if use_true_h0:
+            pred_obs, pred_rews, pred_dones, pred_agent_hs, pred_agent_logprobs = \
+                self.decoder(sample, true_h0=agent_hxs[:,0,:])
+        else:
+            pred_obs, pred_rews, pred_dones, pred_agent_hs, pred_agent_logprobs = \
+                self.decoder(sample)
 
         preds = {'obs': pred_obs,
                  'reward': pred_rews,
@@ -186,7 +190,7 @@ class EncoderNetwork(nn.Module):
     """
     def __init__(self, device):
         super(EncoderNetwork, self).__init__()
-        self.input_network = EncoderInputNetwork(device, agent_hidden_size=256).to(device)
+        self.input_network = EncoderInputNetwork(device, agent_hidden_size=64).to(device)
         self.rnn = EncoderRNN(device)
         self.embedder = EncoderEmbedder(device)
         self.device = device
@@ -357,8 +361,8 @@ class EncoderEmbedder(nn.Module):
                                         out_channels=hid_ch,
                                         downsample=self.pool).to(device)
         self.norm = nn.LayerNorm([hid_ch,4,4])
-        self.fc_mu    = nn.Linear(4*4*hid_ch, 256).to(device)
-        self.fc_sigma = nn.Linear(4*4*hid_ch, 256).to(device)
+        self.fc_mu    = nn.Linear(4*4*hid_ch, 128).to(device)
+        self.fc_sigma = nn.Linear(4*4*hid_ch, 128).to(device)
 
     def forward(self, inp):
         x = inp
@@ -422,16 +426,17 @@ class DecoderNetwork(nn.Module):
     def __init__(self, device, agent, num_unroll_steps):
         super(DecoderNetwork, self).__init__()
         self.action_dim = 15
+        agent_hidden_size = 64
 
         # Initializers
         self.inithidden_network = TwoLayerPerceptron(
-            insize=256,
-            outsize=256)
-        self.env_init_network = EnvStepperInitializer(device=device)
+            insize=128,
+            outsize=agent_hidden_size)
+        self.env_init_network = EnvStepperInitializer(device=device, vae_latent_size=128)
         hid_ch = 64
 
         # Stepper (the one that gets unrolled)
-        self.env_stepper      = EnvStepper(agent, env_h_ch=hid_ch, env_h_hw=8)
+        self.env_stepper      = EnvStepper(agent, env_h_ch=hid_ch, env_h_hw=8, vae_latent_size=128)
 
         # Decoders (used at every timestep
         self.reward_decoder = RewardDecoder(device)
@@ -440,12 +445,11 @@ class DecoderNetwork(nn.Module):
         self.agent = agent
         self.num_unroll_steps = num_unroll_steps
 
-    def forward(self, sample):
+    def forward(self, sample, true_h0=None):
 
         # Get initial inputs to the agent and EnvStepper (both recurrent)
         env_h = self.env_init_network(sample)  # t=0
         agent_h = self.inithidden_network(sample)  # t=0
-        # self.agent.train_recurrent_states = (agent_h.unsqueeze(0),)
 
         # Unroll the agent and EnvStepper and collect the generated data
         pred_obs = []
@@ -477,6 +481,14 @@ class DecoderNetwork(nn.Module):
 
             ## Step the agent forward
             obs = obs.permute(0,2,3,1)
+            if true_h0 is not None and i == 0:
+                # if we want to feed the correct h0 instead of the
+                # guessed h0 (for purposes of being able to train the
+                # agent and the generative model on different agents), then
+                # we need to swap in the true h0 here, but we'll still store
+                # and return the guessed h0 in preds so that it can be
+                # trained to approximate true_h0.
+                agent_h = true_h0
             act, logits, value, agent_h = self.agent.predict_STE(obs, agent_h, done)
             ## Now it's act@t and logprobs@t, but agent_h@t+1
             # Note this 'act' is different from train and eval because it's a
