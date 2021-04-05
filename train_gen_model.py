@@ -1,5 +1,5 @@
 from common.env.procgen_wrappers import *
-import util.logger as logger # from common.logger import Logger
+import util.logger as logger  # from common.logger import Logger
 from common.storage import Storage
 from common.model import NatureModel, ImpalaModel
 from common.policy import CategoricalPolicy
@@ -15,7 +15,7 @@ from generative.procgen_dataset import ProcgenDataset
 
 from collections import deque
 import torchvision.io as tvio
-from torch.nn import functional as F
+from datetime import datetime
 
 
 def run():
@@ -105,7 +105,7 @@ def run():
         venv = TransposeFrame(venv)
         venv = ScaledFloatFrame(venv)
         return venv
-    n_steps = hyperparameters.get('n_steps', 256)
+    n_steps = 1#hyperparameters.get('n_steps', 256)
     n_envs = hyperparameters.get('n_envs', 64)
     env = create_venv(args, hyperparameters)
 
@@ -114,10 +114,18 @@ def run():
     logdir_base = 'generative/'
     if not (os.path.exists(logdir_base)):
         os.makedirs(logdir_base)
-    logdir = logdir_base + 'results/'
-    if not (os.path.exists(logdir)):
-        os.makedirs(logdir)
-    logger.configure(dir=logdir, format_strs=['csv', 'stdout'])
+    resdir = logdir_base + 'results/'
+    if not (os.path.exists(resdir)):
+        os.makedirs(resdir)
+    gen_model_session_name = datetime.now().strftime("%Y%m%d_%H%M%S")
+    sess_dir = os.path.join(resdir, gen_model_session_name)
+    if not (os.path.exists(sess_dir)):
+        os.makedirs(sess_dir)
+    logger.configure(dir=sess_dir, format_strs=['csv', 'stdout'])
+    reconpred_dir = os.path.join(sess_dir, 'recons_v_preds')
+    if not (os.path.exists(reconpred_dir)):
+        os.makedirs(reconpred_dir)
+
 
     # Model
     print('INTIALIZING AGENT MODEL...')
@@ -155,14 +163,15 @@ def run():
         from agents.ppo import PPO as AGENT
     else:
         raise NotImplementedError
-    agent = AGENT(env, policy, logger, storage, device, num_checkpoints, **hyperparameters)
+    agent = AGENT(env, policy, logger, storage, device, num_checkpoints,
+                  **hyperparameters)
     if args.agent_file is not None:
         logger.info("Loading agent from %s" % args.agent_file)
         checkpoint = torch.load(args.agent_file, map_location=device)
-        agent.policy.load_state_dict(checkpoint["state_dict"])
-        # agent.optimizer.load_state_dict(checkpoint["optimizer_state_dict"])
-    print("Done loading agent.")
+        agent.policy.load_state_dict(checkpoint["model_state_dict"])
+        agent.optimizer.load_state_dict(checkpoint["optimizer_state_dict"])
 
+    print("Done loading agent.")
 
     # Generative model stuff:
 
@@ -175,53 +184,48 @@ def run():
                                                shuffle=True,
                                                num_workers=0)
 
-    ## Make or load generative model
+    ## Make or load generative model and optimizer
     gen_model = VAE(agent, device, num_recon_obs, num_pred_steps)
     gen_model = gen_model.to(device)
+    optimizer = torch.optim.Adam(gen_model.parameters(), lr=args.lr)
 
     if args.model_file is not None:
-        gen_model.load_state_dict(torch.load(args.model_file, map_location=device)['gen_model_state_dict'],
-                                  device)
+        checkpoint = torch.load(args.model_file, map_location=device)
+        gen_model.load_state_dict(checkpoint['gen_model_state_dict'], device)
+        optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
         logger.info('Loaded generative model from {}.'.format(args.model_file))
     else:
         logger.info('Training generative model from scratch.')
-
-    optimizer = torch.optim.Adam(gen_model.parameters(), lr=args.lr)
 
 
     # Training
     ## Epoch cycle (Train, Validate, Save samples)
     for epoch in range(0, args.epochs + 1):
 
-        if epoch== 0: #TODO temporary, for dev and debugging on cluster
-            with torch.no_grad():
-                viz_batch_size = 20
-                samples = torch.randn(viz_batch_size, 256).to(device)
-                samples = torch.stack(gen_model.decoder(samples)[0], dim=1)
-                for b in range(viz_batch_size):
-                    sample = samples[b].permute(0, 2, 3, 1)
-                    sample = sample * 255
-                    sample = sample.clone().detach().type(torch.uint8).cpu().numpy()
-                    save_str = 'generative/results/sample_' + str(epoch) + '_' + str(
-                        b) + '.mp4'
-                    tvio.write_video(save_str, sample, fps=8)
+        train(epoch, args, train_loader, optimizer, gen_model, agent, logger,
+              sess_dir, device)
 
-        train(epoch, args, train_loader, optimizer, gen_model, agent, logger, logdir,
-              device)
-        # test(epoch) # TODO validation step
+        # Visualise random samples
         if epoch % 10 == 0:
             with torch.no_grad():
                 viz_batch_size = 20
-                samples = torch.randn(viz_batch_size, 256).to(device)
+                vae_latent_size = 128
+                samples = torch.randn(viz_batch_size, vae_latent_size).to(device)
                 samples = torch.stack(gen_model.decoder(samples)[0], dim=1)
                 for b in range(viz_batch_size):
                     sample = samples[b].permute(0, 2, 3, 1)
                     sample = sample * 255
                     sample = sample.clone().detach().type(torch.uint8).cpu().numpy()
-                    save_str = 'generative/results/sample_' + str(epoch) + '_' + str(
+                    save_str = sess_dir + '/sample_' + str(
+                        epoch) + '_' + str(epoch) + '_' + str(
                         b) + '.mp4'
                     tvio.write_video(save_str, sample, fps=8)
-            # TODO save target sequences and compare to predicted sequences
+
+        # Demonstrate reconsruction and prediction quality by comparing preds
+        # with ground truth (the closes thing a VAE gets to validation because
+        # there are no labels).
+        demo_recon_quality(epoch, args, train_loader, optimizer, gen_model, agent, logger, sess_dir,
+              device)
 
 
 def loss_function(preds, labels, mu, logvar, device):
@@ -271,8 +275,7 @@ def loss_function(preds, labels, mu, logvar, device):
 
     return loss + kl_divergence
 
-def train(epoch, args, train_loader, optimizer, gen_model, agent, logger, log_dir, device):
-
+def train(epoch, args, train_loader, optimizer, gen_model, agent, logger, save_dir, device):
     # Set up logging objects
     train_info_buf = deque(maxlen=100)
     logger.info('Start training epoch {}'.format(epoch))
@@ -280,15 +283,14 @@ def train(epoch, args, train_loader, optimizer, gen_model, agent, logger, log_di
     # Prepare for training cycle
     gen_model.train()
 
-
     # Training cycle
     for batch_idx, data in enumerate(train_loader):
 
-        data = {k: v.to(device).float() for k,v in data.items()}
+        data = {k: v.to(device).float() for k, v in data.items()}
 
         # Get input data for generative model (only taking inp_seq_len timesteps)
-        obs = data['obs'][:,0:train_loader.dataset.inp_seq_len]
-        agent_h0 = data['hx'][:,0:train_loader.dataset.inp_seq_len]
+        obs = data['obs'][:, 0:train_loader.dataset.inp_seq_len]
+        agent_h0 = data['hx'][:, 0:train_loader.dataset.inp_seq_len]
 
         # Forward and backward pass and upate generative model parameters
         optimizer.zero_grad()
@@ -313,8 +315,10 @@ def train(epoch, args, train_loader, optimizer, gen_model, agent, logger, log_di
         # Saving model
         if batch_idx % args.save_interval == 0:
             model_path = os.path.join(
-                log_dir, 'model_epoch{}_batch{}.pt'.format(epoch, batch_idx))
-            torch.save({'gen_model_state_dict': gen_model.state_dict()},
+                save_dir,
+                'model_epoch{}_batch{}.pt'.format(epoch, batch_idx))
+            torch.save({'gen_model_state_dict': gen_model.state_dict(),
+                        'optimizer_state_dict': optimizer.state_dict()},
                        model_path)
             logger.info('Generative model saved to {}'.format(model_path))
 
@@ -322,15 +326,68 @@ def train(epoch, args, train_loader, optimizer, gen_model, agent, logger, log_di
         if batch_idx % 1000 == 0:
             with torch.no_grad():
                 viz_batch_size = 20
-                samples = torch.randn(viz_batch_size, 256).to(device)
+                vae_latent_size = 128
+                samples = torch.randn(viz_batch_size, vae_latent_size).to(
+                    device)
                 samples = torch.stack(gen_model.decoder(samples)[0], dim=1)
                 for b in range(viz_batch_size):
                     sample = samples[b].permute(0, 2, 3, 1)
                     sample = sample * 255
-                    sample = sample.clone().detach().type(torch.uint8).cpu().numpy()
-                    save_str = 'generative/results/sample_' + str(epoch) + '_' + str(batch_idx) + '_' + str(
+                    sample = sample.clone().detach().type(
+                        torch.uint8).cpu().numpy()
+                    save_str = save_dir + '/sample_' + str(
+                        epoch) + '_' + str(batch_idx) + '_' + str(
                         b) + '.mp4'
                     tvio.write_video(save_str, sample, fps=8)
+
+
+def demo_recon_quality(epoch, args, train_loader, optimizer, gen_model, agent, logger,
+          save_dir, device):
+    # Set up logging objects
+    logger.info('Demonstrating reconstruction and prediction quality')
+
+    # Prepare for training cycle
+    gen_model.train()
+
+    # Plot both the inputs and their reconstruction/prediction for one batch
+    for batch_idx, data in enumerate(train_loader):
+        if batch_idx > 0: # Just do one batch
+            break
+        data = {k: v.to(device).float() for k,v in data.items()}
+
+        # Get input data for generative model (only taking inp_seq_len
+        # timesteps)
+        full_obs = data['obs']
+        inp_obs = full_obs[:,0:train_loader.dataset.inp_seq_len]
+        agent_h0 = data['hx'][:,0:train_loader.dataset.inp_seq_len]
+
+        # Forward pass to get predicted observations
+        optimizer.zero_grad()
+        mu, logvar, preds = gen_model(inp_obs, agent_h0)
+
+        with torch.no_grad():
+            viz_batch_size = 20
+            viz_batch_size = min(int(pred_obs.shape[0]), viz_batch_size)
+
+            pred_obs = torch.stack(preds['obs'], dim=1).squeeze()
+            for b in range(viz_batch_size):
+                pred_ob = pred_obs[b].permute(0, 2, 3, 1)
+                full_ob = full_obs[b].permute(0,2,3,1)
+
+                pred_ob = pred_ob * 255
+                full_ob = full_ob * 255
+
+                pred_ob = pred_ob.clone().detach().type(torch.uint8).cpu().numpy()
+                full_ob = full_ob.clone().detach().type(torch.uint8).cpu().numpy()
+
+                # Join the prediction and the true observation side-by-side
+                combined_ob = np.concatenate([pred_ob, full_ob], axis=2)
+
+                # Save vid
+                save_str = save_dir + '/recons_v_preds' + '/sample_' + str(epoch) + '_' + str(batch_idx) + '_' + str(
+                    b) + '.mp4'
+                tvio.write_video(save_str, combined_ob, fps=8)
+
 
 def safe_mean(xs):
     return np.nan if len(xs) == 0 else np.mean(xs)
