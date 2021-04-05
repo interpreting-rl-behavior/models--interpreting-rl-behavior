@@ -162,6 +162,8 @@ if __name__=='__main__':
     episode_steps = 0
     episode_number = 0
 
+    max_episodes = 8000
+
     ## Make dirs for files #TODO add some unique identifier so you don't end up with a bunch of partial episodes due to overwriting
     dir_name = logdir + 'episode' + str(episode_number)
     if os.path.exists(dir_name):
@@ -236,5 +238,8 @@ if __name__=='__main__':
                 obs_list = []
                 hx_list = []
                 logprob_list = []
+
+            if max_episodes is not None and episode_number >= max_episodes:
+                break
 
         _, _, last_val, hidden_state = agent.predict(obs, hidden_state, done)
