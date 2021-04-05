@@ -166,7 +166,7 @@ if __name__=='__main__':
     dir_name = logdir + 'episode' + str(episode_number)
     if os.path.exists(dir_name):
         raise UserWarning("You are overwriting your previous data! Delete " + \
-                          "or move your old dataset first")
+                          "or move your old dataset first.")
     if not (os.path.exists(dir_name)):
         os.makedirs(dir_name)
 

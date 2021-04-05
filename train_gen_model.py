@@ -258,11 +258,10 @@ def loss_function(preds, labels, mu, logvar, device):
             label = label / 255.
             loss = torch.abs(pred - label)
             loss = loss * mask
-            loss = torch.sum(loss)
+            loss = torch.sum(loss)  # Mean Absolute Error
         else:
-            loss = torch.sum(torch.abs(pred - label))
+            loss = torch.sum(torch.abs(pred - label))  # Mean Absolute Error
         #mse = F.mse_loss(pred, label) # TODO test whether MSE or MAbsE is better (I think the VQ-VAE2 paper suggested MAE was better)
-        # print(key, loss)
         losses.append(loss)
 
     loss = sum(losses)
@@ -366,13 +365,14 @@ def demo_recon_quality(epoch, args, train_loader, optimizer, gen_model, agent, l
         mu, logvar, preds = gen_model(inp_obs, agent_h0)
 
         with torch.no_grad():
+            pred_obs = torch.stack(preds['obs'], dim=1).squeeze()
+
             viz_batch_size = 20
             viz_batch_size = min(int(pred_obs.shape[0]), viz_batch_size)
 
-            pred_obs = torch.stack(preds['obs'], dim=1).squeeze()
             for b in range(viz_batch_size):
                 pred_ob = pred_obs[b].permute(0, 2, 3, 1)
-                full_ob = full_obs[b].permute(0,2,3,1)
+                full_ob = full_obs[b].permute(0, 2, 3, 1)
 
                 pred_ob = pred_ob * 255
                 full_ob = full_ob * 255
