@@ -126,7 +126,9 @@ if __name__=='__main__':
     else:
         raise NotImplementedError
     agent = AGENT(env, policy, logger, storage, device, num_checkpoints, **hyperparameters)
-    agent.policy.load_state_dict(torch.load(args.model_file)["state_dict"])
+    checkpoint = torch.load(args.model_file, map_location=device)
+    agent.policy.load_state_dict(checkpoint["model_state_dict"])
+    agent.optimizer.load_state_dict(checkpoint["optimizer_state_dict"])
     agent.n_envs = n_envs
 
 
@@ -179,7 +181,7 @@ if __name__=='__main__':
             act, log_prob_act, value, next_hidden_state = agent.predict_record(obs, hidden_state, done)
             next_obs, rew, done, info = agent.env.step(act)
 
-            # Save non-array variables
+            # Store non-array variables
             data = data.append({
                 'level_seed': info[0]['level_seed'],
                 'episode': episode_number,
@@ -191,8 +193,6 @@ if __name__=='__main__':
                 'action': act[0],
             }, ignore_index=True)
 
-            if global_steps % 1000 == 0:
-                data.to_csv(logdir + 'data_gen_model.csv', index=False)
 
             obs_list.append(obs)
             hx_list.append(hidden_state)
@@ -205,6 +205,8 @@ if __name__=='__main__':
             episode_steps += 1
 
             if done[0]:  # At end of episode
+                data.to_csv(logdir + 'data_gen_model.csv', index=False)
+
                 # Make dirs for files
                 dir_name = logdir + 'episode' + str(episode_number)
                 if not (os.path.exists(dir_name)):
