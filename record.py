@@ -132,7 +132,6 @@ if __name__=='__main__':
     agent.optimizer.load_state_dict(checkpoint["optimizer_state_dict"])
     agent.n_envs = n_envs
 
-
     # Make save dirs
     logdir_base = 'generative/'
     logdir = 'generative/data/'
@@ -141,9 +140,7 @@ if __name__=='__main__':
     if not (os.path.exists(logdir)):
         os.makedirs(logdir)
 
-
     # Making dataset for generative model
-
     ## Init dataset
     column_names = ['level_seed',
                     'episode',
@@ -166,7 +163,10 @@ if __name__=='__main__':
     episode_number = 0
 
     ## Make dirs for files #TODO add some unique identifier so you don't end up with a bunch of partial episodes due to overwriting
-    dir_name = logdir  + 'episode' + str(episode_number)
+    dir_name = logdir + 'episode' + str(episode_number)
+    if os.path.exists(dir_name):
+        raise UserWarning("You are overwriting your previous data! Delete " + \
+                          "or move your old dataset first")
     if not (os.path.exists(dir_name)):
         os.makedirs(dir_name)
 
