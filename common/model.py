@@ -99,9 +99,9 @@ class ImpalaModel(nn.Module):
         self.block1 = ImpalaBlock(in_channels=in_channels, out_channels=16)
         self.block2 = ImpalaBlock(in_channels=16, out_channels=32)
         self.block3 = ImpalaBlock(in_channels=32, out_channels=32)
-        self.fc = nn.Linear(in_features=32 * 8 * 8, out_features=256)
+        self.fc = nn.Linear(in_features=32 * 8 * 8, out_features=64)
 
-        self.output_dim = 256
+        self.output_dim = 64
         self.apply(xavier_uniform_init)
 
     def forward(self, x):
