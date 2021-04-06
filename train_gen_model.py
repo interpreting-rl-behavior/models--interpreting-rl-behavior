@@ -266,6 +266,7 @@ def loss_function(preds, labels, mu, logvar, train_info_bufs, device):
         train_info_bufs[key].append(loss.item())
 
     loss = sum(losses)
+    train_info_bufs['total'].append(loss.item())
 
     # see Appendix B from VAE paper:
     # Kingma and Welling. Auto-Encoding Variational Bayes. ICLR, 2014
@@ -277,7 +278,7 @@ def loss_function(preds, labels, mu, logvar, train_info_bufs, device):
 
 def train(epoch, args, train_loader, optimizer, gen_model, agent, logger, save_dir, device):
     # Set up logging objects
-    loss_keys = ['obs', 'hx', 'done', 'reward', 'act_log_probs']
+    loss_keys = ['obs', 'hx', 'done', 'reward', 'act_log_probs', 'total']
     train_info_bufs = {k:deque(maxlen=100) for k in loss_keys}
     logger.info('Start training epoch {}'.format(epoch))
 
