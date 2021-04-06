@@ -245,7 +245,7 @@ def loss_function(preds, labels, mu, logvar, train_info_bufs, device):
     loss_hyperparams = {'obs': 1.0,
                         'hx': 4.,
                         'reward': 0.5,
-                        'done': 0.5, 
+                        'done': 0.5,
                         'act_log_probs': 0.5}
 
     losses = []
@@ -268,9 +268,9 @@ def loss_function(preds, labels, mu, logvar, train_info_bufs, device):
         else:
             loss = torch.mean(torch.abs(pred - label))  # Mean Absolute Error
         #mse = F.mse_loss(pred, label) # TODO test whether MSE or MAbsE is better (I think the VQ-VAE2 paper suggested MAE was better)
+        train_info_bufs[key].append(loss.item())
         loss = loss * loss_hyperparams[key]
         losses.append(loss)
-        train_info_bufs[key].append(loss.item())
 
     loss = sum(losses)
     train_info_bufs['total'].append(loss.item())
