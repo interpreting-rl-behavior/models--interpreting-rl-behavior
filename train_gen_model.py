@@ -242,7 +242,11 @@ def loss_function(preds, labels, mu, logvar, train_info_bufs, device):
         discriminator and loss term.
       """
 
-    loss_hyperparams = {'obs': 1.0, 'hx': 4., 'reward': 2., 'done': 2., 'act_log_'}
+    loss_hyperparams = {'obs': 1.0,
+                        'hx': 4.,
+                        'reward': 0.5,
+                        'done': 0.5, 
+                        'act_log_probs': 0.5}
 
     losses = []
     for key in preds.keys():
@@ -260,10 +264,11 @@ def loss_function(preds, labels, mu, logvar, train_info_bufs, device):
             label = label / 255.
             loss = torch.abs(pred - label)
             loss = loss * mask
-            loss = torch.sum(loss)  # Mean Absolute Error
+            loss = torch.mean(loss)  # Mean Absolute Error
         else:
-            loss = torch.sum(torch.abs(pred - label))  # Mean Absolute Error
+            loss = torch.mean(torch.abs(pred - label))  # Mean Absolute Error
         #mse = F.mse_loss(pred, label) # TODO test whether MSE or MAbsE is better (I think the VQ-VAE2 paper suggested MAE was better)
+        loss = loss * loss_hyperparams[key]
         losses.append(loss)
         train_info_bufs[key].append(loss.item())
 
