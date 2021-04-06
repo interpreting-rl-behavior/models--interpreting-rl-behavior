@@ -208,7 +208,7 @@ if __name__=='__main__':
             episode_steps += 1
 
             if done[0]:  # At end of episode
-                data.to_csv(logdir + 'data_gen_model.csv', index=False)
+                data.to_csv(logdir + 'data_gen_model.csv', index=False) #TODO change so that it doesn't get slower over time due to the growing size of the data csv. save each individually then combine once done.
 
                 # Make dirs for files
                 dir_name = logdir + 'episode' + str(episode_number)

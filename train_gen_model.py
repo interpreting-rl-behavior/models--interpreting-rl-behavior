@@ -322,7 +322,7 @@ def train(epoch, args, train_loader, optimizer, gen_model, agent, logger, save_d
             logger.info('Generative model saved to {}'.format(model_path))
 
         # viz for debugging only
-        if batch_idx % 1000 == 0:
+        if batch_idx % 1000 == 0 or (epoch < 2 and batch_idx % 200 == 0):
             with torch.no_grad():
                 viz_batch_size = 20
                 vae_latent_size = 128
