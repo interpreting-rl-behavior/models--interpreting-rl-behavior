@@ -15,7 +15,7 @@ import pandas as pd
 if __name__=='__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument('--exp_name',         type=str, default = 'test', help='experiment name')
-    parser.add_argument('--env_name',         type=str, default = 'starpilot', help='environment ID')
+    parser.add_argument('--env_name',         type=str, default = 'coinrun', help='environment ID')
     parser.add_argument('--start_level',      type=int, default = int(0), help='start-level for environment')
     parser.add_argument('--num_levels',       type=int, default = int(0), help='number of training levels for environment')
     parser.add_argument('--distribution_mode',type=str, default = 'easy', help='distribution mode for environment')
@@ -162,7 +162,7 @@ if __name__=='__main__':
     episode_steps = 0
     episode_number = 0
 
-    max_episodes = 8000
+    max_episodes = 6500
 
     ## Make dirs for files #TODO add some unique identifier so you don't end up with a bunch of partial episodes due to overwriting
     dir_name = logdir + 'episode' + str(episode_number)
