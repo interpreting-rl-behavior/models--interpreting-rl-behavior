@@ -260,7 +260,8 @@ def loss_function(preds, labels, mu, logvar, device):
             loss = loss * mask
             loss = torch.mean(loss)  # Mean Absolute Error
         else:
-            loss = torch.mean(torch.abs(pred - label))  # Mean Absolute Error
+            pass
+            #loss = torch.mean(torch.abs(pred - label))  # Mean Absolute Error
         #mse = F.mse_loss(pred, label) # TODO test whether MSE or MAbsE is better (I think the VQ-VAE2 paper suggested MAE was better)
         losses.append(loss)
 
