@@ -536,7 +536,7 @@ class TwoLayerPerceptron(nn.Module):
         super(TwoLayerPerceptron, self).__init__()
         self.net = \
             nn.Sequential(nn.Linear(insize, insize),
-                          nn.ReLU(),
+                          nn.SELU(),
                           nn.LayerNorm(insize),
                           nn.Linear(insize, outsize))
 
