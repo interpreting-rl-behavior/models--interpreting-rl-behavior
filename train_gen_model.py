@@ -228,7 +228,7 @@ def run():
               device)
 
 
-def loss_function(preds, labels, mu, logvar, device):
+def loss_function(preds, labels, mu, logvar, train_info_bufs, device):
     """ Calculates the difference between predicted and actual:
         - observation
         - agent's recurrent hidden states
@@ -251,19 +251,19 @@ def loss_function(preds, labels, mu, logvar, device):
             # Calculate a mask to exclude loss on 'zero' observations
             mask = torch.ones_like(labels['done']) - labels['done'] # excludes done timesteps
             for b, argmin in enumerate(torch.argmax(labels['done'], dim=1)):
-                mask[b,argmin] = 1. # unexcludes the first 'done' timestep
+                mask[b, argmin] = 1. # unexcludes the first 'done' timestep
             mask = mask.unsqueeze(dim=-1).unsqueeze(dim=-1).unsqueeze(dim=-1) # so it can be broadcast to same shape as loss sum
 
             # Calculate loss
             label = label / 255.
             loss = torch.abs(pred - label)
             loss = loss * mask
-            loss = torch.mean(loss)  # Mean Absolute Error
+            loss = torch.sum(loss)  # Mean Absolute Error
         else:
-            pass
-            #loss = torch.mean(torch.abs(pred - label))  # Mean Absolute Error
+            loss = torch.sum(torch.abs(pred - label))  # Mean Absolute Error
         #mse = F.mse_loss(pred, label) # TODO test whether MSE or MAbsE is better (I think the VQ-VAE2 paper suggested MAE was better)
         losses.append(loss)
+        train_info_bufs[key].append(loss.item())
 
     loss = sum(losses)
 
@@ -273,11 +273,12 @@ def loss_function(preds, labels, mu, logvar, device):
     # 0.5 * sum(1 + log(sigma^2) - mu^2 - sigma^2)
     kl_divergence = -0.5 * torch.sum(1 + logvar - mu.pow(2) - logvar.exp())
 
-    return loss + kl_divergence
+    return loss + kl_divergence, train_info_bufs
 
 def train(epoch, args, train_loader, optimizer, gen_model, agent, logger, save_dir, device):
     # Set up logging objects
-    train_info_buf = deque(maxlen=100)
+    loss_keys = ['obs', 'hx', 'done', 'reward', 'act_log_probs']
+    train_info_bufs = {k:deque(maxlen=100) for k in loss_keys}
     logger.info('Start training epoch {}'.format(epoch))
 
     # Prepare for training cycle
@@ -295,7 +296,7 @@ def train(epoch, args, train_loader, optimizer, gen_model, agent, logger, save_d
         # Forward and backward pass and upate generative model parameters
         optimizer.zero_grad()
         mu, logvar, preds = gen_model(obs, agent_h0)
-        loss = loss_function(preds, data, mu, logvar, device)
+        loss, train_info_bufs = loss_function(preds, data, mu, logvar, train_info_bufs, device)
         for p in gen_model.decoder.agent.policy.parameters():
             if p.grad is not None:  # freeze agent parameters but not model's.
                 p.grad.data = torch.zeros_like(p.grad.data)
@@ -303,13 +304,13 @@ def train(epoch, args, train_loader, optimizer, gen_model, agent, logger, save_d
         optimizer.step()
 
         # Logging and saving info
-        train_info_buf.append(loss.item())
         if batch_idx % args.log_interval == 0:
             loss.item()
             logger.logkv('epoch', epoch)
             logger.logkv('batches', batch_idx)
-            logger.logkv('loss',
-                         safe_mean([loss for loss in train_info_buf]))
+            for key in loss_keys:
+                logger.logkv('loss/%s' % key,
+                             safe_mean([loss for loss in train_info_bufs[key]]))
             logger.dumpkvs()
 
         # Saving model

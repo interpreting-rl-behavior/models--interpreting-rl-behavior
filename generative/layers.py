@@ -19,7 +19,7 @@ from torch.nn import Parameter as P
 class ResidualBlock(nn.Module):
 
     def __init__(self, channels,
-                 actv=torch.selu,
+                 actv=torch.relu,
                  kernel_sizes=[3, 3],
                  paddings=[1, 1]):
         super(ResidualBlock, self).__init__()
@@ -47,7 +47,7 @@ class AssimilatorResidualBlock(nn.Module):
     convolutional networks."""
     def __init__(self, channels,
                  vec_size,
-                 actv=torch.selu,
+                 actv=torch.relu,
                  kernel_sizes=[1, 3],
                  paddings=[0, 1]):
         super(AssimilatorResidualBlock, self).__init__()
@@ -135,7 +135,7 @@ class ResOneByOne(nn.Module):
 
     """
     def __init__(self, in_channels, out_channels,
-                 activation=nn.SELU()):
+                 activation=nn.ReLU()):
         super(ResOneByOne, self).__init__()
 
         self.in_channels, self.out_channels = in_channels, out_channels
@@ -158,7 +158,7 @@ class ResBlockUp(nn.Module):
     """
     def __init__(self, in_channels, out_channels, hw,
                  which_conv=nn.Conv2d, which_norm=nn.LayerNorm,
-                 activation=nn.SELU(), upsample=nn.UpsamplingNearest2d(scale_factor=2)):
+                 activation=nn.ReLU(), upsample=nn.UpsamplingNearest2d(scale_factor=2)):
         super(ResBlockUp, self).__init__()
 
         self.in_channels, self.out_channels = in_channels, out_channels
@@ -208,7 +208,7 @@ class ResBlockDown(nn.Module):
     """
     def __init__(self, in_channels, out_channels, which_conv=nn.Conv2d,
                  wide=True,
-                 preactivation=False, activation=nn.SELU(), downsample=None, ):
+                 preactivation=False, activation=nn.ReLU(), downsample=None, ):
         super(ResBlockDown, self).__init__()
         self.in_channels, self.out_channels = in_channels, out_channels
         # If using wide D (as in SA-GAN and BigGAN), change the channel pattern
@@ -251,7 +251,7 @@ class ResBlockDown(nn.Module):
             # h = self.activation(x) # NOT TODAY SATAN
             # Andy's note: This line *must* be an out-of-place ReLU or it
             #              will negatively affect the shortcut connection.
-            h = F.selu(x)
+            h = F.relu(x)
         else:
             h = x
         h = self.conv1(h)
