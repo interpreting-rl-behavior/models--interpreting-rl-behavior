@@ -243,10 +243,10 @@ def loss_function(preds, labels, mu, logvar, train_info_bufs, device):
       """
 
     loss_hyperparams = {'obs': 1.0,
-                        'hx': 4.,
-                        'reward': 0.5,
-                        'done': 0.5,
-                        'act_log_probs': 0.5}
+                        'hx': 1.0,
+                        'reward': 1.0,
+                        'done': 1.0,
+                        'act_log_probs': 1.0}
 
     losses = []
     for key in preds.keys():
