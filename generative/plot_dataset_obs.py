@@ -30,7 +30,7 @@ def run():
         obs = torch.tensor(np.load(f'data/episode{ep}/ob.npy'))
         obs = obs.permute(0, 2,3,1)
         save_path = save_dir + str(ep) + '.mp4'
-        tvio.write_video(save_path, obs, fps=8)
+        tvio.write_video(save_path, obs, fps=15)
 
 if __name__ == "__main__":
     run()
