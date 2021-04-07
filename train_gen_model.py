@@ -273,13 +273,13 @@ def loss_function(preds, labels, mu, logvar, train_info_bufs, device):
         losses.append(loss)
 
     loss = sum(losses)
-    train_info_bufs['total'].append(loss.item())
+    train_info_bufs['total w/o KL'].append(loss.item())
 
     # see Appendix B from VAE paper:
     # Kingma and Welling. Auto-Encoding Variational Bayes. ICLR, 2014
     # https://arxiv.org/abs/1312.6114
     # 0.5 * sum(1 + log(sigma^2) - mu^2 - sigma^2)
-    kl_divergence = -0.5 * torch.sum(1 + logvar - mu.pow(2) - logvar.exp(),
+    kl_divergence = -0.5 * torch.mean(1 + logvar - mu.pow(2) - logvar.exp(),
                                      dim=1) # Sum along latent size dim.
     kl_divergence = torch.mean(kl_divergence)  # Mean along batch dim
     train_info_bufs['KL'].append(kl_divergence.item())
@@ -288,7 +288,7 @@ def loss_function(preds, labels, mu, logvar, train_info_bufs, device):
 
 def train(epoch, args, train_loader, optimizer, gen_model, agent, logger, save_dir, device):
     # Set up logging objects
-    loss_keys = ['obs', 'hx', 'done', 'reward', 'act_log_probs', 'KL', 'total']
+    loss_keys = ['obs', 'hx', 'done', 'reward', 'act_log_probs', 'KL', 'total w/o KL']
     train_info_bufs = {k:deque(maxlen=100) for k in loss_keys}
     logger.info('Start training epoch {}'.format(epoch))
 
