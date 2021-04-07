@@ -64,6 +64,8 @@ class PPO(BaseAgent):
         return act.cpu().numpy(), log_prob_act.cpu().numpy(), value.cpu().numpy(), hidden_state.cpu().numpy()
 
     def predict_record(self, obs, hidden_state, done):
+        """Main difference from plain predict is that the full logits are
+        return, not just the logit for the chosen action."""
         with torch.no_grad():
             obs = torch.FloatTensor(obs).to(device=self.device)
             hidden_state = torch.FloatTensor(hidden_state).to(device=self.device)
