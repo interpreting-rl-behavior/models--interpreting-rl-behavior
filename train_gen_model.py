@@ -243,11 +243,11 @@ def loss_function(preds, labels, mu, logvar, train_info_bufs, device):
         discriminator and loss term.
       """
 
-    loss_hyperparams = {'obs': 1.0,
-                        'hx': 1.0,
-                        'reward': 1.0,
-                        'done': 1.0,
-                        'act_log_probs': 1.0}
+    loss_hyperparams = {'obs': 7.0,
+                        'hx': 0.7,
+                        'reward': 0.2,
+                        'done': 0.2,
+                        'act_log_probs': 0.2}
 
     losses = []
     for key in preds.keys():
