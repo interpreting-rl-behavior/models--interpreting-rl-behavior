@@ -211,7 +211,8 @@ def run():
                 viz_batch_size = 20
                 vae_latent_size = 128
                 samples = torch.randn(viz_batch_size, vae_latent_size).to(device)
-                samples = torch.stack(gen_model.decoder(samples)[0], dim=1)
+                samples = torch.stack(gen_model.decoder(samples,
+                                                        true_actions=None)[0], dim=1)
                 for b in range(viz_batch_size):
                     sample = samples[b].permute(0, 2, 3, 1)
                     sample = sample * 255
@@ -254,19 +255,20 @@ def loss_function(preds, labels, mu, logvar, train_info_bufs, device):
         pred  = torch.stack(preds[key], dim=1).squeeze()
         label = labels[key].to(device).float().squeeze()
         if key == 'obs':
-            # Calculate a mask to exclude loss on 'zero' observations
-            mask = torch.ones_like(labels['done']) - labels['done'] # excludes done timesteps
-            for b, argmin in enumerate(torch.argmax(labels['done'], dim=1)):
-                mask[b, argmin] = 1. # unexcludes the first 'done' timestep
-            mask = mask.unsqueeze(dim=-1).unsqueeze(dim=-1).unsqueeze(dim=-1) # so it can be broadcast to same shape as loss sum
+            # # Calculate a mask to exclude loss on 'zero' observations
+            # mask = torch.ones_like(labels['done']) - labels['done'] # excludes done timesteps
+            # for b, argmin in enumerate(torch.argmax(labels['done'], dim=1)):
+            #     mask[b, argmin] = 1. # unexcludes the first 'done' timestep
+            # mask = mask.unsqueeze(dim=-1).unsqueeze(dim=-1).unsqueeze(dim=-1) # so it can be broadcast to same shape as loss sum
 
             # Calculate loss
             label = label / 255.
             loss = torch.abs(pred - label)
-            loss = loss * mask
+            # loss = loss * mask
             loss = torch.mean(loss)  # Mean Absolute Error
         else:
             loss = torch.mean(torch.abs(pred - label))  # Mean Absolute Error
+
         #mse = F.mse_loss(pred, label) # TODO test whether MSE or MAbsE is better (I think the VQ-VAE2 paper suggested MAE was better)
         train_info_bufs[key].append(loss.item())
         loss = loss * loss_hyperparams[key]
@@ -302,11 +304,13 @@ def train(epoch, args, train_loader, optimizer, gen_model, agent, logger, save_d
 
         # Get input data for generative model (only taking inp_seq_len timesteps)
         obs = data['obs'][:, 0:train_loader.dataset.inp_seq_len]
-        agent_h0 = data['hx'][:, 0:train_loader.dataset.inp_seq_len]
+        agent_hx = data['hx'][:, 0:train_loader.dataset.inp_seq_len]
+        actions_all = data['action']
 
         # Forward and backward pass and upate generative model parameters
         optimizer.zero_grad()
-        mu, logvar, preds = gen_model(obs, agent_h0)
+        mu, logvar, preds = gen_model(obs, agent_hx, actions_all,
+                                      use_true_actions=True)
         loss, train_info_bufs = loss_function(preds, data, mu, logvar, train_info_bufs, device)
         for p in gen_model.decoder.agent.policy.parameters():
             if p.grad is not None:  # freeze agent parameters but not model's.
@@ -341,7 +345,8 @@ def train(epoch, args, train_loader, optimizer, gen_model, agent, logger, save_d
                 vae_latent_size = 128
                 samples = torch.randn(viz_batch_size, vae_latent_size).to(
                     device)
-                samples = torch.stack(gen_model.decoder(samples)[0], dim=1)
+                samples = torch.stack(gen_model.decoder(samples,
+                                                        true_actions=None)[0], dim=1)
                 for b in range(viz_batch_size):
                     sample = samples[b].permute(0, 2, 3, 1)
                     sample = sample * 255
@@ -370,12 +375,14 @@ def demo_recon_quality(epoch, args, train_loader, optimizer, gen_model, agent, l
         # Get input data for generative model (only taking inp_seq_len
         # timesteps)
         full_obs = data['obs']
-        inp_obs = full_obs[:,0:train_loader.dataset.inp_seq_len]
-        agent_h0 = data['hx'][:,0:train_loader.dataset.inp_seq_len]
+        inp_obs = full_obs[:, 0:train_loader.dataset.inp_seq_len]
+        agent_hx = data['hx'][:, 0:train_loader.dataset.inp_seq_len]
+        actions_all = data['action']
 
         # Forward pass to get predicted observations
         optimizer.zero_grad()
-        mu, logvar, preds = gen_model(inp_obs, agent_h0)
+        mu, logvar, preds = gen_model(inp_obs, agent_hx, actions_all,
+                                      use_true_actions=True)
 
         with torch.no_grad():
             pred_obs = torch.stack(preds['obs'], dim=1).squeeze()

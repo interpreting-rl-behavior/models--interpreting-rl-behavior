@@ -34,7 +34,7 @@ class ProcgenDataset(Dataset):
 
         # Put columns into data_dict
         keys = list(frames.keys())
-        data_keys = ['done', 'reward', 'value',]
+        data_keys = ['done', 'reward', 'value', 'action']
         data = frames.to_numpy().T.tolist()
         data_dict = {}
         for values, key in zip(data, keys):

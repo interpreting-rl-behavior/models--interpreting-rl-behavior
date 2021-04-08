@@ -137,7 +137,7 @@ class VAE(nn.Module):
         self.decoder = DecoderNetwork(device, agent,
                            num_unroll_steps=self.num_unroll_steps).to(device)
 
-    def forward(self, obs, agent_hxs, use_true_h0=False):
+    def forward(self, obs, agent_hxs, actions, use_true_h0=False, use_true_actions=False):
 
         # Ensure the number of images in the input sequence is the same as the
         # number of observations that we're _reconstructing_.
@@ -154,11 +154,15 @@ class VAE(nn.Module):
 
         # Decode
         if use_true_h0:
-            pred_obs, pred_rews, pred_dones, pred_agent_hs, pred_agent_logprobs = \
-                self.decoder(sample, true_h0=agent_hxs[:,0,:])
+            true_h0 = agent_hxs[:, 0, :]
         else:
-            pred_obs, pred_rews, pred_dones, pred_agent_hs, pred_agent_logprobs = \
-                self.decoder(sample)
+            true_h0 = None  # therefore decoder doesn't use.
+        if use_true_actions:
+            true_acts = actions
+        else:
+            true_acts = None # therefore decoder doesn't use.
+        pred_obs, pred_rews, pred_dones, pred_agent_hs, pred_agent_logprobs = \
+            self.decoder(sample, true_h0=true_h0, true_actions=true_acts)
 
         preds = {'obs': pred_obs,
                  'reward': pred_rews,
@@ -445,7 +449,7 @@ class DecoderNetwork(nn.Module):
         self.agent = agent
         self.num_unroll_steps = num_unroll_steps
 
-    def forward(self, sample, true_h0=None):
+    def forward(self, sample, true_h0=None, true_actions=None):
 
         # Get initial inputs to the agent and EnvStepper (both recurrent)
         env_h = self.env_init_network(sample)  # t=0
@@ -501,6 +505,13 @@ class DecoderNetwork(nn.Module):
             pred_agent_logprobs.append(logits)
 
             ## Step environment forward: use env_h@t and act@t to get env_h@t+1
+
+            if true_actions is not None:
+                # get true actions for that step and overwrite predicted
+                # actions for input to env
+                act = true_actions[:, i]
+                act = torch.nn.functional.one_hot(
+                    act.long(), num_classes=15)
             pred_env_hs.append(env_h)
             env_h = self.env_stepper(sample, act, h=env_h)
 
