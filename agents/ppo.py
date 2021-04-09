@@ -173,6 +173,9 @@ class PPO(BaseAgent):
                 self.storage.store(obs, hidden_state, act, rew, done, info, log_prob_act, value)
                 obs = next_obs
                 hidden_state = next_hidden_state
+                if np.any(done):
+                    hidden_state[done] = np.zeros_like(hidden_state[done]) #New
+
             value_batch = self.storage.value_batch[:self.n_steps]
             _, _, last_val, hidden_state = self.predict(obs, hidden_state, done)
             self.storage.store_last(obs, hidden_state, last_val)
@@ -189,6 +192,8 @@ class PPO(BaseAgent):
                                              log_prob_act_v, value_v)
                     obs_v = next_obs_v
                     hidden_state_v = next_hidden_state_v
+                    if np.any(done):
+                        hidden_state_v[done_v] = np.zeros_like(hidden_state_v[done_v])  # New
                 _, _, last_val_v, hidden_state_v = self.predict(obs_v, hidden_state_v, done_v)
                 self.storage_valid.store_last(obs_v, hidden_state_v, last_val_v)
                 self.storage_valid.compute_estimates(self.gamma, self.lmbda, self.use_gae, self.normalize_adv)

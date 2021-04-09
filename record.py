@@ -239,6 +239,8 @@ if __name__=='__main__':
                 hx_list = []
                 logprob_list = []
 
+                hidden_state = np.zeros_like(hidden_state) #New
+
             if max_episodes is not None and episode_number >= max_episodes:
                 break
 

@@ -177,6 +177,8 @@ if __name__=='__main__':
             agent.storage.store(obs, hidden_state, act, rew, done, info, log_prob_act, value)
             obs = next_obs
             hidden_state = next_hidden_state
+            if np.any(done):
+                hidden_state[done] = np.zeros_like(hidden_state[done])  # New
         _, _, last_val, hidden_state = agent.predict(obs, hidden_state, done)
         agent.storage.store_last(obs, hidden_state, last_val)
         agent.storage.compute_estimates(agent.gamma, agent.lmbda, agent.use_gae,

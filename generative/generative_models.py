@@ -498,7 +498,8 @@ class DecoderNetwork(nn.Module):
             # Note this 'act' is different from train and eval because it's a
             # one-hot vector. Also because we're passing gradients back
             # through the action using its logits as a straight through
-            # estimator.
+            # estimator. (TODO the STE feature is now redundant now that
+            #  we're using true actions during training).
 
             ## Store act and logprob
             pred_acts.append(act)
