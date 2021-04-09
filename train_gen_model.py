@@ -117,6 +117,8 @@ def run():
     resdir = logdir_base + 'results/'
     if not (os.path.exists(resdir)):
         os.makedirs(resdir)
+
+    # TODO put exp name as main dir then this as subdir
     gen_model_session_name = datetime.now().strftime("%Y%m%d_%H%M%S")
     sess_dir = os.path.join(resdir, gen_model_session_name)
     if not (os.path.exists(sess_dir)):
@@ -220,7 +222,7 @@ def run():
                     save_str = sess_dir + '/sample_' + str(
                         epoch) + '_' + str(epoch) + '_' + str(
                         b) + '.mp4'
-                    tvio.write_video(save_str, sample, fps=8)
+                    tvio.write_video(save_str, sample, fps=14)
 
         # Demonstrate reconsruction and prediction quality by comparing preds
         # with ground truth (the closes thing a VAE gets to validation because
@@ -355,7 +357,7 @@ def train(epoch, args, train_loader, optimizer, gen_model, agent, logger, save_d
                     save_str = save_dir + '/sample_' + str(
                         epoch) + '_' + str(batch_idx) + '_' + str(
                         b) + '.mp4'
-                    tvio.write_video(save_str, sample, fps=8)
+                    tvio.write_video(save_str, sample, fps=14)
 
 
 def demo_recon_quality(epoch, args, train_loader, optimizer, gen_model, agent, logger,
@@ -394,8 +396,7 @@ def demo_recon_quality(epoch, args, train_loader, optimizer, gen_model, agent, l
                 pred_ob = pred_obs[b].permute(0, 2, 3, 1)
                 full_ob = full_obs[b].permute(0, 2, 3, 1)
 
-                pred_ob = pred_ob * 255
-                full_ob = full_ob * 255
+                pred_ob = pred_ob * 255  # full_ob is already in [0,255] ) Z^+
 
                 pred_ob = pred_ob.clone().detach().type(torch.uint8).cpu().numpy()
                 full_ob = full_ob.clone().detach().type(torch.uint8).cpu().numpy()
@@ -406,7 +407,7 @@ def demo_recon_quality(epoch, args, train_loader, optimizer, gen_model, agent, l
                 # Save vid
                 save_str = save_dir + '/recons_v_preds' + '/sample_' + str(epoch) + '_' + str(batch_idx) + '_' + str(
                     b) + '.mp4'
-                tvio.write_video(save_str, combined_ob, fps=8)
+                tvio.write_video(save_str, combined_ob, fps=14)
 
 
 def safe_mean(xs):

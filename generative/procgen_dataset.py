@@ -101,7 +101,7 @@ class ProcgenDataset(Dataset):
             lp = zeros
 
         # Add arrays to data_dict
-        array_keys = [ 'obs', 'hx', 'act_log_probs']
+        array_keys = ['obs', 'hx', 'act_log_probs']
         arrays = [obs, hx, lp]
         for k, v in zip(array_keys, arrays):
             data_dict[k] = v
