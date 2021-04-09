@@ -104,7 +104,7 @@ hard-rec:
     n_steps: 256
     epoch: 3
     mini_batch_per_epoch: 8
-    mini_batch_size: 8192
+    mini_batch_size: 2048
     gamma: 0.999
     lmbda: 0.95
     learning_rate: 0.0005
