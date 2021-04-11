@@ -162,7 +162,7 @@ if __name__=='__main__':
     episode_steps = 0
     episode_number = 0
 
-    max_episodes = 6500
+    max_episodes = 10
 
     ## Make dirs for files #TODO add some unique identifier so you don't end up with a bunch of partial episodes due to overwriting
     dir_name = logdir + 'episode' + str(episode_number)
@@ -178,70 +178,81 @@ if __name__=='__main__':
 
     while True:
         agent.policy.eval()
-        for _ in range(agent.n_steps):
+        # for _ in range(agent.n_steps):
 
-            # Step agent and environment
-            act, log_prob_act, value, next_hidden_state = agent.predict_record(obs, hidden_state, done)
-            next_obs, rew, done, info = agent.env.step(act)
+        # Step agent and environment
+        act, log_prob_act, value, next_hidden_state = agent.predict_record(obs, hidden_state, done)
+        next_obs, rew, done, info = agent.env.step(act)
 
-            # Store non-array variables
-            data = data.append({
-                'level_seed': info[0]['level_seed'],
-                'episode': episode_number,
-                'global_step': global_steps,
-                'episode_step': episode_steps,
-                'done': done[0],
-                'reward': rew[0],
-                'value': value[0],
-                'action': act[0],
-            }, ignore_index=True)
+        # Store non-array variables
+        data = data.append({
+            'level_seed': info[0]['level_seed'],
+            'episode': episode_number,
+            'global_step': global_steps,
+            'episode_step': episode_steps,
+            'done': done[0],
+            'reward': rew[0],
+            'value': value[0],
+            'action': act[0],
+        }, ignore_index=True)
 
 
-            obs_list.append(obs)
-            hx_list.append(hidden_state)
-            logprob_list.append(log_prob_act)
+        obs_list.append(obs)
+        hx_list.append(hidden_state)
+        logprob_list.append(log_prob_act)
 
-            # Increment for next step
-            obs = next_obs
-            hidden_state = next_hidden_state
-            global_steps += 1
-            episode_steps += 1
+        # Increment for next step
+        obs = next_obs
+        hidden_state = next_hidden_state
+        global_steps += 1
+        episode_steps += 1
 
-            if done[0]:  # At end of episode
-                data.to_csv(logdir + 'data_gen_model.csv', index=False) #TODO change so that it doesn't get slower over time due to the growing size of the data csv. save each individually then combine once done.
+        if done[0]:  # At end of episode
+            data.to_csv(logdir + f'data_gen_model_{episode_number}.csv', index=False) #TODO change so that it doesn't get slower over time due to the growing size of the data csv. save each individually then combine once done.
 
-                # Make dirs for files
-                dir_name = logdir + 'episode' + str(episode_number)
-                if not (os.path.exists(dir_name)):
-                    os.makedirs(dir_name)
+            # Make dirs for files
+            dir_name = logdir + 'episode' + str(episode_number)
+            if not (os.path.exists(dir_name)):
+                os.makedirs(dir_name)
 
-                # Stack arrays for this episode into one array
-                obs_array = np.stack(obs_list).squeeze()
-                hx_array  = np.stack(hx_list).squeeze()
-                lp_array  = np.stack(logprob_list).squeeze()
+            # Stack arrays for this episode into one array
+            obs_array = np.stack(obs_list).squeeze()
+            hx_array  = np.stack(hx_list).squeeze()
+            lp_array  = np.stack(logprob_list).squeeze()
 
-                # Prepare names for saving
-                obs_name = dir_name + '/' + 'ob.npy'
-                hx_name = dir_name + '/' + 'hx.npy'
-                lp_name = dir_name + '/' + 'lp.npy'
+            # Prepare names for saving
+            obs_name = dir_name + '/' + 'ob.npy'
+            hx_name = dir_name + '/' + 'hx.npy'
+            lp_name = dir_name + '/' + 'lp.npy'
 
-                # Save stacked array
-                np.save(obs_name, np.array(obs_array * 255, dtype=np.uint8))
-                np.save(hx_name, hx_array)
-                np.save(lp_name, lp_array)
+            # Save stacked array
+            np.save(obs_name, np.array(obs_array * 255, dtype=np.uint8))
+            np.save(hx_name, hx_array)
+            np.save(lp_name, lp_array)
 
-                # Reset things for the beginning of the next episode
-                print("Episode number: %i ;  Episode len: %i " % (episode_number, episode_steps))
-                episode_number += 1
-                episode_steps = 0
+            # Reset things for the beginning of the next episode
+            data = pd.DataFrame(columns=column_names)
+            print("Episode number: %i ;  Episode len: %i " % (episode_number, episode_steps))
+            episode_number += 1
+            episode_steps = 0
 
-                obs_list = []
-                hx_list = []
-                logprob_list = []
+            obs_list = []
+            hx_list = []
+            logprob_list = []
 
-                hidden_state = np.zeros_like(hidden_state) #New
+            hidden_state = np.zeros_like(hidden_state) #New
 
-            if max_episodes is not None and episode_number >= max_episodes:
-                break
+        if max_episodes is not None and episode_number >= max_episodes:
+            break
 
-        _, _, last_val, hidden_state = agent.predict(obs, hidden_state, done)
+        # _, _, last_val, hidden_state = agent.predict(obs, hidden_state, done)
+
+    print("Combining datasets")
+    data = pd.DataFrame(columns=column_names)
+    for e in range(episode_number):
+        epi_filename = logdir + f'data_gen_model_{e}.csv'
+        data_e = pd.read_csv(epi_filename)
+        data = data.append(data_e)
+        os.remove(epi_filename)
+    data.to_csv(logdir + f'data_gen_model.csv',
+                index=False)
