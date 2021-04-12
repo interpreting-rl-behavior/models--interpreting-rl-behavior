@@ -254,11 +254,11 @@ def loss_function(preds, labels, mu, logvar, train_info_bufs, discrim, device):
         discriminator and loss term.
       """
 
-    loss_hyperparams = {'obs': 1.0,
-                        'hx': 0.7,
-                        'reward': 0.2,
-                        'done': 0.2,
-                        'act_log_probs': 0.2,
+    loss_hyperparams = {'obs': 0.,#1.0,
+                        'hx': 0.,#0.7,
+                        'reward': 0.,#0.2,
+                        'done': 0.,#0.2,
+                        'act_log_probs': 0.,#0.2,
                         'gen_adv': 1.0}
 
     # Reconstruction loss
