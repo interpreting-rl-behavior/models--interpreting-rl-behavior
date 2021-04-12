@@ -326,8 +326,8 @@ def adversarial_loss_function(preds, labels, train_info_bufs, discrim, device):
     discrim_loss = torch.mean(torch.log(real_data_preds)) + \
                    torch.mean(torch.log(torch.ones_like(fake_data_preds) - \
                                         fake_data_preds))
-    gen_loss = -1*discrim_loss # original loss
-    # gen_loss = torch.mean(torch.log(torch.ones_like(fake_data_preds))) # 'modified' loss
+    #gen_loss = -1*discrim_loss # original loss
+    gen_loss = torch.mean(torch.log(torch.ones_like(fake_data_preds))) # 'modified' loss
     print(torch.mean(real_data_preds),
           torch.mean(fake_data_preds))
     # discrim_loss = discrim_labels * (-1*torch.log(discrim_preds)) + \
