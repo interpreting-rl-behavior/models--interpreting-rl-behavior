@@ -3,10 +3,10 @@ import numpy as np
 from sklearn.manifold import TSNE
 from sklearn.decomposition import PCA
 from sklearn.preprocessing import StandardScaler
+import argparse
 
-
+import matplotlib
 import matplotlib.pyplot as plt
-import seaborn as sns
 import os
 import time
 
@@ -19,16 +19,27 @@ pd.options.mode.chained_assignment = None  # default='warn'
 COINRUN_ACTIONS = {0: 'downleft', 1: 'left', 2: 'upleft', 3: 'down', 4: None, 5: 'up',
                    6: 'downright', 7: 'right', 8: 'upright', 9: None, 10: None, 11: None,
                    12: None, 13: None, 14: None}
+def parse_args():
+    parser = argparse.ArgumentParser(
+        description='args for plotting')
+    parser.add_argument(
+        '--presaved_data_path', type=str, default="/media/lee/DATA/DDocs/AI_neuro_work/Assurance Project stuff/data/precollected/")
+    args = parser.parse_args()
+    return args
+
 
 # EPISODE_STRINGS = {v:str(v) for v in range(3431)}
 def run():
-
+    args = parse_args()
     num_episodes = 3000  # number of episodes to make plots for
+    num_epi_paths = 9
+    path_epis = [x for x in range(num_epi_paths)]
+
     seed = 42  # for the tSNE algo
     plot_pca = True
     plot_tsne = True
     # TODO args parser func
-    presaved_data_path = "/media/lee/DATA/DDocs/AI_neuro_work/Assurance Project stuff/data/precollected/"
+    presaved_data_path = args.presaved_data_path
     hx_presaved_filepath = presaved_data_path + "hxs_%i.npy" % num_episodes
     lp_presaved_filepath = presaved_data_path + "lp_%i.npy" % num_episodes
 
@@ -67,14 +78,14 @@ def run():
     lp_max = np.argmax(lp, axis=1)
     entropy = -1 * np.sum(np.exp(lp)*lp, axis=1)
     del lp
-
+    # TODO consider adding UMAP
+    # TODO clusters of hx
     # Add extra columns for further analyses variables
     # -  % way through episode
     # -  episode_rewarded?
-    # -  done? # TODO in plotting
     # -  logprob max
     # -  entropy
-    # -  value delta
+    # -  value delta (not plotted currently)
 
     ## % way through episode
     episode_step_groups = [dfg for dfg in
@@ -122,19 +133,21 @@ def run():
 
     # Prepare for plotting
     plotting_variables = ['entropy', 'argmax_action_log_prob', 'action',
-                          '% through episode', 'episode_max_steps',
+                          'episode_max_steps', '% through episode',
                           'done',
-                          'value', 'reward', 'episode_rewarded'] #TODO done
+                          'value', 'episode_rewarded', 'reward']
 
     plot_cmaps = {'entropy':                 'winter',
                   'argmax_action_log_prob':  'Paired_r',
                   'action':                  'tab20',
-                  '% through episode':       'hsv',
-                  'episode_max_steps':       'hsv',
+                  'episode_max_steps':       'turbo',
+                  '% through episode':       'brg',
                   'done':                    'autumn_r',
                   'value':                   'cool',
-                  'reward':                  'cool',
-                  'episode_rewarded':        'cool',}
+                  'episode_rewarded':        'cool',
+                  'reward':                  'cool',}
+
+    data = pd.read_csv(presaved_data_path + 'data_w_tsne_pca.csv')
 
     # Plotting
     if plot_pca:
@@ -146,8 +159,6 @@ def run():
         data['pca_X'] = hx_pca[:, 0]
         data['pca_Y'] = hx_pca[:, 1]
 
-        # TODO plot with arrows between consecutive points for the first n episodes
-        # TODO remove outlier init state
 
         # Create grid of plots
         fig = plt.figure()
@@ -156,13 +167,53 @@ def run():
         for plot_idx, col in enumerate(plotting_variables, start=1):
             ax = fig.add_subplot(3, 3, plot_idx)
             splot = plt.scatter(data['pca_X'], data['pca_Y'],
-                            c=data[col],
+                                c=data[col],
                             cmap=plot_cmaps[col],
                             s=0.005, alpha=1.)
             fig.colorbar(splot, fraction=0.023, pad=0.04)
             ax.legend(title=col, bbox_to_anchor=(1.01, 1),borderaxespad=0)
+            ax.set_frame_on(False)
         fig.tight_layout()
         fig.savefig(f'{save_path}/agent_pca_epsd{num_episodes}_at{time.strftime("%Y%m%d-%H%M%S")}.png')
+        plt.close()
+
+
+        # Now plot paths of individual episodes, connecting points by arrows
+        paths_per_plot = 1
+        groups = [dfg for dfg in
+                  data.groupby(by='episode')[['pca_X', 'pca_Y']]]
+        fig = plt.figure()
+        fig.subplots_adjust(hspace=0.8, wspace=0.8)
+        fig.set_size_inches(21., 18.)
+        for plot_idx in range(1, 13):
+            ax = fig.add_subplot(3, 4, plot_idx)
+            splot = plt.scatter(
+                data['pca_X'],
+                data['pca_Y'],
+                c=data['% through episode'],
+                cmap=plot_cmaps['% through episode'],
+                s=0.005, alpha=1.)
+            # for epi in path_epis:
+            epi_data = groups[plot_idx-1][1]
+            for i in range(len(epi_data) - 1):
+                x1, y1 = epi_data.iloc[i][['pca_X', 'pca_Y']]
+                x2, y2 = epi_data.iloc[i + 1][['pca_X', 'pca_Y']]
+                dx, dy = x2 - x1, y2 - y1
+                arrow = matplotlib.patches.FancyArrowPatch((x1, y1),
+                                                           (x2, y2),
+                                                           arrowstyle=matplotlib.patches.ArrowStyle.CurveB(
+                                                               head_length=1.5,
+                                                               head_width=2.0),
+                                                           mutation_scale=1,
+                                                           shrinkA=0.,
+                                                           shrinkB=0.,
+                                                           color='black')
+                ax.add_patch(arrow)
+                ax.set_frame_on(False)
+            fig.colorbar(splot, fraction=0.023, pad=0.04)
+        fig.tight_layout()
+        fig.savefig(
+            f'{save_path}/agent_pca_epsd{num_episodes}_arrows_at{time.strftime("%Y%m%d-%H%M%S")}.png')
         plt.close()
 
     if plot_tsne:
@@ -172,8 +223,6 @@ def run():
         print("tSNE finished.")
         data['tsne_X'] = hx_tsne[:, 0]
         data['tsne_Y'] = hx_tsne[:, 1]
-
-        # TODO plot with arrows between consecutive points for the first n episodes
 
         # Create grid of plots
         fig = plt.figure()
@@ -187,12 +236,50 @@ def run():
                                 s=0.05, alpha=0.99)
             fig.colorbar(splot, fraction=0.023, pad=0.04)
             ax.legend(title=col, bbox_to_anchor=(1.01, 1), borderaxespad=0)
+            ax.set_frame_on(False)
         fig.tight_layout()
         fig.savefig(
             f'{save_path}/agent_tsne_epsd{num_episodes}_at{time.strftime("%Y%m%d-%H%M%S")}.png')
 
         plt.close()
 
+        # Now plot paths of individual episodes, connecting points by arrows
+        paths_per_plot = 1
+        groups = [dfg for dfg in
+                  data.groupby(by='episode')[['tsne_X', 'tsne_Y']]]
+        fig = plt.figure()
+        fig.subplots_adjust(hspace=0.8, wspace=0.8)
+        fig.set_size_inches(21., 18.)
+        for plot_idx in range(1, 10):
+            ax = fig.add_subplot(3, 3, plot_idx)
+            splot = plt.scatter(
+                data['tsne_X'],
+                data['tsne_Y'],
+                c=data['% through episode'],
+                cmap=plot_cmaps['% through episode'],
+                s=0.005, alpha=1.)
+            for epi in path_epis:
+                epi_data = groups[epi][1]
+                for i in range(len(epi_data) - 1):
+                    x1, y1 = epi_data.iloc[i][['tsne_X', 'tsne_Y']]
+                    x2, y2 = epi_data.iloc[i + 1][['tsne_X', 'tsne_Y']]
+                    dx, dy = x2 - x1, y2 - y1
+                    arrow = matplotlib.patches.FancyArrowPatch((x1, y1),
+                                                               (x2, y2),
+                                                               arrowstyle=matplotlib.patches.ArrowStyle.CurveB(
+                                                                   head_length=1.5,
+                                                                   head_width=2.0),
+                                                               mutation_scale=1,
+                                                               shrinkA=0.,
+                                                               shrinkB=0.,
+                                                               color='black')
+                    ax.add_patch(arrow)
+                    ax.set_frame_on(False)
+            fig.colorbar(splot, fraction=0.023, pad=0.04)
+        fig.tight_layout()
+        fig.savefig(
+            f'{save_path}/agent_pca_epsd{num_episodes}_arrows_at{time.strftime("%Y%m%d-%H%M%S")}.png')
+        plt.close()
 
 # fig = plt.figure(figsize=(11,11))
 # ax = fig.add_subplot(111, projection='3d')
