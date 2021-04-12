@@ -772,3 +772,53 @@ class DoneDecoder(nn.Module):
         return torch.sigmoid(x)
 
 
+class DiscriminatorConv(nn.Module):
+    """Discriminator of VAE-GAN
+    """
+    def __init__(self, device):
+        super(DiscriminatorConv, self).__init__()
+
+        # Network
+        ## A conv net that has two branches that join and uses attention
+        hid_ch = 64
+        self.conv0 = nn.Conv2d(in_channels=3, out_channels=hid_ch,
+                               kernel_size=3, padding=1).to(device)
+        self.pool = nn.AvgPool2d(kernel_size=2).to(device)
+        self.resdown1 = lyr.ResBlockDown(hid_ch, hid_ch, downsample=self.pool).to(device)
+        self.resdown2 = lyr.ResBlockDown(hid_ch, hid_ch, downsample=self.pool).to(device)
+        self.resdown3 = lyr.ResBlockDown(hid_ch, hid_ch,
+                                         downsample=self.pool).to(device)
+        self.resdown4 = lyr.ResBlockDown(hid_ch, hid_ch,
+                                         downsample=self.pool).to(device)
+        self.attention = lyr.Attention(hid_ch).to(device)
+        self.res1x1 = lyr.ResOneByOne(hid_ch + hid_ch + hid_ch, hid_ch).to(device)
+
+
+    def forward(self, ob):
+        z = self.conv0(ob)
+        x1 = self.resdown1(z)
+        x2 = self.resdown2(x1)
+        x3 = self.attention(x2)
+        x12 = torch.cat([self.pool(x1), x2], dim=1)
+        z = self.res1x1(x3, x12)
+        z = self.resdown3(z)
+        z = self.resdown4(z)
+        z = torch.mean(z, dim=[1,2,3])
+
+        return z
+
+class Discriminator(nn.Module):
+    """Discriminator of VAE-GAN
+    """
+    def __init__(self, device):
+        super(Discriminator, self).__init__()
+        self.conv = DiscriminatorConv(device)
+
+    def forward(self, obs):
+        seq_len = obs.shape[1]
+        preds = []
+        for t in range(seq_len):
+            preds.append(self.conv(obs[:,t]))
+        preds = torch.mean(torch.stack(preds, dim=1), dim=1)
+        preds = torch.sigmoid(preds)
+        return preds
