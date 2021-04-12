@@ -195,14 +195,15 @@ def run():
     gen_model = VAE(agent, device, num_recon_obs, num_pred_steps)
     discrim   = Discriminator(device)
     gen_model = gen_model.to(device)
-    optimizer = torch.optim.Adam(list(gen_model.parameters()) + \
-                                 list(discrim.parameters()), lr=args.lr)
+    optimizer = torch.optim.Adam(gen_model.parameters(), lr=args.lr)
+    discrim_optimizer = torch.optim.Adam(discrim.parameters(), lr=args.lr)
 
     if args.model_file is not None:
         checkpoint = torch.load(args.model_file, map_location=device)
         gen_model.load_state_dict(checkpoint['gen_model_state_dict'], device)
         optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
         discrim.load_state_dict(checkpoint['discrim_state_dict'], device)
+        discrim_optimizer.load_state_dict(checkpoint['discrim_optimizer_state_dict'])
         logger.info('Loaded generative model from {}.'.format(args.model_file))
     else:
         logger.info('Training generative model from scratch.')
@@ -213,7 +214,7 @@ def run():
     for epoch in range(0, args.epochs + 1):
 
         train(epoch, args, train_loader, optimizer, gen_model, agent, discrim,
-              logger, sess_dir, device)
+              discrim_optimizer, logger, sess_dir, device)
 
         # Visualise random samples
         if epoch % 10 == 0:
@@ -259,7 +260,6 @@ def loss_function(preds, labels, mu, logvar, train_info_bufs, discrim, device):
                         'done': 0.2,
                         'act_log_probs': 0.2,
                         'discrim': 1.0}
-    batch_size = labels['reward'].shape[0]
 
     # Reconstruction loss
     losses = []
@@ -290,7 +290,23 @@ def loss_function(preds, labels, mu, logvar, train_info_bufs, discrim, device):
     loss = sum(losses)
     train_info_bufs['total recon w/o KL'].append(loss.item())
 
-    # Do adversarial loss
+    discrim_loss = discrim_loss_function(preds, labels, train_info_bufs, discrim, device)
+
+    discrim_loss = discrim_loss * loss_hyperparams['discrim']
+
+    # see Appendix B from VAE paper:
+    # Kingma and Welling. Auto-Encoding Variational Bayes. ICLR, 2014
+    # https://arxiv.org/abs/1312.6114
+    # 0.5 * sum(1 + log(sigma^2) - mu^2 - sigma^2)
+    kl_divergence = -0.5 * torch.mean(1 + logvar - mu.pow(2) - logvar.exp(),
+                                     dim=1) # Sum along latent size dim.
+    kl_divergence = torch.mean(kl_divergence)  # Mean along batch dim
+    train_info_bufs['KL'].append(kl_divergence.item())
+
+    return loss + kl_divergence + discrim_loss, train_info_bufs
+
+def discrim_loss_function(preds, labels, train_info_bufs, discrim, device):
+    batch_size = labels['reward'].shape[0]
 
     ## Make labels
     discrim_labels = torch.cat([torch.ones(batch_size), torch.zeros(batch_size)], dim=0).to(device)
@@ -312,21 +328,9 @@ def loss_function(preds, labels, mu, logvar, train_info_bufs, discrim, device):
 
     ## Log the discriminator loss
     train_info_bufs['Discrim'].append(discrim_loss.item())
+    return discrim_loss
 
-    discrim_loss = discrim_loss * loss_hyperparams[key]
-
-    # see Appendix B from VAE paper:
-    # Kingma and Welling. Auto-Encoding Variational Bayes. ICLR, 2014
-    # https://arxiv.org/abs/1312.6114
-    # 0.5 * sum(1 + log(sigma^2) - mu^2 - sigma^2)
-    kl_divergence = -0.5 * torch.mean(1 + logvar - mu.pow(2) - logvar.exp(),
-                                     dim=1) # Sum along latent size dim.
-    kl_divergence = torch.mean(kl_divergence)  # Mean along batch dim
-    train_info_bufs['KL'].append(kl_divergence.item())
-
-    return loss + kl_divergence - discrim_loss, train_info_bufs
-
-def train(epoch, args, train_loader, optimizer, gen_model, agent, discrim, logger, save_dir, device):
+def train(epoch, args, train_loader, optimizer, gen_model, agent, discrim, discrim_optimizer, logger, save_dir, device):
     # Set up logging objects
     loss_keys = ['obs', 'hx', 'done', 'reward', 'act_log_probs', 'KL', 'total recon w/o KL', 'Discrim']
     train_info_bufs = {k:deque(maxlen=100) for k in loss_keys}
@@ -347,14 +351,24 @@ def train(epoch, args, train_loader, optimizer, gen_model, agent, discrim, logge
 
         # Forward and backward pass and upate generative model parameters
         optimizer.zero_grad()
+        discrim_optimizer.zero_grad()
         mu, logvar, preds = gen_model(obs, agent_hx, actions_all,
                                       use_true_actions=True)
         loss, train_info_bufs = loss_function(preds, data, mu, logvar, train_info_bufs, discrim, device)
         for p in gen_model.decoder.agent.policy.parameters():
             if p.grad is not None:  # freeze agent parameters but not model's.
                 p.grad.data = torch.zeros_like(p.grad.data)
-        loss.backward()
+        loss.backward(retain_graph=True)
         optimizer.step()
+
+        # Then do loss and optim for discriminator
+        optimizer.zero_grad()
+        discrim_optimizer.zero_grad()
+        preds = {k:[v_i.detach() for v_i in v] for k, v in preds.items()}
+        discrim_loss = discrim_loss_function(preds, data, train_info_bufs,
+                                             discrim, device)
+        (-discrim_loss).backward()
+        discrim_optimizer.step()
 
         # Logging and saving info
         if batch_idx % args.log_interval == 0:
@@ -373,7 +387,8 @@ def train(epoch, args, train_loader, optimizer, gen_model, agent, discrim, logge
                 'model_epoch{}_batch{}.pt'.format(epoch, batch_idx))
             torch.save({'gen_model_state_dict': gen_model.state_dict(),
                         'optimizer_state_dict': optimizer.state_dict(),
-                        'discrim_state_dict': discrim.state_dict()},
+                        'discrim_state_dict': discrim.state_dict(),
+                        'discrim_optimizer_state_dict': discrim_optimizer.state_dict()},
                        model_path)
             logger.info('Generative model saved to {}'.format(model_path))
 
