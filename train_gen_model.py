@@ -119,7 +119,7 @@ def run():
     resdir = logdir_base + 'results/'
     if not (os.path.exists(resdir)):
         os.makedirs(resdir)
-    resdir = resdir + '/' + args.tgm_exp_name
+    resdir = resdir + args.tgm_exp_name
     if not (os.path.exists(resdir)):
         os.makedirs(resdir)
 
@@ -309,7 +309,7 @@ def discrim_loss_function(preds, labels, train_info_bufs, discrim, device):
     batch_size = labels['reward'].shape[0]
 
     ## Make labels
-    discrim_labels = torch.cat([torch.ones(batch_size), torch.zeros(batch_size)], dim=0).to(device)
+    discrim_labels = torch.cat([torch.zeros(batch_size), torch.ones(batch_size)], dim=0).to(device)
     pred_obs = torch.stack(preds['obs'], dim=0).permute([1,0,2,3,4])
     discrim_inps = torch.cat([pred_obs, labels['obs']], dim=0)
 
@@ -321,9 +321,8 @@ def discrim_loss_function(preds, labels, train_info_bufs, discrim, device):
     discrim_loss = torch.mean(torch.log(real_data_preds)) + \
                    torch.mean(torch.log(torch.ones_like(fake_data_preds) - \
                                         fake_data_preds))
-    print(torch.mean(torch.log(real_data_preds)),
-          torch.mean(torch.log(torch.ones_like(fake_data_preds) - \
-                                        fake_data_preds)))
+    print(torch.mean(real_data_preds),
+          torch.mean(fake_data_preds))
     # discrim_loss = discrim_labels * (-1*torch.log(discrim_preds)) + \
     #                 (torch.ones_like(discrim_labels) - discrim_labels) * \
     #                 (-1*torch.log(torch.ones_like(discrim_preds) - discrim_preds))
@@ -373,7 +372,7 @@ def train(epoch, args, train_loader, optimizer, gen_model, agent, discrim, discr
         preds = {k:[v_i.detach() for v_i in v] for k, v in preds.items()}
         discrim_loss = discrim_loss_function(preds, data, train_info_bufs,
                                              discrim, device)
-        (-discrim_loss).backward() #TODO undo, just commented for debugging.
+        (-discrim_loss).backward()
         discrim_optimizer.step()
 
         # Logging and saving info
