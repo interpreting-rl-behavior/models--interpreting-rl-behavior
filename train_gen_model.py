@@ -254,11 +254,11 @@ def loss_function(preds, labels, mu, logvar, train_info_bufs, discrim, device):
         discriminator and loss term.
       """
 
-    loss_hyperparams = {'obs': 0.,#1.0,
-                        'hx': 0.,#0.7,
-                        'reward': 0.,#0.2,
-                        'done': 0.,#0.2,
-                        'act_log_probs': 0.,#0.2,
+    loss_hyperparams = {'obs': 2.,#1.0,
+                        'hx': 0.1,#0.7,
+                        'reward': 0.1,#0.2,
+                        'done': 0.1,#0.2,
+                        'act_log_probs': 0.1,#0.2,
                         'gen_adv': 1.0}
 
     # Reconstruction loss
@@ -320,12 +320,14 @@ def adversarial_loss_function(preds, labels, train_info_bufs, discrim, device):
     fake_data_preds = discrim_preds[:batch_size]
     real_data_preds = discrim_preds[batch_size:]
 
-    discrim_loss = (torch.mean(real_data_preds) - 1) ** 2 + \
-                   torch.mean(fake_data_preds) ** 2
-    gen_loss = (torch.mean(fake_data_preds) - 1) ** 2
-    # discrim_loss = torch.mean(torch.log(real_data_preds)) + \
-    #                torch.mean(torch.log(torch.ones_like(fake_data_preds) - \
-    #                                     fake_data_preds))
+    # discrim_loss = (torch.mean(real_data_preds) - 1) ** 2 + \
+    #                torch.mean(fake_data_preds) ** 2
+    # gen_loss = (torch.mean(fake_data_preds) - 1) ** 2
+    discrim_loss = torch.mean(torch.log(real_data_preds)) + \
+                   torch.mean(torch.log(torch.ones_like(fake_data_preds) - \
+                                        fake_data_preds))
+    gen_loss = -1*discrim_loss # original loss
+    # gen_loss = torch.mean(torch.log(torch.ones_like(fake_data_preds))) # 'modified' loss
     print(torch.mean(real_data_preds),
           torch.mean(fake_data_preds))
     # discrim_loss = discrim_labels * (-1*torch.log(discrim_preds)) + \
