@@ -373,6 +373,7 @@ def train(epoch, args, train_loader, optimizer, gen_model, agent, discrim, discr
         discrim_loss = discrim_loss_function(preds, data, train_info_bufs,
                                              discrim, device)
         (-discrim_loss).backward()
+        torch.nn.utils.clip_grad_norm_(discrim.parameters(), 0.1)
         discrim_optimizer.step()
 
         # Logging and saving info
