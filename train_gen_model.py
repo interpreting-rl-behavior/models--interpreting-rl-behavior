@@ -320,14 +320,14 @@ def adversarial_loss_function(preds, labels, train_info_bufs, discrim, device):
     fake_data_preds = discrim_preds[:batch_size]
     real_data_preds = discrim_preds[batch_size:]
 
-    # discrim_loss = (torch.mean(real_data_preds) - 1) ** 2 + \
-    #                torch.mean(fake_data_preds) ** 2
-    # gen_loss = (torch.mean(fake_data_preds) - 1) ** 2
-    discrim_loss = torch.mean(torch.log(real_data_preds)) + \
-                   torch.mean(torch.log(torch.ones_like(fake_data_preds) - \
-                                        fake_data_preds))
-    #gen_loss = -1*discrim_loss # original loss
-    gen_loss = torch.mean(torch.log(torch.ones_like(fake_data_preds))) # 'modified' loss
+    discrim_loss = (torch.mean(real_data_preds) - 1) ** 2 + \
+                   torch.mean(fake_data_preds) ** 2
+    gen_loss = (torch.mean(fake_data_preds) - 1) ** 2
+    # discrim_loss = torch.mean(torch.log(real_data_preds)) + \
+    #                torch.mean(torch.log(torch.ones_like(fake_data_preds) - \
+    #                                     fake_data_preds))
+    # #gen_loss = -1*discrim_loss # original loss
+    # gen_loss = torch.mean(torch.log(torch.ones_like(fake_data_preds))) # 'modified' loss
     print(torch.mean(real_data_preds),
           torch.mean(fake_data_preds))
     # discrim_loss = discrim_labels * (-1*torch.log(discrim_preds)) + \
@@ -338,9 +338,6 @@ def adversarial_loss_function(preds, labels, train_info_bufs, discrim, device):
     if discrim_loss.isnan():
         print(real_data_preds, fake_data_preds)
 
-    ## Log the discriminator loss
-    # train_info_bufs['Discrim'].append(discrim_loss.item())
-    #TODO logging of gen loss
     return gen_loss, discrim_loss
 
 def train(epoch, args, train_loader, optimizer, gen_model, agent, discrim, discrim_optimizer, logger, save_dir, device):
