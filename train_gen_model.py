@@ -364,7 +364,7 @@ def train(epoch, args, train_loader, optimizer, gen_model, agent, discrim, discr
             if p.grad is not None:  # freeze agent parameters but not model's.
                 p.grad.data = torch.zeros_like(p.grad.data)
         loss.backward()
-        torch.nn.utils.clip_grad_norm_(discrim.parameters(), 0.001)
+        torch.nn.utils.clip_grad_norm_(gen_model.parameters(), 0.001)
         optimizer.step()
 
         # Then do loss and optim for discriminator
