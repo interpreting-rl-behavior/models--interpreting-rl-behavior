@@ -321,10 +321,16 @@ def discrim_loss_function(preds, labels, train_info_bufs, discrim, device):
     discrim_loss = torch.mean(torch.log(real_data_preds)) + \
                    torch.mean(torch.log(torch.ones_like(fake_data_preds) - \
                                         fake_data_preds))
+    print(torch.mean(torch.log(real_data_preds)),
+          torch.mean(torch.log(torch.ones_like(fake_data_preds) - \
+                                        fake_data_preds)))
     # discrim_loss = discrim_labels * (-1*torch.log(discrim_preds)) + \
     #                 (torch.ones_like(discrim_labels) - discrim_labels) * \
     #                 (-1*torch.log(torch.ones_like(discrim_preds) - discrim_preds))
+
     discrim_loss = discrim_loss.mean()
+    if discrim_loss.isnan():
+        print(real_data_preds, fake_data_preds)
 
     ## Log the discriminator loss
     train_info_bufs['Discrim'].append(discrim_loss.item())
@@ -367,7 +373,7 @@ def train(epoch, args, train_loader, optimizer, gen_model, agent, discrim, discr
         preds = {k:[v_i.detach() for v_i in v] for k, v in preds.items()}
         discrim_loss = discrim_loss_function(preds, data, train_info_bufs,
                                              discrim, device)
-        (-discrim_loss).backward()
+        (-discrim_loss).backward() #TODO undo, just commented for debugging.
         discrim_optimizer.step()
 
         # Logging and saving info
