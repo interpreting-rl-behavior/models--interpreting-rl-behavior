@@ -259,7 +259,7 @@ def loss_function(preds, labels, mu, logvar, train_info_bufs, discrim, device):
                         'reward': 0.2,
                         'done': 0.2,
                         'act_log_probs': 0.2,
-                        'discrim': 1.0}
+                        'gen_adv': 1.0}
 
     # Reconstruction loss
     losses = []
@@ -290,9 +290,11 @@ def loss_function(preds, labels, mu, logvar, train_info_bufs, discrim, device):
     loss = sum(losses)
     train_info_bufs['total recon w/o KL'].append(loss.item())
 
-    discrim_loss = discrim_loss_function(preds, labels, train_info_bufs, discrim, device)
+    gen_loss, discrim_loss = adversarial_loss_function(preds, labels, train_info_bufs, discrim, device)
+    train_info_bufs['gen_adv'].append(gen_loss.item())
+    train_info_bufs['discrim_adv'].append(discrim_loss.item())
 
-    discrim_loss = discrim_loss * loss_hyperparams['discrim']
+    gen_loss = gen_loss * loss_hyperparams['gen_adv']
 
     # see Appendix B from VAE paper:
     # Kingma and Welling. Auto-Encoding Variational Bayes. ICLR, 2014
@@ -303,9 +305,9 @@ def loss_function(preds, labels, mu, logvar, train_info_bufs, discrim, device):
     kl_divergence = torch.mean(kl_divergence)  # Mean along batch dim
     train_info_bufs['KL'].append(kl_divergence.item())
 
-    return loss + kl_divergence + discrim_loss, train_info_bufs
+    return loss + kl_divergence + gen_loss, train_info_bufs
 
-def discrim_loss_function(preds, labels, train_info_bufs, discrim, device):
+def adversarial_loss_function(preds, labels, train_info_bufs, discrim, device):
     batch_size = labels['reward'].shape[0]
 
     ## Make labels
@@ -318,26 +320,30 @@ def discrim_loss_function(preds, labels, train_info_bufs, discrim, device):
     fake_data_preds = discrim_preds[:batch_size]
     real_data_preds = discrim_preds[batch_size:]
 
-    discrim_loss = torch.mean(torch.log(real_data_preds)) + \
-                   torch.mean(torch.log(torch.ones_like(fake_data_preds) - \
-                                        fake_data_preds))
+    discrim_loss = (torch.mean(real_data_preds) - 1) ** 2 + \
+                   torch.mean(fake_data_preds) ** 2
+    gen_loss = (torch.mean(fake_data_preds) - 1) ** 2
+    # discrim_loss = torch.mean(torch.log(real_data_preds)) + \
+    #                torch.mean(torch.log(torch.ones_like(fake_data_preds) - \
+    #                                     fake_data_preds))
     print(torch.mean(real_data_preds),
           torch.mean(fake_data_preds))
     # discrim_loss = discrim_labels * (-1*torch.log(discrim_preds)) + \
     #                 (torch.ones_like(discrim_labels) - discrim_labels) * \
     #                 (-1*torch.log(torch.ones_like(discrim_preds) - discrim_preds))
 
-    discrim_loss = discrim_loss.mean()
+    # discrim_loss = discrim_loss.mean()
     if discrim_loss.isnan():
         print(real_data_preds, fake_data_preds)
 
     ## Log the discriminator loss
-    train_info_bufs['Discrim'].append(discrim_loss.item())
-    return discrim_loss
+    # train_info_bufs['Discrim'].append(discrim_loss.item())
+    #TODO logging of gen loss
+    return gen_loss, discrim_loss
 
 def train(epoch, args, train_loader, optimizer, gen_model, agent, discrim, discrim_optimizer, logger, save_dir, device):
     # Set up logging objects
-    loss_keys = ['obs', 'hx', 'done', 'reward', 'act_log_probs', 'KL', 'total recon w/o KL', 'Discrim']
+    loss_keys = ['obs', 'hx', 'done', 'reward', 'act_log_probs', 'KL', 'total recon w/o KL', 'gen_adv', 'discrim_adv']
     train_info_bufs = {k:deque(maxlen=100) for k in loss_keys}
     logger.info('Start training epoch {}'.format(epoch))
 
@@ -371,9 +377,10 @@ def train(epoch, args, train_loader, optimizer, gen_model, agent, discrim, discr
         optimizer.zero_grad()
         discrim_optimizer.zero_grad()
         preds = {k:[v_i.detach() for v_i in v] for k, v in preds.items()}
-        discrim_loss = discrim_loss_function(preds, data, train_info_bufs,
-                                             discrim, device)
-        (-discrim_loss).backward()
+        _, discrim_loss = adversarial_loss_function(preds, data,
+                                                           train_info_bufs,
+                                                           discrim, device)
+        (discrim_loss).backward()
         torch.nn.utils.clip_grad_norm_(discrim.parameters(), 0.001)
         discrim_optimizer.step()
 
