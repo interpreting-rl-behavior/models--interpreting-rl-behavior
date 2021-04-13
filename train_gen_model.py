@@ -313,6 +313,9 @@ def adversarial_loss_function(preds, labels, discrim, device):
     """
     An intro to GAN loss functions here:
     https://developers.google.com/machine-learning/gan/loss
+
+    An intro to VAE-GANs here, the original paper:
+    https://arxiv.org/pdf/1512.09300.pdf
     """
     batch_size = labels['reward'].shape[0]
 
@@ -370,13 +373,14 @@ def train(epoch, args, train_loader, optimizer, gen_model, agent, discrim, discr
         # learn when most of the frame isn't pitch black
 
         # Get input data for generative model (only taking inp_seq_len timesteps)
-        obs = data['obs'][:, 0:train_loader.dataset.inp_seq_len]
+        full_obs = data['obs']
+        inp_obs = data['obs'][:, 0:train_loader.dataset.inp_seq_len]
         agent_hx = data['hx'][:, 0:train_loader.dataset.inp_seq_len]
         actions_all = data['action']
 
         # Forward and backward pass and update generative model parameters
         optimizer.zero_grad()
-        mu, logvar, preds = gen_model(obs, agent_hx, actions_all,
+        mu, logvar, preds = gen_model(inp_obs, agent_hx, actions_all,
                                       use_true_actions=True)
         loss, train_info_bufs = loss_function(args, preds, data, mu, logvar,
                                               train_info_bufs, discrim, device)
@@ -431,26 +435,39 @@ def train(epoch, args, train_loader, optimizer, gen_model, agent, discrim, discr
 
         # viz for debugging only
         if batch_idx % 1000 == 0 or (epoch < 2 and batch_idx % 200 == 0):
+
             with torch.no_grad():
+                pred_obs = torch.stack(preds['obs'], dim=1).squeeze()
+
                 viz_batch_size = 20
-                vae_latent_size = 128
-                samples = torch.randn(viz_batch_size, vae_latent_size)
-                samples = samples.to(device)
-                samples = gen_model.decoder(samples, true_actions=None)[0]
-                samples = torch.stack(samples, dim=1)
+                viz_batch_size = min(int(pred_obs.shape[0]), viz_batch_size)
+
                 for b in range(viz_batch_size):
-                    sample = samples[b].permute(0, 2, 3, 1)
-                    sample = sample * 255
-                    sample = sample.clone().detach().type(
-                        torch.uint8).cpu().numpy()
-                    save_str = save_dir + '/sample_' + str(
-                        epoch) + '_' + str(batch_idx) + '_' + str(
-                        b) + '.mp4'
-                    tvio.write_video(save_str, sample, fps=14)
+                    pred_ob = pred_obs[b].permute(0, 2, 3, 1)
+                    full_ob = full_obs[b].permute(0, 2, 3, 1)
+
+                    pred_ob = pred_ob * 255
+
+                    pred_ob = \
+                        pred_ob.clone().detach().type(
+                            torch.uint8).cpu().numpy()
+                    full_ob = \
+                        full_ob.clone().detach().type(
+                            torch.uint8).cpu().numpy()
+
+                    # Join the prediction and the true observation side-by-side
+                    combined_ob = np.concatenate([pred_ob, full_ob], axis=2)
+
+                    # Save vid
+                    save_str = save_dir + '/recons_v_preds' + '/sample_' + \
+                               str(epoch) + '_' + str(batch_idx) + '_' + \
+                               str(b) + '.mp4'
+                    tvio.write_video(save_str, combined_ob, fps=14)
 
 
-def demo_recon_quality(epoch, train_loader, optimizer, gen_model, agent, logger,
+def demo_recon_quality(epoch, train_loader, optimizer, gen_model, logger,
           save_dir, device):
+
     # Set up logging objects
     logger.info('Demonstrating reconstruction and prediction quality')
 
