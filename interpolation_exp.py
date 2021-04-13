@@ -5,7 +5,7 @@ In this experiment, we take two randomly chosen VAE latent space vectors and
 we generate samples corresponding to the points along the line between them.
 
 The purpose of this experiment is to show that the latent space has captured
-realistic environment dynamics throughout the latent space. 
+realistic environment dynamics throughout the latent space.
 
 """
 from common.env.procgen_wrappers import *
