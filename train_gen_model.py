@@ -367,12 +367,14 @@ def train(epoch, args, train_loader, optimizer, gen_model, agent, discrim, discr
     # Training cycle
     for batch_idx, data in enumerate(train_loader):
 
+        # Make all data into floats and put on the right device
         data = {k: v.to(device).float() for k, v in data.items()}
 
         data['obs'] = data['obs'].clamp(min=1.) # It's easier for the model to
         # learn when most of the frame isn't pitch black
 
-        # Get input data for generative model (only taking inp_seq_len timesteps)
+        # Get input data for generative model (only taking the first
+        # n=inp_seq_len timesteps)
         full_obs = data['obs']
         inp_obs = data['obs'][:, 0:train_loader.dataset.inp_seq_len]
         agent_hx = data['hx'][:, 0:train_loader.dataset.inp_seq_len]
@@ -433,7 +435,7 @@ def train(epoch, args, train_loader, optimizer, gen_model, agent, discrim, discr
                     model_path)
             logger.info('Generative model saved to {}'.format(model_path))
 
-        # viz for debugging only
+        # Visualize the predictions compared with the ground truth
         if batch_idx % 1000 == 0 or (epoch < 2 and batch_idx % 200 == 0):
 
             with torch.no_grad():
@@ -443,17 +445,18 @@ def train(epoch, args, train_loader, optimizer, gen_model, agent, discrim, discr
                 viz_batch_size = min(int(pred_obs.shape[0]), viz_batch_size)
 
                 for b in range(viz_batch_size):
+                    # Put channel dim to the end
                     pred_ob = pred_obs[b].permute(0, 2, 3, 1)
                     full_ob = full_obs[b].permute(0, 2, 3, 1)
 
+                    # Make predictions and ground truth into right format for
+                    #  video saving
                     pred_ob = pred_ob * 255
 
-                    pred_ob = \
-                        pred_ob.clone().detach().type(
-                            torch.uint8).cpu().numpy()
-                    full_ob = \
-                        full_ob.clone().detach().type(
-                            torch.uint8).cpu().numpy()
+                    pred_ob = pred_ob.clone().detach().type(torch.uint8)
+                    pred_ob = pred_ob.cpu().numpy()
+                    full_ob = full_ob.clone().detach().type(torch.uint8)
+                    full_ob = full_ob.cpu().numpy()
 
                     # Join the prediction and the true observation side-by-side
                     combined_ob = np.concatenate([pred_ob, full_ob], axis=2)
@@ -499,15 +502,18 @@ def demo_recon_quality(epoch, train_loader, optimizer, gen_model, logger,
             viz_batch_size = min(int(pred_obs.shape[0]), viz_batch_size)
 
             for b in range(viz_batch_size):
+                # Put channel dim to the end
                 pred_ob = pred_obs[b].permute(0, 2, 3, 1)
                 full_ob = full_obs[b].permute(0, 2, 3, 1)
 
+                # Make predictions and ground truth into right format for
+                #  video saving
                 pred_ob = pred_ob * 255
 
-                pred_ob = \
-                    pred_ob.clone().detach().type(torch.uint8).cpu().numpy()
-                full_ob = \
-                    full_ob.clone().detach().type(torch.uint8).cpu().numpy()
+                pred_ob = pred_ob.clone().detach().type(torch.uint8)
+                pred_ob = pred_ob.cpu().numpy()
+                full_ob = full_ob.clone().detach().type(torch.uint8)
+                full_ob = full_ob.cpu().numpy()
 
                 # Join the prediction and the true observation side-by-side
                 combined_ob = np.concatenate([pred_ob, full_ob], axis=2)
