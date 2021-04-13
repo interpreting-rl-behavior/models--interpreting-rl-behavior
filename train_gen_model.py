@@ -354,6 +354,9 @@ def train(epoch, args, train_loader, optimizer, gen_model, agent, discrim, discr
 
         data = {k: v.to(device).float() for k, v in data.items()}
 
+        data['obs'] = data['obs'].clamp(min=1.) # It's easier for the model to
+        # learn when most of the frame isn't pitch black
+
         # Get input data for generative model (only taking inp_seq_len timesteps)
         obs = data['obs'][:, 0:train_loader.dataset.inp_seq_len]
         agent_hx = data['hx'][:, 0:train_loader.dataset.inp_seq_len]
