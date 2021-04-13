@@ -21,14 +21,22 @@ from datetime import datetime
 class LatentSpaceExperiment():
     def __init__(self, args):
         """
-        A class on which several other experiment classes are based.
+        A class for experiments that involve sampling from a VAE latent space.
 
-        Its basic function is to have all the necessary infrastructure for
+        Its purpose is to have all the infrastructure necessary for
         running experiments that involve generating samples from the latent
-        space of the VAE. It therefore accommodates:
+        space of the VAE. It therefore accommodates the following experiments:
           - TargetFunctionExperiments
           - LatentSpaceInterpolationExperiment
           - LatentSpaceStructureExplorationExperiment
+
+        It is necessary because there is a lot of bumf involved in setting up
+        the generative model. Setting up the generative model requires:
+          - Setting a bunch of hyperparams
+          - Creating dummy environment and storage objects for the
+              instantiation of the agent
+          - Instantiating the agent that will be used in the decoder
+          - Any infrastructure for loading any of the above
         """
         super(LatentSpaceExperiment, self).__init__()
 
@@ -38,12 +46,10 @@ class LatentSpaceExperiment():
         seed = args.seed
         log_level = args.log_level
         num_checkpoints = args.num_checkpoints
-
         batch_size = args.batch_size
         num_recon_obs = args.num_recon_obs
         num_pred_steps = args.num_pred_steps
         total_seq_len = num_recon_obs + num_pred_steps
-
         set_global_seeds(seed)
         set_global_log_levels(log_level)
 
@@ -81,17 +87,6 @@ class LatentSpaceExperiment():
         n_envs = hyperparameters.get('n_envs', 64)
         env = create_venv(args, hyperparameters)
 
-        # # Logger
-        # print('INITIALIZING LOGGER...')
-        # logdir_base = 'generative/'
-        # if not (os.path.exists(logdir_base)):
-        #     os.makedirs(logdir_base)
-        # resdir = logdir_base + 'results/'
-        # if not (os.path.exists(resdir)):
-        #     os.makedirs(resdir)
-        # resdir = resdir + args.tgm_exp_name
-        # if not (os.path.exists(resdir)):
-        #     os.makedirs(resdir)
         #
         # # TODO put exp name as main dir then this as subdir
         # gen_model_session_name = datetime.now().strftime("%Y%m%d_%H%M%S")
@@ -181,27 +176,6 @@ class LatentSpaceExperiment():
         # self.sess_dir = sess_dir
         self.device = device
         self.logger = logger
-        #logger.info('Start training epoch {}'.format(epoch))
-
-
-        # for epoch in range(0, args.epochs + 1):
-        #
-        #     # Visualise random samples
-        #     if epoch % 10 == 0:
-        #         with torch.no_grad():
-        #             viz_batch_size = 20
-        #             vae_latent_size = 128
-        #             samples = torch.randn(viz_batch_size, vae_latent_size).to(device)
-        #             samples = torch.stack(gen_model.decoder(samples,
-        #                                                     true_actions=None)[0], dim=1)
-        #             for b in range(viz_batch_size):
-        #                 sample = samples[b].permute(0, 2, 3, 1)
-        #                 sample = sample * 255
-        #                 sample = sample.clone().detach().type(torch.uint8).cpu().numpy()
-        #                 save_str = sess_dir + '/sample_' + str(
-        #                     epoch) + '_' + str(epoch) + '_' + str(
-        #                     b) + '.mp4'
-        #                 tvio.write_video(save_str, sample, fps=14)
 
     def demo_recon_quality(self, epoch, args, train_loader, optimizer, gen_model, agent, logger,
               save_dir, device):

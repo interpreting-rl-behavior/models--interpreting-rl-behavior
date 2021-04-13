@@ -1,21 +1,29 @@
-from common.env.procgen_wrappers import *
-from common.logger import Logger
-from common.storage import Storage
-from common.model import NatureModel, ImpalaModel
-from common.policy import CategoricalPolicy
-from common import set_global_seeds, set_global_log_levels
+"""
+An experiment that does interpolation in the latent space.
 
-import os, time, yaml, argparse
-import gym
-from procgen import ProcgenEnv
+In this experiment, we take two randomly chosen VAE latent space vectors and
+we generate samples corresponding to the points along the line between them.
+
+The purpose of this experiment is to show that the latent space has captured
+realistic environment dynamics throughout the latent space. 
+
+"""
+from common.env.procgen_wrappers import *
+# from common.logger import Logger
+# from common.storage import Storage
+# from common.model import NatureModel, ImpalaModel
+# from common.policy import CategoricalPolicy
+# from common import set_global_seeds, set_global_log_levels
+
+import os, argparse #time, yaml,
+# import gym
+# from procgen import ProcgenEnv
 import random
 import torch
-import pandas as pd
+#import pandas as pd
 from latent_space_experiment import LatentSpaceExperiment
 from datetime import datetime
 import torchvision.io as tvio
-
-
 
 if __name__=='__main__':
     parser = argparse.ArgumentParser()
