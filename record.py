@@ -5,6 +5,7 @@ from common.model import NatureModel, ImpalaModel
 from common.policy import CategoricalPolicy
 from common import set_global_seeds, set_global_log_levels
 
+from datetime import datetime
 import os, time, yaml, argparse
 import gym
 from procgen import ProcgenEnv
@@ -57,7 +58,10 @@ if __name__=='__main__':
 
     # Device
     os.environ["CUDA_VISIBLE_DEVICES"] = str(gpu_device)
-    device = torch.device('cuda')
+    if args.device == 'gpu':
+        device = torch.device('cuda')
+    elif args.device == 'cpu':
+        device = torch.device('cpu')
 
     # Environment
     print('INITIALIZAING ENVIRONMENTS...')
@@ -164,11 +168,13 @@ if __name__=='__main__':
 
     max_episodes = 10
 
-    ## Make dirs for files #TODO add some unique identifier so you don't end up with a bunch of partial episodes due to overwriting
-    dir_name = logdir + 'episode' + str(episode_number)
-    if os.path.exists(dir_name):
-        raise UserWarning("You are overwriting your previous data! Delete " + \
-                          "or move your old dataset first.")
+    # Get model name from path (e.g. logs/procgen/coinrun/dummy_agent/seed_3/model_2.pth -> model_2)
+    model_name = args.model_file.split('/')[-1].split('.')[0]
+    # Unique identifier for session
+    record_session_id = datetime.now().strftime("%Y%m%d_%H%M%S%f")[:-3]
+    # Unique dir_name for saving recordings
+    dir_name = logdir + model_name + '_' + record_session_id + '/'
+
     if not (os.path.exists(dir_name)):
         os.makedirs(dir_name)
 
@@ -208,12 +214,12 @@ if __name__=='__main__':
         episode_steps += 1
 
         if done[0]:  # At end of episode
-            data.to_csv(logdir + f'data_gen_model_{episode_number}.csv', index=False) #TODO change so that it doesn't get slower over time due to the growing size of the data csv. save each individually then combine once done.
+            data.to_csv(dir_name + f'data_gen_model_{episode_number}.csv', index=False)
 
             # Make dirs for files
-            dir_name = logdir + 'episode' + str(episode_number)
-            if not (os.path.exists(dir_name)):
-                os.makedirs(dir_name)
+            episode_dir = dir_name + 'episode' + str(episode_number) + '/'
+            if not (os.path.exists(episode_dir)):
+                os.makedirs(episode_dir)
 
             # Stack arrays for this episode into one array
             obs_array = np.stack(obs_list).squeeze()
@@ -221,9 +227,9 @@ if __name__=='__main__':
             lp_array  = np.stack(logprob_list).squeeze()
 
             # Prepare names for saving
-            obs_name = dir_name + '/' + 'ob.npy'
-            hx_name = dir_name + '/' + 'hx.npy'
-            lp_name = dir_name + '/' + 'lp.npy'
+            obs_name = episode_dir + 'ob.npy'
+            hx_name = episode_dir + 'hx.npy'
+            lp_name = episode_dir + 'lp.npy'
 
             # Save stacked array
             np.save(obs_name, np.array(obs_array * 255, dtype=np.uint8))
@@ -250,9 +256,9 @@ if __name__=='__main__':
     print("Combining datasets")
     data = pd.DataFrame(columns=column_names)
     for e in range(episode_number):
-        epi_filename = logdir + f'data_gen_model_{e}.csv'
+        epi_filename = dir_name + f'data_gen_model_{e}.csv'
         data_e = pd.read_csv(epi_filename)
         data = data.append(data_e)
         os.remove(epi_filename)
-    data.to_csv(logdir + f'data_gen_model.csv',
+    data.to_csv(dir_name + f'data_gen_model.csv',
                 index=False)
