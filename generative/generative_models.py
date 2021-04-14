@@ -431,21 +431,23 @@ class DecoderNetwork(nn.Module):
         super(DecoderNetwork, self).__init__()
         self.action_dim = 15
         agent_hidden_size = 64
+        hid_ch = 64
+        env_h_hw = 16
 
         # Initializers
         self.inithidden_network = TwoLayerPerceptron(
             insize=128,
             outsize=agent_hidden_size)
-        self.env_init_network = EnvStepperInitializer(device=device, vae_latent_size=128)
-        hid_ch = 64
+        self.env_init_network = EnvStepperInitializer(device=device, env_h_hw=env_h_hw, vae_latent_size=128)
+
 
         # Stepper (the one that gets unrolled)
-        self.env_stepper      = EnvStepper(agent, env_h_ch=hid_ch, env_h_hw=8, vae_latent_size=128)
+        self.env_stepper      = EnvStepper(agent, env_h_ch=hid_ch, env_h_hw=env_h_hw, vae_latent_size=128)
 
         # Decoders (used at every timestep
-        self.reward_decoder = RewardDecoder(device)
-        self.done_decoder   = DoneDecoder(device)
-        self.obs_decoder    = ObservationDecoder(device)
+        self.reward_decoder = RewardDecoder(device, env_h_hw=env_h_hw)
+        self.done_decoder   = DoneDecoder(device, env_h_hw=env_h_hw)
+        self.obs_decoder    = ObservationDecoder(device, env_h_hw=env_h_hw)
         self.agent = agent
         self.num_unroll_steps = num_unroll_steps
 
@@ -586,14 +588,17 @@ class EnvStepperInitializer(nn.Module):
         self.env_h_ch = env_h_ch
         self.env_h_hw = env_h_hw
         self.fc = nn.Linear(vae_latent_size,
-                            int((env_h_ch*env_h_hw*env_h_hw)/(2**2)))
-        self.resblockup = lyr.ResBlockUp(in_channels=hid_ch,
+                            int((env_h_ch*env_h_hw*env_h_hw)/(4**2)))
+        self.resblockup1 = lyr.ResBlockUp(in_channels=hid_ch,
                                          out_channels=hid_ch,
                                          hw=4)
-        self.norm1 = nn.LayerNorm([hid_ch, 8, 8])
-        self.norm2 = nn.LayerNorm([hid_ch, 8, 8])
-        self.norm3 = nn.LayerNorm([hid_ch, 8, 8])
-        self.norm4 = nn.LayerNorm([hid_ch, 8, 8])
+        self.resblockup2 = lyr.ResBlockUp(in_channels=hid_ch,
+                                         out_channels=hid_ch,
+                                         hw=8)
+        self.norm1 = nn.LayerNorm([hid_ch, env_h_hw, env_h_hw])
+        self.norm2 = nn.LayerNorm([hid_ch, env_h_hw, env_h_hw])
+        self.norm3 = nn.LayerNorm([hid_ch, env_h_hw, env_h_hw])
+        self.norm4 = nn.LayerNorm([hid_ch, env_h_hw, env_h_hw])
 
         self.resblock1 = lyr.ResidualBlock(hid_ch)
         self.resblock2 = lyr.ResidualBlock(hid_ch)
@@ -601,9 +606,10 @@ class EnvStepperInitializer(nn.Module):
 
     def forward(self, x):
         x = self.fc(x)
-        x = self.resblockup(x.view(x.shape[0],       self.env_h_ch,
-                                   self.env_h_hw//2, self.env_h_hw//2)
+        x = self.resblockup1(x.view(x.shape[0],       self.env_h_ch,
+                                   self.env_h_hw//4, self.env_h_hw//4)
                             )
+        x = self.resblockup2(x)
         x = self.norm1(x)
         x = self.resblock1(x)
         x = self.norm2(x)
@@ -650,9 +656,9 @@ class EnvStepper(nn.Module):
                                          vec_size=(action_dim+vae_latent_size))
         # EnvStepper hidden state shape is 8x8x128
         self.attention = lyr.Attention(hid_ch)
-        self.norm1 = nn.LayerNorm([hid_ch, 8, 8])
-        self.norm2 = nn.LayerNorm([hid_ch, 8, 8])
-        self.norm3 = nn.LayerNorm([hid_ch, 8, 8])
+        self.norm1 = nn.LayerNorm([hid_ch, env_h_hw, env_h_hw])
+        self.norm2 = nn.LayerNorm([hid_ch, env_h_hw, env_h_hw])
+        self.norm3 = nn.LayerNorm([hid_ch, env_h_hw, env_h_hw])
         self.resblock = lyr.ResidualBlock(hid_ch)
 
     def forward(self, vae_sample, act, h=None):
@@ -682,8 +688,8 @@ class ObservationDecoder(nn.Module):
         hw0 = env_h_hw
 
         self.resblockup1 = lyr.ResBlockUp(ch0,    ch0//2, hw=hw0)
-        self.resblockup2 = lyr.ResBlockUp(ch0//2, ch0//4, hw=hw0*2)
-        self.resblockup3 = lyr.ResBlockUp(ch0//4, 3,      hw=hw0*4)
+        self.resblockup2 = lyr.ResBlockUp(ch0//2, 3, hw=hw0*2)
+        #self.resblockup3 = lyr.ResBlockUp(ch0//4, 3,      hw=hw0*4)
         self.attention = lyr.Attention(ch0 // 2)
         # self.net = nn.Sequential(self.resblockup1,
         #                          self.attention,
@@ -694,7 +700,7 @@ class ObservationDecoder(nn.Module):
         x = self.resblockup1(x)
         x = self.attention(x)
         x = self.resblockup2(x)
-        x = self.resblockup3(x)
+        #x = self.resblockup3(x)
         x = ( torch.tanh(x) / 2.) + 0.5
         return x
 
@@ -727,7 +733,8 @@ class RewardDecoder(nn.Module):
         ch0 = env_h_ch
         self.resblockdown = lyr.ResBlockDown(ch0,ch0//4,
                                downsample=nn.AvgPool2d(kernel_size=2))
-        self.fc = nn.Linear(4*4*(ch0//4), 1)
+        half_env_h_hw = env_h_hw//2
+        self.fc = nn.Linear(half_env_h_hw*half_env_h_hw*(ch0//4), 1)
 
     def forward(self, x):
         x = self.resblockdown(x)
@@ -764,61 +771,10 @@ class DoneDecoder(nn.Module):
         ch0 = env_h_ch
         self.resblockdown = lyr.ResBlockDown(ch0,ch0//4,
                                downsample=nn.AvgPool2d(kernel_size=2))
-        self.fc = nn.Linear(4*4*(ch0//4), 1)
+        half_env_h_hw = env_h_hw//2
+        self.fc = nn.Linear(half_env_h_hw*half_env_h_hw*(ch0//4), 1)
 
     def forward(self, x):
         x = self.resblockdown(x)
         x = self.fc(x.view(x.shape[0], -1))
         return torch.sigmoid(x)
-
-
-class DiscriminatorConv(nn.Module):
-    """Discriminator of VAE-GAN
-    """
-    def __init__(self, device):
-        super(DiscriminatorConv, self).__init__()
-
-        # Network
-        ## A conv net that has two branches that join and uses attention
-        hid_ch = 64
-        self.conv0 = nn.Conv2d(in_channels=3, out_channels=hid_ch,
-                               kernel_size=3, padding=1).to(device)
-        self.pool = nn.AvgPool2d(kernel_size=2).to(device)
-        self.resdown1 = lyr.ResBlockDown(hid_ch, hid_ch, downsample=self.pool).to(device)
-        self.resdown2 = lyr.ResBlockDown(hid_ch, hid_ch, downsample=self.pool).to(device)
-        self.resdown3 = lyr.ResBlockDown(hid_ch, hid_ch,
-                                         downsample=self.pool).to(device)
-        self.resdown4 = lyr.ResBlockDown(hid_ch, hid_ch,
-                                         downsample=self.pool).to(device)
-        self.attention = lyr.Attention(hid_ch).to(device)
-        self.res1x1 = lyr.ResOneByOne(hid_ch + hid_ch + hid_ch, hid_ch).to(device)
-
-
-    def forward(self, ob):
-        z = self.conv0(ob)
-        x1 = self.resdown1(z)
-        x2 = self.resdown2(x1)
-        x3 = self.attention(x2)
-        x12 = torch.cat([self.pool(x1), x2], dim=1)
-        z = self.res1x1(x3, x12)
-        z = self.resdown3(z)
-        z = self.resdown4(z)
-        z = torch.mean(z, dim=[1,2,3])
-
-        return z
-
-class Discriminator(nn.Module):
-    """Discriminator of VAE-GAN
-    """
-    def __init__(self, device):
-        super(Discriminator, self).__init__()
-        self.conv = DiscriminatorConv(device)
-
-    def forward(self, obs):
-        seq_len = obs.shape[1]
-        preds = []
-        for t in range(seq_len):
-            preds.append(self.conv(obs[:,t]))
-        preds = torch.mean(torch.stack(preds, dim=1), dim=1)
-        preds = torch.sigmoid(preds)
-        return preds
