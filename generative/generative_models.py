@@ -773,15 +773,19 @@ class DoneDecoder(nn.Module):
 
 
 class DiscriminatorConv(nn.Module):
-    """Discriminator of VAE-GAN
+    """Convolutional net applied iteratively in Discriminator of VAE-GAN.
+
+    It has two outputs, the real-fake predictions (which are meaned to get
+    real-fake prediction for the whole sequence) and the l-th layer output,
+    which are used as features for a learned similarity metric that is used
+    in the VAE-GAN loss function.
     """
     def __init__(self, device):
         super(DiscriminatorConv, self).__init__()
 
         # Network
-        ## A conv net that has two branches that join and uses attention
         hid_ch = 64
-        self.conv0 = nn.Conv2d(in_channels=3, out_channels=hid_ch,
+        self.conv0 = nn.Conv2d(in_channels=3*2, out_channels=hid_ch,
                                kernel_size=3, padding=1).to(device)
         self.pool = nn.AvgPool2d(kernel_size=2).to(device)
         self.resdown1 = lyr.ResBlockDown(hid_ch, hid_ch, downsample=self.pool).to(device)
@@ -791,6 +795,7 @@ class DiscriminatorConv(nn.Module):
         self.resdown4 = lyr.ResBlockDown(hid_ch, hid_ch,
                                          downsample=self.pool).to(device)
         self.attention = lyr.Attention(hid_ch).to(device)
+        self.linear = torch.nn.Linear(64*4*4, 1).to(device)
         self.res1x1 = lyr.ResOneByOne(hid_ch + hid_ch + hid_ch, hid_ch).to(device)
 
 
@@ -801,14 +806,19 @@ class DiscriminatorConv(nn.Module):
         x3 = self.attention(x2)
         x12 = torch.cat([self.pool(x1), x2], dim=1)
         z = self.res1x1(x3, x12)
-        z = self.resdown3(z)
-        z = self.resdown4(z)
-        z = torch.mean(z, dim=[1,2,3])
+        lth_layer = self.resdown3(z)
+        # now 64 * 8 * 8
+        z = self.resdown4(lth_layer)
+        z = self.linear(z.view(z.shape[0], -1))
 
-        return z
+        return z, lth_layer
 
 class Discriminator(nn.Module):
     """Discriminator of VAE-GAN
+
+    Takes a batch of image sequences as input. It sequentially passes pairs of
+    observations into a conv net and decides whether each sequence as a whole
+    is a real or fake sequence.
     """
     def __init__(self, device):
         super(Discriminator, self).__init__()
@@ -816,9 +826,14 @@ class Discriminator(nn.Module):
 
     def forward(self, obs):
         seq_len = obs.shape[1]
-        preds = []
-        for t in range(seq_len):
-            preds.append(self.conv(obs[:,t]))
-        preds = torch.mean(torch.stack(preds, dim=1), dim=1)
-        preds = torch.sigmoid(preds)
-        return preds
+        class_preds = []
+        metric_features = []
+        for t in range(seq_len-1):
+            inp_image_pair = [obs[:,x] for x in [t, t+1]]
+            inp_image_pair = torch.cat(inp_image_pair, dim=1) #channel dim
+            class_pred, metric_feat = self.conv(inp_image_pair)
+            class_preds.append(class_pred)
+            metric_features.append(metric_feat)
+        class_preds = torch.mean(torch.stack(class_preds, dim=1), dim=1)
+        class_preds = torch.sigmoid(class_preds)
+        return class_preds, metric_features
