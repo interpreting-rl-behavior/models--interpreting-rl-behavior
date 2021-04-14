@@ -68,6 +68,8 @@ def run():
     parser.add_argument('--loss_scale_done', type=float, default=1.)
     parser.add_argument('--loss_scale_act_log_probs', type=float, default=1.)
     parser.add_argument('--loss_scale_gen_adv', type=float, default=1.)
+    parser.add_argument('--content_loss_scale', type=float, default=1.)
+
 
     # Set hyperparameters
     args = parser.parse_args()
@@ -183,30 +185,28 @@ def run():
 
     ## Make or load generative model and optimizer
     # TODO set up optimizers for each of the THREE parameter sets
-    # TODO consider changing discrim so that it is just applied once to all
-    #  images in the outputted sequence that are concat along the channel dim.
+
     # TODO keep the usual reconstruction losses (and just group them and call
     #  them that and have pretty small params for them. They're necessary for
     #  sequences and for your non-obs vectors which will be harder to incorp
     #  into the GAN part.
-    if args.use_discriminator:
-        discrim = Discriminator(device)
-        discrim_optimizer = torch.optim.Adam(discrim.parameters(), lr=args.lr)
-    else:
-        discrim = None
-        discrim_optimizer = None
 
+    discrim = Discriminator(device)
+    discrim_optimizer = torch.optim.Adam(discrim.parameters(), lr=args.lr)
     gen_model = VAE(agent, device, num_recon_obs, num_pred_steps)
     gen_model = gen_model.to(device)
-    optimizer = torch.optim.Adam(gen_model.parameters(), lr=args.lr)
+    enc_optimizer = torch.optim.Adam(gen_model.encoder.parameters(), lr=args.lr)
+    dec_optimizer = torch.optim.Adam(gen_model.decoder.parameters(), lr=args.lr)
+
 
     if args.model_file is not None:
         checkpoint = torch.load(args.model_file, map_location=device)
         gen_model.load_state_dict(checkpoint['gen_model_state_dict'], device)
-        optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
-        if args.use_discriminator:
-            discrim.load_state_dict(checkpoint['discrim_state_dict'], device)
-            discrim_optimizer.load_state_dict(checkpoint['discrim_optimizer_state_dict'])
+        enc_optimizer.load_state_dict(checkpoint['enc_optimizer_state_dict'])
+        dec_optimizer.load_state_dict(checkpoint['dec_optimizer_state_dict'])
+
+        discrim.load_state_dict(checkpoint['discrim_state_dict'], device)
+        discrim_optimizer.load_state_dict(checkpoint['discrim_optimizer_state_dict'])
         logger.info('Loaded generative model from {}.'.format(args.model_file))
     else:
         logger.info('Training generative model from scratch.')
@@ -216,7 +216,8 @@ def run():
     ##     reconstruction quality)
     for epoch in range(0, args.epochs + 1):
 
-        train(epoch, args, train_loader, optimizer, gen_model, agent, discrim,
+        train(epoch, args, train_loader, enc_optimizer, dec_optimizer,
+              gen_model, agent, discrim,
               discrim_optimizer, logger, sess_dir, device)
 
         # Save visualized random samples
@@ -241,11 +242,12 @@ def run():
         # Demonstrate reconsruction and prediction quality by comparing preds
         # with ground truth (the closes thing a VAE gets to validation because
         # there are no labels).
-        demo_recon_quality(epoch, train_loader, optimizer, gen_model,
+        demo_recon_quality(epoch, train_loader, enc_optimizer, dec_optimizer,
+                           gen_model,
                            logger, sess_dir, device)
 
 
-def loss_function(args, preds, labels, mu, logvar, train_info_bufs, discrim, device):
+def loss_function(args, preds, labels, mu, logvar, train_info_bufs, gen_model, discrim, device):
     """ Calculates the difference between predicted and actual:
         - observation
         - agent's recurrent hidden states
@@ -267,7 +269,7 @@ def loss_function(args, preds, labels, mu, logvar, train_info_bufs, discrim, dev
                         'gen_adv': args.loss_scale_gen_adv}
 
     # Reconstruction loss
-    losses = []
+    recon_losses = []
     for key in preds.keys():
         #if key in ['obs']: # for debugging only
         pred  = torch.stack(preds[key], dim=1).squeeze()
@@ -290,21 +292,16 @@ def loss_function(args, preds, labels, mu, logvar, train_info_bufs, discrim, dev
         #mse = F.mse_loss(pred, label) # TODO test whether MSE or MAbsE is better (I think the VQ-VAE2 paper suggested MAE was better)
         train_info_bufs[key].append(loss.item())
         loss = loss * loss_hyperparams[key]
-        losses.append(loss)
+        recon_losses.append(loss)
 
-    loss = sum(losses)
-    train_info_bufs['total recon w/o KL'].append(loss.item())
+    recon_loss = sum(recon_losses)
+    train_info_bufs['recon_loss'].append(recon_loss.item())
 
-    if discrim is not None:
-        gen_loss, discrim_loss = \
-            adversarial_loss_function(preds, labels,
-                                      discrim, device)
-        train_info_bufs['gen_adv'].append(gen_loss.item())
-        train_info_bufs['discrim_adv'].append(discrim_loss.item())
-
-        gen_loss = gen_loss * loss_hyperparams['gen_adv']
-    else:
-        gen_loss = 0.
+    # GAN loss
+    dissim_loss, gan_loss = \
+        adversarial_loss_functions(preds, labels, gen_model, discrim, device)
+    train_info_bufs['dissim_loss'].append(dissim_loss.item())
+    train_info_bufs['gan_loss'].append(gan_loss.item())
 
     # see Appendix B from VAE paper:
     # Kingma and Welling. Auto-Encoding Variational Bayes. ICLR, 2014
@@ -315,9 +312,9 @@ def loss_function(args, preds, labels, mu, logvar, train_info_bufs, discrim, dev
     kl_divergence = torch.mean(kl_divergence)  # Mean along batch dim
     train_info_bufs['KL'].append(kl_divergence.item())
 
-    return loss + kl_divergence + gen_loss, train_info_bufs
+    return kl_divergence, recon_loss, dissim_loss, gan_loss, train_info_bufs
 
-def adversarial_loss_function(preds, labels, discrim, device):
+def adversarial_loss_functions(preds, labels, gen_model, discrim, device):
     """
     An intro to GAN loss functions here:
     https://developers.google.com/machine-learning/gan/loss
@@ -326,46 +323,55 @@ def adversarial_loss_function(preds, labels, discrim, device):
     https://arxiv.org/pdf/1512.09300.pdf
     """
     batch_size = labels['reward'].shape[0]
+    vae_latent_size = 128
 
-    ## Make inputs for discriminator
-    pred_obs = torch.stack(preds['obs'], dim=0).permute([1,0,2,3,4])
-    discrim_inps = torch.cat([pred_obs, labels['obs']], dim=0)
-    # discrim labels are therefore [0.,...,0.,1.,...,1.]
+    # Make negative samples (X_p in Larsen et al. 2016)
+    neg_samples = torch.randn(batch_size, vae_latent_size)
+    neg_samples = neg_samples.to(device)
+    neg_samples = gen_model.decoder(neg_samples, true_actions=None)[0]
+    neg_samples = torch.stack(neg_samples, dim=0).permute([1, 0, 2, 3, 4])
 
-    ## Feed observations into discriminator and get loss
-    discrim_preds = discrim(discrim_inps)
-    fake_data_preds = discrim_preds[:batch_size]
-    real_data_preds = discrim_preds[batch_size:]
+    # We already have Larsen et al.'s X and X~ as labels['obs'] and
+    # preds['obs'] respectively
+    pred_obs = torch.stack(preds['obs'], dim=0).permute([1, 0, 2, 3, 4])
 
-    discrim_loss = (torch.mean(real_data_preds) - 1) ** 2 + \
-                   torch.mean(fake_data_preds) ** 2
-    gen_loss = (torch.mean(fake_data_preds) - 1) ** 2
-    # discrim_loss = torch.mean(torch.log(real_data_preds)) + \
-    #                torch.mean(torch.log(torch.ones_like(fake_data_preds) - \
-    #                                     fake_data_preds))
-    # #gen_loss = -1*discrim_loss # original loss
-    # gen_loss = torch.mean(torch.log(torch.ones_like(fake_data_preds))) # 'modified' loss
-    print(torch.mean(real_data_preds),
-          torch.mean(fake_data_preds))
-    # discrim_loss = discrim_labels * (-1*torch.log(discrim_preds)) + \
-    #                 (torch.ones_like(discrim_labels) - discrim_labels) * \
-    #                 (-1*torch.log(torch.ones_like(discrim_preds) - discrim_preds))
+    # Combine all three types of input for input discriminator
+    discrim_inps = torch.cat([labels['obs'], pred_obs, neg_samples], dim=0)
+    # discrim labels are therefore [1.,...,1.,0.,...,0.,0.,...,0.] and
+    # each segment is size batchsize
 
-    # discrim_loss = discrim_loss.mean()
-    if discrim_loss.isnan():
-        print(real_data_preds, fake_data_preds)
+    # Feed observations into discriminator
+    discrim_preds, metric_features = discrim(discrim_inps)
+    real_data_class_preds = discrim_preds[:batch_size]
+    recon_data_class_preds = discrim_preds[batch_size:batch_size*2]
+    neg_samples_class_preds = discrim_preds[batch_size*2:]
 
-    return gen_loss, discrim_loss
+    metric_features = torch.stack(metric_features, dim=1) #stack to make time dimension
+    real_data_mtr_ft = metric_features[:batch_size]
+    recon_data_mtr_ft = metric_features[batch_size:batch_size*2]
+    # neg_samples_mtr_ft = metric_features[batch_size*2:]
 
-def train(epoch, args, train_loader, optimizer, gen_model, agent, discrim, discrim_optimizer, logger, save_dir, device):
+    # Dissimilarity loss
+    dissim_loss = torch.mean(torch.square(real_data_mtr_ft - recon_data_mtr_ft), dim=[0,1,2,3,4])
+
+    # GAN loss
+    ones = torch.ones_like(recon_data_class_preds)
+    gan_loss = torch.mean(torch.log(real_data_class_preds)) + \
+                   torch.mean(torch.log(ones - recon_data_class_preds)) + \
+                   torch.mean(torch.log(ones - neg_samples_class_preds))
+
+    if gan_loss.isnan():
+        print(real_data_class_preds, recon_data_class_preds, neg_samples_class_preds)
+
+    return dissim_loss, gan_loss
+
+def train(epoch, args, train_loader, enc_optimizer, dec_optimizer, gen_model,
+          agent, discrim, discrim_optimizer, logger, save_dir, device):
 
     # Set up logging queue objects
-    if discrim is not None:
-        loss_keys = ['obs', 'hx', 'done', 'reward', 'act_log_probs', 'KL',
-                     'total recon w/o KL', 'gen_adv', 'discrim_adv']
-    else:
-        loss_keys = ['obs', 'hx', 'done', 'reward', 'act_log_probs', 'KL',
-                     'total recon w/o KL']
+    loss_keys = ['obs', 'hx', 'done', 'reward', 'act_log_probs', 'KL',
+                 'recon_loss', 'dissim_loss', 'gan_loss']
+
     # TODO clean up these names and just log everything
     train_info_bufs = {k:deque(maxlen=100) for k in loss_keys}
     logger.info('Start training epoch {}'.format(epoch))
@@ -390,32 +396,62 @@ def train(epoch, args, train_loader, optimizer, gen_model, agent, discrim, discr
         actions_all = data['action']
 
         # Forward and backward pass and update generative model parameters
-        optimizer.zero_grad()
+        zero_opt_grads([enc_optimizer, dec_optimizer, discrim_optimizer])
+
         mu, logvar, preds = gen_model(inp_obs, agent_hx, actions_all,
                                       use_true_actions=True)
-        loss, train_info_bufs = loss_function(args, preds, data, mu, logvar,
-                                              train_info_bufs, discrim, device)
+        kl_divergence, recon_loss, dissim_loss, gan_loss, train_info_bufs = \
+            loss_function(args, preds, data, mu, logvar, train_info_bufs,
+                          gen_model, discrim, device)
+
+        # Backward pass and collect gradients only for desired networks for each pass
+        ## Encoder loss
+        (kl_divergence + dissim_loss).backward(retain_graph=True) #-+-+
+        enc_grads = [p.grad.data for p in gen_model.encoder.parameters()]
+        #zero_opt_grads([enc_optimizer, dec_optimizer, discrim_optimizer])
+
+        ## Decoder loss
+        (((dissim_loss * args.content_loss_scale) + gan_loss)).backward(retain_graph=True)
+        dec_grads = [p.grad for p in gen_model.decoder.parameters()]
+        #zero_opt_grads([enc_optimizer, dec_optimizer, discrim_optimizer])
+
+        ## Discriminator loss
+        (-gan_loss).backward()#retain_graph=True)
+        discrim_grads =  [p.grad for p in discrim.parameters()]
+        #zero_opt_grads([enc_optimizer, dec_optimizer, discrim_optimizer])
+
+        # Assign collected grads and step
+        ## Enc
+        for p, grad in zip(gen_model.encoder.parameters(), enc_grads):
+            p.grad.data = grad
+        enc_optimizer.step()
+
+        ## Dec (but not agent)
+        for p, grad in zip(gen_model.decoder.parameters(), dec_grads):
+            p.grad = grad
         for p in gen_model.decoder.agent.policy.parameters():
             if p.grad is not None:  # freeze agent parameters but not model's.
-                p.grad.data = torch.zeros_like(p.grad.data)
-        loss.backward()
-        torch.nn.utils.clip_grad_norm_(gen_model.parameters(), 0.001)
-        optimizer.step()
-        # TODO get negative samples too!!!
-        if discrim is not None:
-            # Then do loss and optim for discriminator
-            optimizer.zero_grad()
-            discrim_optimizer.zero_grad()
-            preds = {k:[v_i.detach() for v_i in v] for k, v in preds.items()}
-            _, discrim_loss = adversarial_loss_function(preds, data,
-                                                        discrim, device)
-            (discrim_loss).backward()
-            torch.nn.utils.clip_grad_norm_(discrim.parameters(), 0.001)
-            discrim_optimizer.step()
+                p.grad = torch.zeros_like(p.grad)
+        torch.nn.utils.clip_grad_norm_(gen_model.parameters(), 0.01)
+        dec_optimizer.step()
+
+        ## Discrim
+        for p, grad in zip(discrim.parameters(), discrim_grads):
+            p.grad = grad
+            # print(grad.mean())
+        torch.nn.utils.clip_grad_norm_(discrim.parameters(), 0.01)
+        discrim_optimizer.step()
+
+        # # Then do loss and optim for discriminator
+        # preds = {k:[v_i.detach() for v_i in v] for k, v in preds.items()}
+        # dissimil_loss, gan_loss = adversarial_loss_functions(preds, data,
+        #                                             discrim, device)
+        # (dissimil_loss).backward()
+        # torch.nn.utils.clip_grad_norm_(discrim.parameters(), 0.001)
 
         # Logging and saving info
         if batch_idx % args.log_interval == 0:
-            loss.item()
+            #loss.item()
             logger.logkv('epoch', epoch)
             logger.logkv('batches', batch_idx)
             for key in loss_keys:
@@ -428,23 +464,18 @@ def train(epoch, args, train_loader, optimizer, gen_model, agent, discrim, discr
             model_path = os.path.join(
                 save_dir,
                 'model_epoch{}_batch{}.pt'.format(epoch, batch_idx))
-            if discrim is not None:
-                torch.save(
-                    {'gen_model_state_dict': gen_model.state_dict(),
-                    'optimizer_state_dict': optimizer.state_dict(),
-                    'discrim_state_dict': discrim.state_dict(),
-                    'discrim_optimizer_state_dict':
-                         discrim_optimizer.state_dict()},
-                    model_path)
-            else:
-                torch.save(
-                    {'gen_model_state_dict': gen_model.state_dict(),
-                     'optimizer_state_dict': optimizer.state_dict()},
-                    model_path)
+            torch.save(
+                {'gen_model_state_dict': gen_model.state_dict(),
+                'enc_optimizer_state_dict': enc_optimizer.state_dict(),
+                'dec_optimizer_state_dict': dec_optimizer.state_dict(),
+                'discrim_state_dict': discrim.state_dict(),
+                'discrim_optimizer_state_dict':
+                     discrim_optimizer.state_dict()},
+                model_path)
             logger.info('Generative model saved to {}'.format(model_path))
 
         # Visualize the predictions compared with the ground truth
-        if batch_idx % 1000 == 0 or (epoch < 2 and batch_idx % 200 == 0):
+        if batch_idx % 1000 == 0 or (epoch < 2 and batch_idx % 20 == 0):
 
             with torch.no_grad():
                 pred_obs = torch.stack(preds['obs'], dim=1).squeeze()
@@ -476,8 +507,9 @@ def train(epoch, args, train_loader, optimizer, gen_model, agent, discrim, discr
                     tvio.write_video(save_str, combined_ob, fps=14)
 
 
-def demo_recon_quality(epoch, train_loader, optimizer, gen_model, logger,
-          save_dir, device):
+def demo_recon_quality(epoch, train_loader, enc_optimizer, dec_optimizer,
+                           gen_model,
+                           logger, sess_dir, device):
 
     # Set up logging objects
     logger.info('Demonstrating reconstruction and prediction quality')
@@ -499,7 +531,8 @@ def demo_recon_quality(epoch, train_loader, optimizer, gen_model, logger,
         actions_all = data['action']
 
         # Forward pass to get predicted observations
-        optimizer.zero_grad()
+        enc_optimizer.zero_grad()
+        dec_optimizer.zero_grad()
         mu, logvar, preds = gen_model(inp_obs, agent_hx, actions_all,
                                       use_true_actions=True)
 
@@ -527,7 +560,7 @@ def demo_recon_quality(epoch, train_loader, optimizer, gen_model, logger,
                 combined_ob = np.concatenate([pred_ob, full_ob], axis=2)
 
                 # Save vid
-                save_str = save_dir + '/recons_v_preds' + '/sample_' + \
+                save_str = sess_dir + '/recons_v_preds' + '/sample_' + \
                            str(epoch) + '_' + str(batch_idx) + '_' + \
                            str(b) + '.mp4'
                 tvio.write_video(save_str, combined_ob, fps=14)
@@ -550,6 +583,10 @@ def create_venv(args, hyperparameters, is_valid=False):
     venv = TransposeFrame(venv)
     venv = ScaledFloatFrame(venv)
     return venv
+
+def zero_opt_grads(list_of_optims):
+    for opt in list_of_optims:
+        opt.zero_grad()
 
 if __name__ == "__main__":
     run()
