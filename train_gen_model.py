@@ -182,13 +182,21 @@ def run():
                                                num_workers=0)
 
     ## Make or load generative model and optimizer
-    gen_model = VAE(agent, device, num_recon_obs, num_pred_steps)
+    # TODO set up optimizers for each of the THREE parameter sets
+    # TODO consider changing discrim so that it is just applied once to all
+    #  images in the outputted sequence that are concat along the channel dim.
+    # TODO keep the usual reconstruction losses (and just group them and call
+    #  them that and have pretty small params for them. They're necessary for
+    #  sequences and for your non-obs vectors which will be harder to incorp
+    #  into the GAN part.
     if args.use_discriminator:
         discrim = Discriminator(device)
         discrim_optimizer = torch.optim.Adam(discrim.parameters(), lr=args.lr)
     else:
         discrim = None
         discrim_optimizer = None
+
+    gen_model = VAE(agent, device, num_recon_obs, num_pred_steps)
     gen_model = gen_model.to(device)
     optimizer = torch.optim.Adam(gen_model.parameters(), lr=args.lr)
 
@@ -289,7 +297,7 @@ def loss_function(args, preds, labels, mu, logvar, train_info_bufs, discrim, dev
 
     if discrim is not None:
         gen_loss, discrim_loss = \
-            adversarial_loss_function(preds, labels, train_info_bufs,
+            adversarial_loss_function(preds, labels,
                                       discrim, device)
         train_info_bufs['gen_adv'].append(gen_loss.item())
         train_info_bufs['discrim_adv'].append(discrim_loss.item())
@@ -358,6 +366,7 @@ def train(epoch, args, train_loader, optimizer, gen_model, agent, discrim, discr
     else:
         loss_keys = ['obs', 'hx', 'done', 'reward', 'act_log_probs', 'KL',
                      'total recon w/o KL']
+    # TODO clean up these names and just log everything
     train_info_bufs = {k:deque(maxlen=100) for k in loss_keys}
     logger.info('Start training epoch {}'.format(epoch))
 
@@ -392,15 +401,14 @@ def train(epoch, args, train_loader, optimizer, gen_model, agent, discrim, discr
         loss.backward()
         torch.nn.utils.clip_grad_norm_(gen_model.parameters(), 0.001)
         optimizer.step()
-
+        # TODO get negative samples too!!!
         if discrim is not None:
             # Then do loss and optim for discriminator
             optimizer.zero_grad()
             discrim_optimizer.zero_grad()
             preds = {k:[v_i.detach() for v_i in v] for k, v in preds.items()}
             _, discrim_loss = adversarial_loss_function(preds, data,
-                                                               train_info_bufs,
-                                                               discrim, device)
+                                                        discrim, device)
             (discrim_loss).backward()
             torch.nn.utils.clip_grad_norm_(discrim.parameters(), 0.001)
             discrim_optimizer.step()

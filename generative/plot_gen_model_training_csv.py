@@ -31,7 +31,7 @@ def plot():
     cols = list(data.columns)
     cols.remove('epoch')
     cols.remove('batches')
-    cols.remove('loss/total recon w/o KL')
+    cols.remove('loss/dissim_loss')
 
     # Plot
     plt.subplots(figsize=[11, 11])
