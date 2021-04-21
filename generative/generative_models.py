@@ -260,7 +260,7 @@ class EncoderInputNetwork(nn.Module):
         hid_ch = 64
         self.conv0 = nn.Conv2d(in_channels=3, out_channels=hid_ch,
                                kernel_size=3, padding=1).to(device)
-        self.pool = nn.AvgPool2d(kernel_size=2)
+        self.pool = nn.MaxPool2d(kernel_size=2)
         self.norm1 = nn.LayerNorm([hid_ch,32,32])
         self.resdown1 = lyr.ResBlockDown(hid_ch,hid_ch,downsample=self.pool)
         self.assimilatehx = lyr.AssimilatorResidualBlock(hid_ch, agent_hidden_size)
@@ -360,7 +360,7 @@ class EncoderEmbedder(nn.Module):
         super(EncoderEmbedder, self).__init__()
         hid_ch = 64
 
-        self.pool = nn.AvgPool2d(kernel_size=2)
+        self.pool = nn.MaxPool2d(kernel_size=2)
         self.resdown = lyr.ResBlockDown(in_channels=hid_ch,
                                         out_channels=hid_ch,
                                         downsample=self.pool).to(device)
@@ -431,7 +431,7 @@ class DecoderNetwork(nn.Module):
         super(DecoderNetwork, self).__init__()
         self.action_dim = 15
         agent_hidden_size = 64
-        hid_ch = 64
+        hid_ch = 1024
         env_h_hw = 16
 
         # Initializers
@@ -732,7 +732,7 @@ class RewardDecoder(nn.Module):
         super(RewardDecoder, self).__init__()
         ch0 = env_h_ch
         self.resblockdown = lyr.ResBlockDown(ch0,ch0//4,
-                               downsample=nn.AvgPool2d(kernel_size=2))
+                               downsample=nn.MaxPool2d(kernel_size=2))
         half_env_h_hw = env_h_hw//2
         self.fc = nn.Linear(half_env_h_hw*half_env_h_hw*(ch0//4), 1)
 
