@@ -701,7 +701,7 @@ class ObservationDecoder(nn.Module):
         x = self.attention(x)
         x = self.resblockup2(x)
         #x = self.resblockup3(x)
-        x = ( torch.tanh(x) / 2.) + 0.5
+        x = ( torch.tanh(x) / 2.) #+ 0.5 #NEW
         return x
 
 

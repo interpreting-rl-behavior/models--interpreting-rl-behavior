@@ -216,6 +216,7 @@ def run():
                 samples = torch.stack(samples, dim=1)
                 for b in range(viz_batch_size):
                     sample = samples[b].permute(0, 2, 3, 1)
+                    sample += 0.5
                     sample = sample * 255
                     sample = sample.clone().detach().type(torch.uint8)
                     sample = sample.cpu().numpy()
@@ -266,7 +267,7 @@ def loss_function(args, preds, labels, mu, logvar, train_info_bufs, device):
             # mask = mask.unsqueeze(dim=-1).unsqueeze(dim=-1).unsqueeze(dim=-1) # so it can be broadcast to same shape as loss sum
 
             # Calculate loss
-            label = label / 255.
+            # label = (label / 255.) - 0.5
             loss = torch.abs(pred - label)
             # loss = loss * mask
             loss = torch.mean(loss)  # Mean Absolute Error
@@ -311,8 +312,8 @@ def train(epoch, args, train_loader, optimizer, gen_model, agent, logger, save_d
         # Make all data into floats and put on the right device
         data = {k: v.to(device).float() for k, v in data.items()}
 
-        data['obs'] = data['obs'].clamp(min=1.) # It's easier for the model to
-        # learn when most of the frame isn't pitch black
+        # Normalize
+        data['obs'] = (data['obs'] / 255) - 0.5
 
         # Get input data for generative model (only taking the first
         # n=inp_seq_len timesteps)
@@ -371,7 +372,10 @@ def train(epoch, args, train_loader, optimizer, gen_model, agent, logger, save_d
 
                     # Make predictions and ground truth into right format for
                     #  video saving
+                    pred_ob = pred_ob + 0.5
                     pred_ob = pred_ob * 255
+                    full_ob = full_ob + 0.5
+                    full_ob = full_ob * 255
 
                     pred_ob = pred_ob.clone().detach().type(torch.uint8)
                     pred_ob = pred_ob.cpu().numpy()
@@ -428,6 +432,7 @@ def demo_recon_quality(epoch, train_loader, optimizer, gen_model, logger,
 
                 # Make predictions and ground truth into right format for
                 #  video saving
+                pred_ob = pred_ob + 0.5
                 pred_ob = pred_ob * 255
 
                 pred_ob = pred_ob.clone().detach().type(torch.uint8)
