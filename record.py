@@ -57,7 +57,10 @@ if __name__=='__main__':
 
     # Device
     os.environ["CUDA_VISIBLE_DEVICES"] = str(gpu_device)
-    device = torch.device('cuda')
+    if args.device == 'gpu':
+        device = torch.device('cuda')
+    elif args.device == 'cpu':
+        device = torch.device('cpu')
 
     # Environment
     print('INITIALIZAING ENVIRONMENTS...')
