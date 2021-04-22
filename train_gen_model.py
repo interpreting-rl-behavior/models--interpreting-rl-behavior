@@ -231,8 +231,54 @@ def run():
         demo_recon_quality(epoch, train_loader, optimizer, gen_model,
                            logger, sess_dir, device)
 
+def calc_attentive_loss_masks(args, labels, train_info_bufs,
+                  agent, device):
+    # Put labels on right device
+    labels = {k: v.to(device).float().squeeze() for k, v in labels.items()}
+    labels['obs'] = labels['obs'].requires_grad_()
 
-def loss_function(args, preds, labels, mu, logvar, train_info_bufs, device):
+    # Get inputs to agent at every timestep and concat along batch dim
+    num_batches = labels['obs'].shape[0]
+    att_obs = torch.cat([labels['obs'][i].permute(0, 2, 3, 1) for i in range(num_batches)])
+    att_hxs = torch.cat([labels['hx'][i] for i in range(num_batches)])
+    att_dones = torch.cat([labels['done'][i] for i in range(num_batches)])
+
+    # Pass inputs at all timesteps through agent all at once
+    _, att_logits, _, _ = \
+        agent.predict_STE(obs=att_obs, hidden_state=att_hxs, done=att_dones)
+
+    # Get gradients wrt individual action logits
+    grads = []
+    abs_grads = []
+    for b in range(att_logits.shape[0]):
+        batch_abs_grads = []
+        batch_grads = []
+        for a in range(att_logits.shape[1]):
+            att_logits[b,a].backward(retain_graph=True)
+            batch_grads.append(labels['obs'].grad.clone().detach())
+            batch_abs_grads.append(torch.abs(labels['obs'].grad.clone().detach()))
+            labels['obs'].grad.data.zero_()
+        grads.append(batch_grads)
+        abs_grads.append(batch_abs_grads)
+
+    # Stack and sum along logprob dim
+    grads = [torch.sum(torch.stack(g), dim=0) for g in grads]
+    abs_grads = [torch.sum(torch.stack(g), dim=0) for g in abs_grads]
+
+    # Stack and sum along new dim
+    grads = torch.sum(torch.stack(grads), dim=0)
+    abs_grads = torch.sum(torch.stack(abs_grads), dim=0)
+
+    # Make masks
+    epsilon = 1e-7
+    masks = torch.abs(grads) / ( abs_grads + epsilon)
+
+    return masks
+
+
+
+def loss_function(args, preds, labels, mu, logvar, train_info_bufs,
+                  attentive_masks, device):
     """ Calculates the difference between predicted and actual:
         - observation
         - agent's recurrent hidden states
@@ -269,7 +315,7 @@ def loss_function(args, preds, labels, mu, logvar, train_info_bufs, device):
             # Calculate loss
             # label = (label / 255.) - 0.5
             loss = torch.abs(pred - label)
-            # loss = loss * mask
+            loss = loss * attentive_masks
             loss = torch.mean(loss)  # Mean Absolute Error
         else:
             loss = torch.mean(torch.abs(pred - label))  # Mean Absolute Error
@@ -323,11 +369,18 @@ def train(epoch, args, train_loader, optimizer, gen_model, agent, logger, save_d
         actions_all = data['action']
 
         # Forward and backward pass and update generative model parameters
+        masks = calc_attentive_loss_masks(args, data,
+                                              train_info_bufs,
+                                              agent,
+                                              device)
+
         optimizer.zero_grad()
         mu, logvar, preds = gen_model(inp_obs, agent_hx, actions_all,
                                       use_true_actions=True)
         loss, train_info_bufs = loss_function(args, preds, data, mu, logvar,
-                                              train_info_bufs, device)
+                                              train_info_bufs,
+                                              masks,
+                                              device)
         for p in gen_model.decoder.agent.policy.parameters():
             if p.grad is not None:  # freeze agent parameters but not model's.
                 p.grad.data = torch.zeros_like(p.grad.data)
