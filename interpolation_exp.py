@@ -8,6 +8,8 @@ The purpose of this experiment is to show that the latent space has captured
 realistic environment dynamics throughout the latent space.
 
 """
+# TODO put this script in the experiments directory and adjust the imports here
+#  and in the latent_space_experiment.py script appropriately.
 from common.env.procgen_wrappers import *
 # from common.logger import Logger
 # from common.storage import Storage
