@@ -1,104 +1,116 @@
 import torch
 import torch.nn as nn
 from . import layers as lyr
-import torch
-import torch.nn as nn
 import torch.nn.functional as F
 from torch.autograd import Variable
 import numpy as np
-import numpy as np
-import torch
-import torch.nn as nn
 from torch.nn import init
 import torch.optim as optim
-import torch.nn.functional as F
 from torch.nn import Parameter as P
+from .action_cond_lstm import ActionCondLSTMLayer, LSTMCell, ActionCondLSTMCell, LSTMState
 
+class LayeredConvNet(nn.Module):
+    """Template class
 
-"""Proposal for generative model:
+    Note:
+        Some notes
 
-    - An encoder network
-        - EncoderInputNetwork
-            - see diagram on tablet
-            - image -> residual (64)
-            - init hidden state added to the channel dim (64+128)
-            - Resblock down all (image, init hidden, and resid output) into 1x1 conv (3+64+128 -> 128) (32x32x128)
-            - layer norm
-            - non-local layer (with residual connection)
-            - layer norm
-            - ResOnebyOne (dense from all(?) previous)
-            - Resblockdown 
-            - layer norm
-        - EncoderRNN
-            - convGRU (8x8x256)
-            - layer norm after every step
-        - EncoderEmbedder (takes final convGRU output only)
-            - Resblock down (8x8x256) -> (4x4x256)
-            - layer norm
-            - split
-                - fc to mu (should have around 256 neurons)
-                - fc to sigma
-    - A decoder network
-        - Initializer networks
-            - InitHiddenStateNetwork = TwoLayerPerceptron
-                - fc
-                - layer norm
-                - fc
-            - EnvStepper initializer
-                - This takes a guess at initializing the stepper so 
-                  it doesn't start with 0-tensors. Informative initialization 
-                  like this should work better.  
-                - outputs something the size of the 'EnvStepper hidden state shape' for env
-                  unrolling         
-            - UnrollerNet
-                - AssimilatorResidualBlock (takes EnvStepper hidden state shape block and also noise vector and outputs EnvStepper hidden state shape block) 
-                - layer norm
-                - ResidualConv
-                - layer norm
-        - Side decoders (take a EnvStepper hidden state shape block and produce predictions for obs and rew
-            -reward decoder
-                - Residual shrink block
-                - layer norm
-                - FC -> 1
-            - obs decoder
-                - deconv growth residual block (but reduce channels)
-                - layer norm
-                - deconv growth residual block (but reduce channels)
-                - layer norm
-                - deconv growth residual block (but reduce channels)
-                - layer norm
-                - conv (but reduce channels) (3)
-            
-    -  AssimilatorResidualBlock
-        - has-a:
-            - AssimilatorBlock (1x1 conv to 2d conv)
-            - residual connection between non vec inputs to AssimilatorBlock and its outputs
-"""
+    Args:
+        param1 (str): Description of `param1`.
+        param2 (:obj:`int`, optional): Description of `param2`. Multiple
+            lines are supported.
+        param3 (:obj:`list` of :obj:`str`): Description of `param3`.
 
-"""
-Classes we'll need:
-- ResidualBlock for upsample and downsample and constant (from BigGAN)
-- non-local layer (Attention)
-- AssimilatorResidualBlock
-- ResOnebyOne
-- Encoder
-    - EncoderInputNetwork
-    - EncoderRNN
-    - EncoderEmbedder
-- Decoder
-    - InitializerNets
-        - IHANetwork
-        - EnvStepperInitializer
-    - EnvStepper
-    - reward decoder
-    - obs decoder
-"""
+    Attributes:
+        attr1 (str): Description of `attr1`.
+        attr2 (:obj:`int`, optional): Description of `attr2`.
 
-"""
-We can also explore whether or not it's worth learning the initialisation for
-the encoder convGRU. For now, we'll just explore zero and noise 
-initializations.
-"""
+    """
+    def __init__(self, stride=2,
+                 channels=[3, 64, 32, 32],
+                 kernel_sizes=[6, 6, 6],
+                 padding_hs=[1, 1, 1],
+                 padding_ws=[1, 1, 1],
+                 deconv=False):
+        super(LayeredConvNet, self).__init__()
+
+        # Check all inps have right len
+        if not len(channels)-1 == len(kernel_sizes) or \
+           not len(kernel_sizes) == len(padding_hs) or \
+           not len(padding_hs) == len(padding_ws):
+            raise ValueError("One of your conv lists has the wrong length.")
+
+        self.nets = nn.ModuleList([])
+        ch_in = channels[0]
+        for i, (ch_out, k, p_h, p_w) in enumerate(zip(channels[1:],
+                                                 kernel_sizes,
+                                                 padding_hs,
+                                                 padding_ws)):
+            if deconv:
+                net = nn.ConvTranspose2d(ch_in, ch_out,
+                                         kernel_size=(k,k),
+                                         stride=(stride,stride),
+                                         padding=(p_h,p_w))
+            else:
+                net = nn.Conv2d(ch_in, ch_out,
+                                kernel_size=(k,k),
+                                stride=(stride,stride),
+                                padding=(p_h,p_w))
+            self.nets.append(net)
+            if i < len(kernel_sizes) - 1: # Doesn't add actv on last layer
+                self.nets.append(nn.RReLU())
+            ch_in = ch_out
+
+    def forward(self, x):
+        # TODO convert outs to a dict and name each of the saved outputs
+        #  according to the layer
+        outs = []
+        out = x
+        for l in self.nets:
+            out = l(out)
+            outs.append(out)
+        return out, outs
+
+class NLayerPerceptron(nn.Module):
+    """An N layer perceptron with a linear output.
+
+    Note:
+        Some notes
+
+    Args:
+        param1 (str): Description of `param1`.
+        param2 (:obj:`int`, optional): Description of `param2`. Multiple
+            lines are supported.
+        param3 (:obj:`list` of :obj:`str`): Description of `param3`.
+
+    Attributes:
+        attr1 (str): Description of `attr1`.
+        attr2 (:obj:`int`, optional): Description of `attr2`.
+
+    """
+    def __init__(self, sizes=[256, 256], layer_norm=False):
+        super(NLayerPerceptron, self).__init__()
+        self.nets = nn.ModuleList([])
+        for i in range(len(sizes)-1):
+            net = nn.Linear(in_features=sizes[i],
+                            out_features=sizes[i+1])
+            self.nets.append(net)
+
+            if i < len(sizes)-1:  # Doesn't add activation (or LN) to final layer
+                if layer_norm:
+                    self.nets.append(nn.LayerNorm(sizes[i+1]))
+                self.nets.append(nn.RReLU())
+
+    def forward(self, x):
+        # TODO convert outs to a dict and name each of the saved outputs
+        #  according to the layer
+        outs = []
+        out = x
+        for l in self.nets:
+            out = l(out)
+            outs.append(out)
+        return out, outs
+
 
 class VAE(nn.Module):
     """The Variational Autoencoder that generates agent-environment sequences.
@@ -123,123 +135,84 @@ class VAE(nn.Module):
 
     """
 
-    def __init__(self, agent, device, num_recon_obs, num_pred_steps):
+    def __init__(self, agent, device, num_initialization_obs, num_obs_full):
         super(VAE, self).__init__()
 
         # Set settings
-        self.num_recon_obs    = num_recon_obs
-        self.num_pred_steps   = num_pred_steps
-        self.num_unroll_steps = self.num_recon_obs + self.num_pred_steps
+        hyperparams = Namespace(
+            # Encoder
+            num_initialization_obs=num_initialization_obs,
+            num_obs_full=num_obs_full,
+            num_sim_steps=num_obs_full-num_initialization_obs+1,  # Plus one is because the last obs of the init seq is the first obs of the simulated seq
+            initializer_sample_dim=64,
+            initializer_rnn_hidden_size=512,
+            global_context_sample_dim=64,
+            global_context_encoder_rnn_hidden_size=512,
+            agent_hidden_size=64,
+            action_space_dim=15,
+            env_stepper_rnn_hidden_size=1024,
+
+        )
         self.device = device
 
         # Create networks
-        self.encoder = EncoderNetwork(device).to(device)
-        self.decoder = DecoderNetwork(device, agent,
-                           num_unroll_steps=self.num_unroll_steps).to(device)
+        self.encoder = Encoder(hyperparams)
+        self.decoder = Decoder(hyperparams, agent)
+
 
     def forward(self, obs, agent_hxs, actions, use_true_h0=False, use_true_actions=False):
 
-        # Ensure the number of images in the input sequence is the same as the
-        # number of observations that we're _reconstructing_.
-        assert obs.shape[1] == self.num_recon_obs
+        # Feed inputs into encoder and return the mean
+        # and log(variance)
 
-        # Feed observation sequence into encoder, which returns the mean
-        # and log(variance) for the latent sample (i.e. the encoded sequence)
-        mu, logvar = self.encoder(obs, agent_hxs)
+        mu_c, logvar_c, mu_g, logvar_g = self.encoder(obs, agent_hxs[:, 0, :])
 
-        sigma = torch.exp(0.5 * logvar)  # log(var) -> standard deviation
+        sigma_c = torch.exp(0.5 * logvar_c)  # log(var) -> standard deviation
+        sigma_g = torch.exp(0.5 * logvar_g)
 
         # Reparametrisation trick
-        sample = (torch.randn(sigma.size(), device=self.device) * sigma) + mu
+        sample_c = (torch.randn(sigma_c.size(), device=self.device) * sigma_c) + mu_c
+        sample_g = (torch.randn(sigma_g.size(),
+                                device=self.device) * sigma_g) + mu_g
 
         # Decode
         if use_true_h0:
             true_h0 = agent_hxs[:, 0, :]
         else:
-            true_h0 = None  # therefore decoder doesn't use.
+            true_h0 = None
+            # therefore decoder doesn't use true agent h0 and uses the one
+            # produced by the h0 decoder instead
         if use_true_actions:
             true_acts = actions
         else:
-            true_acts = None # therefore decoder doesn't use.
-        pred_obs, pred_rews, pred_dones, pred_agent_hs, pred_agent_logprobs = \
-            self.decoder(sample, true_h0=true_h0, true_actions=true_acts)
+            true_acts = None
+            # therefore decoder doesn't use true actions and uses the ones
+            # produced by the simulated agent instead.
 
+        # Feed sample(s) to decoder
+        pred_obs, pred_rews, pred_dones, pred_agent_hs, pred_agent_logprobs, \
+        pred_agent_values = self.decoder(z_c=sample_c,
+                                         z_g=sample_g,
+                                         true_h0=true_h0,
+                                         true_actions=true_acts)
+
+
+        # Collect outputs
         preds = {'obs': pred_obs,
                  'reward': pred_rews,
                  'done': pred_dones,
                  'hx': pred_agent_hs,
-                 'act_log_probs': pred_agent_logprobs}
+                 'act_log_probs': pred_agent_logprobs,
+                 'values': pred_agent_values,
+                 }
 
-        return mu, logvar, preds
-
-
-class EncoderNetwork(nn.Module):
-    """The Variational Autoencoder that generates agent-environment sequences.
-
-    Description
-
-    Note:
-        Some notes
-
-    Args:
-        param1 (str): Description of `param1`.
-        param2 (:obj:`int`, optional): Description of `param2`. Multiple
-            lines are supported.
-        param3 (:obj:`list` of :obj:`str`): Description of `param3`.
-
-    Attributes:
-        attr1 (str): Description of `attr1`.
-        attr2 (:obj:`int`, optional): Description of `attr2`.
-
-    """
-    def __init__(self, device):
-        super(EncoderNetwork, self).__init__()
-        self.input_network = EncoderInputNetwork(device, agent_hidden_size=64).to(device)
-        self.rnn = EncoderRNN(device)
-        self.embedder = EncoderEmbedder(device)
-        self.device = device
-
-    def forward(self, obs, agent_hxs):
-
-        # Reset encoder RNN's hidden state (note: not to be confused with the
-        # agent's hidden state, agent_hxs)
-        h = None
-
-        obs_seq_len = obs.shape[1] # (B, *T*, Ch, H, W)
-
-        # Pass each image in the input input sequence into the encoder input
-        # network to get a sequence of latent representations (one per image)
-        inps = []
-        for i in range(obs_seq_len):
-            inps.append(self.input_network(obs[:,i,:], agent_hxs[:,i,:]))
-        inps = torch.stack(inps, dim=1) # stack along time dimension
-
-        # Pass sequence of latent representations
-        h = self.rnn(inps, h)
-
-        # Convert sequence embedding into VAE latent params
-        mu, sigma = self.embedder(h)
-
-        return mu, sigma
+        return mu_c, logvar_c, mu_g, logvar_g, preds
 
 
+class Encoder(nn.Module):
+    """Encoder network
 
-
-class EncoderInputNetwork(nn.Module):
-    """Input Network for the encoder.
-
-    Takes (a batch of) single images at a single timestep.
-
-    Consists of a feedforward convolutional network. It has many residual
-    connections, which sometimes skip several layers. In that sense, it is
-    similar to a `dense` convolutional network, which has many such
-    connections.
-
-    It also `assimilates` the initial agent hidden state (1D vector) into the
-    convolutional representations (3D tensor).
-
-    Its output is passed to a recurrent network, which thus accumulates
-    information about each image in the sequence.
+    Consists of a GlobalContextEncoder and and InitializerEncoder
 
     Note:
         Some notes
@@ -255,92 +228,57 @@ class EncoderInputNetwork(nn.Module):
         attr2 (:obj:`int`, optional): Description of `attr2`.
 
     """
-    def __init__(self, device, agent_hidden_size=256):
-        super(EncoderInputNetwork, self).__init__()
-        hid_ch = 64
-        self.conv0 = nn.Conv2d(in_channels=3, out_channels=hid_ch,
-                               kernel_size=3, padding=1).to(device)
-        self.pool = nn.AvgPool2d(kernel_size=2)
-        self.norm1 = nn.LayerNorm([hid_ch,32,32])
-        self.resdown1 = lyr.ResBlockDown(hid_ch,hid_ch,downsample=self.pool)
-        self.assimilatehx = lyr.AssimilatorResidualBlock(hid_ch, agent_hidden_size)
-        self.norm2 = nn.LayerNorm([hid_ch,32,32])
-        self.resdown2 = lyr.ResBlockDown(hid_ch,hid_ch,downsample=self.pool)
-        self.norm3 = nn.LayerNorm([hid_ch,16,16])
-        self.attention = lyr.Attention(hid_ch)
-        self.norm4 = nn.LayerNorm([hid_ch,16,16])
-        self.res1x1   = lyr.ResOneByOne(hid_ch+hid_ch*3, hid_ch)
-        self.resdown3 = lyr.ResBlockDown(hid_ch,hid_ch,downsample=self.pool) # was to hid_ch*2
-        self.norm5 = nn.LayerNorm([hid_ch,8,8]) # was to hid_ch*2
+    def __init__(self, hyperparams):
+        super(Encoder, self).__init__()
 
-    def forward(self, ob, hx):
-        x  = ob
-        z  = self.conv0(x)
-        z  = self.resdown1(z)
-        x1 = self.norm1(z)
-        z  = self.assimilatehx(x1, hx)
-        x2 = self.norm2(z)
-        z  = self.resdown2(x2)
-        x3 = self.norm3(z)
-        z  = self.attention(x3)
-        x4 = self.norm4(z)
-        x123 = torch.cat([self.pool(x1), self.pool(x2), x3], dim=1)
-        z  = self.res1x1(x4, x123)
-        z  = self.resdown3(z)
-        z  = self.norm5(z)
-        return z
+        self.initializer_encoder = \
+            InitializerEncoder(rnn_hidden_size=hyperparams.initializer_rnn_hidden_size,
+                               agent_hidden_size=hyperparams.agent_hidden_size,
+                               sample_dim=hyperparams.initializer_sample_dim,
+                               stride=2,
+                               channels=[3,64,32,32],
+                               kernel_sizes=[6,4,3],
+                               padding_hs=[1,1,1],
+                               padding_ws=[1,1,1])
 
-class EncoderRNN(nn.Module):
-    """Recurrent network for input image sequences.
+        self.global_context_encoder = \
+            GlobalContextEncoder(rnn_hidden_size=hyperparams.global_context_encoder_rnn_hidden_size,
+                                 sample_dim=hyperparams.global_context_sample_dim,
+                                 stride=2,
+                                 channels=[3, 32, 16, 16],
+                                 kernel_sizes=[6, 4, 3],
+                                 padding_hs=[1, 1, 1],
+                                 padding_ws=[1, 1, 1])
 
-    The `EncoderRNN` takes as input the outputs of `EncoderInputNetwork`s for
-    each input image. It thus takes as input a sequence of image
-    representations (not raw images). It learns to encode the dynamics of the
-    input image sequence in order that the decoder can reconstruct the input
-    image sequence and also predict subsequent images that were not actually
-    in the input sequence.
+        self.init_seq_len = hyperparams.num_initialization_obs
+        self.global_context_seq_len = hyperparams.num_sim_steps
 
-    Note:
-        Some notes
+    def forward(self, full_obs, agent_h0):
+        #TODO be sure that you reset the hidden state of your env rnns
+        # either here or elsewhere
 
-    Args:
-        param1 (str): Description of `param1`.
-        param2 (:obj:`int`, optional): Description of `param2`. Multiple
-            lines are supported.
-        param3 (:obj:`list` of :obj:`str`): Description of `param3`.
+        # Split frames into initialization frames and global context frames
+        init_obs = full_obs[:, 0:self.init_seq_len]
+        init_obs = torch.flip(init_obs, dims=[1]) # reverse time
+        glob_ctx_obs = full_obs[:, -self.global_context_seq_len:]
 
-    Attributes:
-        attr1 (str): Description of `attr1`.
-        attr2 (:obj:`int`, optional): Description of `attr2`.
+        # Run InitializerEncoder
+        mu_c, logvar_c = self.initializer_encoder(init_obs, agent_h0)
 
-    """
-    def __init__(self, device):
-        super(EncoderRNN, self).__init__()
-        hid_ch = 64
-        self.rnn = lyr.ConvGRU(input_size=[8, 8], # [H,W]
-                               input_dim=hid_ch, # ch      # was hid_ch*2
-                               hidden_dim=hid_ch,          # was hid_ch*2
-                               kernel_size=(3,3),
-                               num_layers=1,
-                               device=device)#.to(device)
-        self.norm = nn.LayerNorm([hid_ch, 8, 8])
+        # Run GlobalContextEncoder
+        mu_g, logvar_g = self.global_context_encoder(glob_ctx_obs)
 
-    def forward(self, inp, h=None):
-        h = self.rnn(inp, h)
-        h = self.norm(h[0][:,-1])  # only use final hidden state
-        return h
+        return mu_c, logvar_c, mu_g, logvar_g
 
 
-class EncoderEmbedder(nn.Module):
-    """Converts the output of the RNN to the VAE's latent sample params.
+class InitializerEncoder(nn.Module):
+    """Template class
 
-    The encoder embedder is the final layer of the VAE encoder.
-
-    The output of the EncoderRNN is passed to the encoder embedders, which
-    simply does some non-recurrent processing in order to generate the
-    mean and log(variance) of the sample in the latent space of the VAE that
-    is used, by the decoder, to reconstruct the input image sequence and
-    predict future images.
+    Recurrent network that takes a seq of frames from t=-k to t=0 as input.
+    The final output gets passed along with the final agent hidden state into
+    an FC network. Outputs params of the distribution from which we sample z_c,
+    which will get decoded into the the agent's initial hidden state (at t=0)
+    and, when combined with z_g, the initial environment state.
 
     Note:
         Some notes
@@ -356,62 +294,71 @@ class EncoderEmbedder(nn.Module):
         attr2 (:obj:`int`, optional): Description of `attr2`.
 
     """
-    def __init__(self, device):
-        super(EncoderEmbedder, self).__init__()
-        hid_ch = 64
+    def __init__(self, rnn_hidden_size, agent_hidden_size,
+                 sample_dim, stride, channels,
+                 kernel_sizes, padding_hs, padding_ws):
+        super(InitializerEncoder, self).__init__()
+        self.conv_input = LayeredConvNet(stride=stride,
+                                         channels=channels,
+                                         kernel_sizes=kernel_sizes,
+                                         padding_hs=padding_hs,
+                                         padding_ws=padding_ws)
+        # conv will output tensor of shape 32 * 8 * 8
 
-        self.pool = nn.AvgPool2d(kernel_size=2)
-        self.resdown = lyr.ResBlockDown(in_channels=hid_ch,
-                                        out_channels=hid_ch,
-                                        downsample=self.pool).to(device)
-        self.norm = nn.LayerNorm([hid_ch,4,4])
-        self.fc_mu    = nn.Linear(4*4*hid_ch, 128).to(device)
-        self.fc_sigma = nn.Linear(4*4*hid_ch, 128).to(device)
+        self.rnn = nn.LSTM(input_size=32 * 8 * 8,
+                           hidden_size=rnn_hidden_size,
+                           num_layers=1,
+                           batch_first=True)
 
-    def forward(self, inp):
-        x = inp
-        x = self.resdown(x)
-        x = self.norm(x)
-        mu = self.fc_mu(x.view(x.shape[0], -1))
-        logvar = self.fc_sigma(x.view(x.shape[0], -1))
+        self.converter_base = nn.Sequential(
+                                nn.Linear(rnn_hidden_size + agent_hidden_size,
+                                          rnn_hidden_size),
+                                nn.ReLU()
+                                            )
+        self.converter_split_mu = nn.Linear(rnn_hidden_size,
+                                            sample_dim)
+        self.converter_split_lv = nn.Linear(rnn_hidden_size,
+                                            sample_dim)  # log var
+
+    def forward(self, rev_obs_seq, agent_h0):
+        """Takes the __reversed__ sequence of inputs to encode context to
+        initialise the env stepper and agent initial hidden state"""
+        # Flatten inp seqs along time dimension to pass all to conv nets
+        # along batch dim
+        x = rev_obs_seq
+        batches = x.shape[0]
+        ts = x.shape[1]
+        h = x.shape[2]
+        w = x.shape[3]
+        ch = x.shape[4]
+
+        x = x.view(batches*ts, h, w, ch)
+        x, _ = self.conv_input(x)
+
+        # Unflatten conv outputs again to reconstruct time dim
+
+        x = x.view(batches, ts, x.shape[1], x.shape[2], x.shape[3])
+
+        # Flatten conv outputs to size HxWxCH to get rnn input vecs
+        x = x.view(batches, ts, -1)
+
+        # Pass seq of vecs to global context RNN
+        x, _ = self.rnn(x)
+
+        # Concat RNN output to agent h0 and then pass to Converter nets
+        # to get mu_g and sigma_g
+        x = x[:, -1]  # get last ts
+        x = torch.cat([x, agent_h0], dim=1)
+
+        x = self.converter_base(x)
+        mu = self.converter_split_mu(x)
+        logvar = self.converter_split_lv(x)
+
         return mu, logvar
 
-class DecoderNetwork(nn.Module):
-    """Reconstructs and predicts agent-environment sequences.
 
-    Generates a whole agent-environment sequence from a latent sample from the
-    VAE. It contains a copy of the agent. The VAE is trained such that the
-    decoder produces:
-        - a sequence of observations
-        - a sequence of rewards
-        - a sequence of hidden states of the agent
-        - a sequence of actions from the agent (and their log probabilities)
-    that match as closely as possible the sequences that were actually observed
-    in real roll outs of the agent-environment system.
-
-    It uses a recurrent architecture to generate sequences of arbitrary length,
-    so sequences longer than the training sequences may be generated if wanted.
-    The recurrent architecture consists of an environment and an agent part:
-    the agent part is the agent itself, which takes as input an observation
-    of the (simulated) environment and its own hidden state. The environment
-    part consists of several networks:
-        - An EnvStepper, which has 'environment hidden state' which unrolls
-          through time
-        - An ObservationDecoder, which takes the environment hidden state and
-          converts it into an observation for that timestep.
-        - A RewardDecoder, which does the same for the reward that agent
-          received at that timestep.
-        - A DoneDecoder, which predicts whether the episode is done at
-          that timestep.
-
-    Since both the agent and the EnvStepper are recurrent, they require inputs
-    to get the ball rolling. There are several networks that convert the latent
-    VAE sample into the inputs required. Those are:
-        - inithidden_network, which generates the initial hidden state of the
-          agent. We don't need to produce later hidden states, because the
-          agent does that itself.
-        - env_init_network, which generates the initial hidden state of the
-          EnvStepper.
+class GlobalContextEncoder(nn.Module):
+    """Encodes global latent variable by observing whole sequence
 
     Note:
         Some notes
@@ -427,37 +374,121 @@ class DecoderNetwork(nn.Module):
         attr2 (:obj:`int`, optional): Description of `attr2`.
 
     """
-    def __init__(self, device, agent, num_unroll_steps):
-        super(DecoderNetwork, self).__init__()
-        self.action_dim = 15
-        agent_hidden_size = 64
-        hid_ch = 64
-        env_h_hw = 16
+    def __init__(self, rnn_hidden_size, sample_dim, stride, channels,
+                 kernel_sizes, padding_hs, padding_ws):
+        super(GlobalContextEncoder, self).__init__()
+        self.conv_input = LayeredConvNet(stride=stride,
+                                         channels=channels,
+                                         kernel_sizes=kernel_sizes,
+                                         padding_hs=padding_hs,
+                                         padding_ws=padding_ws)
+        # conv will output tensor of shape 16 * 8 * 8
 
-        # Initializers
-        self.inithidden_network = TwoLayerPerceptron(
-            insize=128,
-            outsize=agent_hidden_size)
-        self.env_init_network = EnvStepperInitializer(device=device, env_h_hw=env_h_hw, vae_latent_size=128)
+        self.rnn = nn.LSTM(input_size=16 * 8 * 8, # TODO make output size an attribute of LayeredConvNet so that you don't have to hard code this.
+                           hidden_size=rnn_hidden_size,
+                           num_layers=1,
+                           batch_first=True)
+
+        self.converter_base = nn.Sequential(nn.Linear(rnn_hidden_size,
+                                                      rnn_hidden_size),
+                                            nn.ReLU())
+        self.converter_split_mu = nn.Linear(rnn_hidden_size,
+                                            sample_dim)
+        self.converter_split_lv = nn.Linear(rnn_hidden_size,
+                                            sample_dim) # log var
+
+    def forward(self, x):
+
+        # Flatten inp seqs along time dimension to pass all to conv nets
+        # along batch dim
+        batches = x.shape[0]
+        ts = x.shape[1]
+        h = x.shape[2]
+        w = x.shape[3]
+        ch = x.shape[4]
+
+        x = x.reshape([batches*ts, h, w, ch])
+        x, _ = self.conv_input(x)
+
+        # Unflatten conv outputs again to reconstruct time dim
+
+        x = x.reshape([batches, ts, x.shape[1], x.shape[2], x.shape[3]])
+
+        # Flatten conv outputs to size HxWxCH to get rnn input vecs
+        x = x.reshape([batches, ts, -1])
+
+        # Pass seq of vecs to global context RNN
+        x, _ = self.rnn(x)
+
+        # Pass RNN output to Global Context Converter to get mu_g and sigma_g
+        x = x[:, -1]  # get last ts
+
+        x = self.converter_base(x)
+        mu = self.converter_split_mu(x)
+        logvar = self.converter_split_lv(x)
+
+        return mu, logvar
 
 
-        # Stepper (the one that gets unrolled)
-        self.env_stepper      = EnvStepper(agent, env_h_ch=hid_ch, env_h_hw=env_h_hw, vae_latent_size=128)
+class Decoder(nn.Module):
+    """Template class
 
-        # Decoders (used at every timestep
-        self.reward_decoder = RewardDecoder(device, env_h_hw=env_h_hw)
-        self.done_decoder   = DoneDecoder(device, env_h_hw=env_h_hw)
-        self.obs_decoder    = ObservationDecoder(device, env_h_hw=env_h_hw)
+    Note:
+        Some notes
+
+    Args:
+        param1 (str): Description of `param1`.
+        param2 (:obj:`int`, optional): Description of `param2`. Multiple
+            lines are supported.
+        param3 (:obj:`list` of :obj:`str`): Description of `param3`.
+
+    Attributes:
+        attr1 (str): Description of `attr1`.
+        attr2 (:obj:`int`, optional): Description of `attr2`.
+
+    """
+    def __init__(self, hyperparams, agent):
+        super(Decoder, self).__init__()
+
+        z_c_size = hyperparams.initializer_sample_dim
+        z_g_size = hyperparams.global_context_sample_dim
+        self.action_space_dim = hyperparams.action_space_dim
+        agent_h0_size = hyperparams.agent_hidden_size
+        env_h_size = hyperparams.env_stepper_rnn_hidden_size
+
+        self.num_sim_steps = hyperparams.num_sim_steps
+
+        env_conv_top_shape = [32, 8, 8]
+
+        # Make agent initializer network
+        self.agent_initializer = NLayerPerceptron([z_c_size,
+                                                   256,
+                                                   agent_h0_size],
+                                                  layer_norm=True)
+
+        # Make EnvStepperInitializerNetwork
+        self.env_stepper_initializer = \
+            EnvStepperStateInitializer(z_c_size, z_g_size, env_h_size)
+
+        # Make EnvStepper
+        self.env_stepper = EnvStepper(env_hidden_size=env_h_size,
+                                      env_conv_top_shape=env_conv_top_shape,
+                                      stride_in=2,
+                                      channels_in=[3, 64, 32, 32],
+                                      kernel_sizes_in=[6, 4, 3],
+                                      padding_hs_in=[1, 1, 1],
+                                      padding_ws_in=[1, 1, 1],
+                                      stride_out=2,
+                                      channels_out=[32, 32, 64, 3],
+                                      kernel_sizes_out=[3, 5, 6],
+                                      padding_hs_out=[1, 1, 1],
+                                      padding_ws_out=[1, 1, 1],)
+
+        # Make agent into an attribute of the decoder class
         self.agent = agent
-        self.num_unroll_steps = num_unroll_steps
 
-    def forward(self, sample, true_h0=None, true_actions=None):
+    def forward(self, z_c, z_g, true_h0=None, true_actions=None):
 
-        # Get initial inputs to the agent and EnvStepper (both recurrent)
-        env_h = self.env_init_network(sample)  # t=0
-        agent_h = self.inithidden_network(sample)  # t=0
-
-        # Unroll the agent and EnvStepper and collect the generated data
         pred_obs = []
         pred_rews = []
         pred_dones = []
@@ -465,72 +496,213 @@ class DecoderNetwork(nn.Module):
         pred_agent_hs = []
         pred_acts = []
         pred_agent_logprobs = []
+        pred_agent_values = []
 
-        for i in range(self.num_unroll_steps):
-            # Within single timestep t
-            ## Observations@t
-            obs = self.obs_decoder(env_h)
-            pred_obs.append(obs)
+        # Initialize env@t=0 and agent_h@t=0
+        env_rnn_state = self.env_stepper_initializer(z_c, z_g)
+        env_h, env_cell_state = env_rnn_state
+        if true_h0 is not None:
+            # if we want to feed the correct h0 instead of the
+            # guessed h0 (for purposes of being able to train the
+            # agent and the generative model on different agents), then
+            # we need to swap in the true h0 here, but we'll still store
+            # and return the guessed h0 in preds so that it can be
+            # trained to approximate true_h0.
+            agent_h = true_h0
+        else:
+            agent_h, _ = self.agent_initializer(z_c)
 
-            ## Rewards@t
-            rew = self.reward_decoder(env_h)
+        for i in range(self.num_sim_steps):
+            # The first part of the for-loop happens only within t
+            pred_env_hs.append(env_rnn_state)  # env@t
+            pred_agent_hs.append(agent_h)  # agent_h@t
+
+            ## Decode env_h@t to get ob/rew/done@t
+            ob, rew, done = self.env_stepper.decode_hx(
+                env_h)
+            pred_obs.append(ob)
             pred_rews.append(rew)
-
-            ## Dones@t
-            done = self.done_decoder(env_h)
             pred_dones.append(done)
 
-            # Moving forward in time: t <- t+1
-            ## Store curr agent-hidden state
-
-            pred_agent_hs.append(agent_h)
-
-            ## Step the agent forward
-            obs = obs.permute(0,2,3,1)
-            if true_h0 is not None and i == 0:
-                # if we want to feed the correct h0 instead of the
-                # guessed h0 (for purposes of being able to train the
-                # agent and the generative model on different agents), then
-                # we need to swap in the true h0 here, but we'll still store
-                # and return the guessed h0 in preds so that it can be
-                # trained to approximate true_h0.
-                agent_h = true_h0
-            act, logits, value, agent_h = self.agent.predict_STE(obs, agent_h, done)
-            ## Now it's act@t and logprobs@t, but agent_h@t+1
-            # Note this 'act' is different from train and eval because it's a
-            # one-hot vector. Also because we're passing gradients back
-            # through the action using its logits as a straight through
-            # estimator. (TODO the STE feature is now redundant now that
-            #  we're using true actions during training).
-
-            ## Store act and logprob
+            # Code in the for loop following here spans t AND t+1
+            ## Step forward the agent to get act@t and logprobs@t, but
+            ## agent_h@t+1
+            # ob = ob.permute(0, 2, 3, 1)
+            act, logits, value, agent_h = self.agent.predict_STE(ob, agent_h,
+                                                                 done)
             pred_acts.append(act)
             pred_agent_logprobs.append(logits)
+            pred_agent_values.append(value)
 
-            ## Step environment forward: use env_h@t and act@t to get env_h@t+1
-
+            # Step forward the env using action@t and env_rnn_state@t and
+            # ob@t and return env_rnn_state@t+1
             if true_actions is not None:
                 # get true actions for that step and overwrite predicted
                 # actions for input to env
                 act = true_actions[:, i]
-                act = torch.nn.functional.one_hot(
-                    act.long(), num_classes=15)
-            pred_env_hs.append(env_h)
-            env_h = self.env_stepper(sample, act, h=env_h)
+                act = torch.nn.functional.one_hot(act.long(), num_classes=self.action_space_dim)
+                # act = torch.nn.functional.one_hot(act.float(), num_classes=self.action_space_dim)
+                act = act.float()
+            env_rnn_state = \
+                self.env_stepper.encode_and_step(ob, act, env_rnn_state)
+            env_h, env_cell_state = env_rnn_state # env@t+1
 
             ## Get ready for new step
             self.agent.train_prev_recurrent_states = None
 
-        return pred_obs, pred_rews, pred_dones, pred_agent_hs, pred_agent_logprobs
+
+        return pred_obs, pred_rews, pred_dones, pred_agent_hs, \
+               pred_agent_logprobs, pred_agent_values
 
 
-class TwoLayerPerceptron(nn.Module):
-    """A two layer perceptron with layer norm and a linear output.
+class EnvStepperStateInitializer(nn.Module):
+    """Template class
 
-    It takes the VAE latent sample as input and outputs another vector.
+    Note:
+        Some notes
 
-    This class is used to make the inithidden_network. Its output is a vector
-    the size of the agent's hidden state and initializes the agent.
+    Args:
+        param1 (str): Description of `param1`.
+        param2 (:obj:`int`, optional): Description of `param2`. Multiple
+            lines are supported.
+        param3 (:obj:`list` of :obj:`str`): Description of `param3`.
+
+    Attributes:
+        attr1 (str): Description of `attr1`.
+        attr2 (:obj:`int`, optional): Description of `attr2`.
+
+    """
+    def __init__(self, z_c_size, z_g_size, env_h_size):
+        super(EnvStepperStateInitializer, self).__init__()
+        self.base = NLayerPerceptron([z_c_size + z_g_size,
+                                      env_h_size,
+                                      env_h_size * 2], layer_norm=True)
+        self.cell_net = nn.Sequential(nn.ReLU(),
+            nn.Linear(env_h_size * 2, env_h_size),
+                                      nn.Sigmoid())
+        self.hx_net = nn.Sequential(nn.ReLU(),
+            nn.Linear(env_h_size * 2, env_h_size),
+                                    nn.Tanh())
+
+    def forward(self, z_c, z_g):
+        z = torch.cat([z_c, z_g], dim=1)
+        x, _ = self.base(z)
+        cell_state = self.cell_net(x)
+        hx_state = self.hx_net(x)
+        return (hx_state, cell_state)
+
+class EnvStepper(nn.Module):
+    """Template class
+
+    Note:
+        Some notes
+
+    Args:
+        param1 (str): Description of `param1`.
+        param2 (:obj:`int`, optional): Description of `param2`. Multiple
+            lines are supported.
+        param3 (:obj:`list` of :obj:`str`): Description of `param3`.
+
+    Attributes:
+        attr1 (str): Description of `attr1`.
+        attr2 (:obj:`int`, optional): Description of `attr2`.
+
+    """
+    def __init__(self, env_hidden_size, env_conv_top_shape,
+                 stride_in, channels_in, kernel_sizes_in, padding_hs_in,
+                 padding_ws_in,
+                 stride_out, channels_out, kernel_sizes_out, padding_hs_out,
+                 padding_ws_out,):
+        super(EnvStepper, self).__init__()
+
+        self.env_h_size = env_hidden_size
+        self.ob_conv_top_shape = env_conv_top_shape
+        self.shp = self.ob_conv_top_shape  # legibility
+        self.ob_conv_top_size = np.prod(self.ob_conv_top_shape)
+
+        # Networks in output step
+        self.ob_decoder_fc = NLayerPerceptron([self.env_h_size,
+                                               self.ob_conv_top_size])
+        self.ob_decoder_conv = LayeredConvNet(stride=stride_out,
+                                              channels=channels_out,
+                                              kernel_sizes=kernel_sizes_out,
+                                              padding_hs=padding_hs_out,
+                                              padding_ws=padding_ws_out,
+                                              deconv=True)
+        self.done_decoder = NLayerPerceptron([env_hidden_size, 64, 1],
+                                             layer_norm=False)
+        self.reward_decoder = NLayerPerceptron([env_hidden_size, 64, 1],
+                                               layer_norm=False)
+
+        # Networks in forward step
+        # inp = torch.randn(seq_len, batch, input_size)
+        # state = LSTMState(torch.randn(batch, hidden_size),
+        #                   torch.randn(batch, hidden_size))
+        self.env_rnn = ActionCondLSTMLayer(ActionCondLSTMCell,
+                                 self.env_h_size,  # input size
+                                 self.env_h_size,  # hx size
+                                 self.env_h_size*2,  # fusion size
+                                 15,  # action space dim
+                                 )
+        # self.env_rnn = LSTMLayer(LSTMCell,
+        #                          self.env_h_size,  # input size
+        #                          self.env_h_size,  # hx size  # action space dim
+        #                          )
+
+        self.env_ob_input_conv = LayeredConvNet(stride=stride_in,
+                                                 channels=channels_in,
+                                                 kernel_sizes=kernel_sizes_in,
+                                                 padding_hs=padding_hs_in,
+                                                 padding_ws=padding_ws_in)
+        self.env_ob_input_fc = NLayerPerceptron([self.ob_conv_top_size,
+                                                 self.env_h_size])
+
+    def encode_and_step(self, ob_in, act, rnn_state):
+        # Encode observation for input to RNN
+        ob_in, _ = self.env_ob_input_conv(ob_in)
+        ob_in = ob_in.view(ob_in.shape[0], -1)
+        ob_in, _ = self.env_ob_input_fc(ob_in)
+
+        rnn_state = LSTMState(rnn_state[0],rnn_state[1])
+
+        # Unsqueeze to create unitary time dimension
+        ob_in = torch.unsqueeze(ob_in, dim=1)
+        act = torch.unsqueeze(act, dim=1)
+
+        # Step RNN (Time increments here)
+        out, out_state = self.env_rnn(ob_in, act, rnn_state)
+
+        # # Make predictions based on RNN output
+        # ob_out, rew_out, done_out = self.decode_hx(hx=out)
+
+
+        return out_state#, ob_out, rew_out, done_out
+
+    def decode_hx(self, hx):
+
+        # Convert hidden state to image prediction
+        x, _ = self.ob_decoder_fc(hx)
+        x = x.view(x.shape[0], self.shp[0], self.shp[1], self.shp[2])
+        ob, _ = self.ob_decoder_conv(x)
+        ob = torch.sigmoid(ob)
+
+        # Convert hidden state to reward prediction
+        rew, _ = self.reward_decoder(hx)
+
+        # Conver hidden state to done prediction
+        done, _ = self.done_decoder(hx)
+        done = torch.sigmoid(done)
+
+        return ob, rew, done
+
+
+# Probably better just to have two 'forward' like functions. One for a full
+# step, the other for a half step that just produces its outputs given a cell
+# state. This very function can be used in the full step.
+
+
+class GenericClass(nn.Module):
+    """Template class
 
     Note:
         Some notes
@@ -551,230 +723,13 @@ class TwoLayerPerceptron(nn.Module):
         self.net = \
             nn.Sequential(nn.Linear(insize, insize),
                           nn.ReLU(),
-                          nn.LayerNorm(insize),
                           nn.Linear(insize, outsize))
 
     def forward(self, x):
         return self.net(x)
 
 
-class EnvStepperInitializer(nn.Module):
-    """Initializes the EnvStepper
 
-    The EnvStepper is recurrent and therefore needs an initial hidden state.
-    The EnvStepperInitializer generates an initial hidden state by taking the
-    VAE latent sample as input and outputting something the size of the
-    EnvStepper hidden state.
-
-    Note:
-        Some notes
-
-    Args:
-        param1 (str): Description of `param1`.
-        param2 (:obj:`int`, optional): Description of `param2`. Multiple
-            lines are supported.
-        param3 (:obj:`list` of :obj:`str`): Description of `param3`.
-
-    Attributes:
-        attr1 (str): Description of `attr1`.
-        attr2 (:obj:`int`, optional): Description of `attr2`.
-
-    """
-    def __init__(self, device, vae_latent_size=256, env_h_ch=64, env_h_hw=8):
-        super(EnvStepperInitializer, self).__init__()
-
-        hid_ch = 64
-
-        self.env_h_ch = env_h_ch
-        self.env_h_hw = env_h_hw
-        self.fc = nn.Linear(vae_latent_size,
-                            int((env_h_ch*env_h_hw*env_h_hw)/(4**2)))
-        self.resblockup1 = lyr.ResBlockUp(in_channels=hid_ch,
-                                         out_channels=hid_ch,
-                                         hw=4)
-        self.resblockup2 = lyr.ResBlockUp(in_channels=hid_ch,
-                                         out_channels=hid_ch,
-                                         hw=8)
-        self.norm1 = nn.LayerNorm([hid_ch, env_h_hw, env_h_hw])
-        self.norm2 = nn.LayerNorm([hid_ch, env_h_hw, env_h_hw])
-        self.norm3 = nn.LayerNorm([hid_ch, env_h_hw, env_h_hw])
-        self.norm4 = nn.LayerNorm([hid_ch, env_h_hw, env_h_hw])
-
-        self.resblock1 = lyr.ResidualBlock(hid_ch)
-        self.resblock2 = lyr.ResidualBlock(hid_ch)
-        self.attention = lyr.Attention(hid_ch)
-
-    def forward(self, x):
-        x = self.fc(x)
-        x = self.resblockup1(x.view(x.shape[0],       self.env_h_ch,
-                                   self.env_h_hw//4, self.env_h_hw//4)
-                            )
-        x = self.resblockup2(x)
-        x = self.norm1(x)
-        x = self.resblock1(x)
-        x = self.norm2(x)
-        x = self.attention(x)
-        x = self.norm3(x)
-        x = self.resblock2(x)
-        x = self.norm4(x)
-        return x
-
-class EnvStepper(nn.Module):
-    """A recurrent network that simulates the unrolling of the environment.
-
-    The EnvStepper unrolls a latent representation of the environment through
-    time. From its hidden state is decoded several things at each timestep:
-      - The observation (by the ObservationDecoder), which is input to the
-        agent.
-      - The reward (by the RewardDecoder). It is trained to predict reward in
-        the expectation that reward-salient aspects of the environment will be
-        represented in the EnvStepper latent state.
-      - The 'done' status (by the DoneDecoder). It is trained to predict
-        whether the episode is done or not.
-
-    Note:
-        Some notes
-
-    Args:
-        param1 (str): Description of `param1`.
-        param2 (:obj:`int`, optional): Description of `param2`. Multiple
-            lines are supported.
-        param3 (:obj:`list` of :obj:`str`): Description of `param3`.
-
-    Attributes:
-        attr1 (str): Description of `attr1`.
-        attr2 (:obj:`int`, optional): Description of `attr2`.
-
-    """
-    def __init__(self, agent, env_h_ch=128, env_h_hw=8, vae_latent_size=256):
-        super(EnvStepper, self).__init__()
-        action_dim = 15
-        hid_ch = 64
-
-        self.assimilator = \
-            lyr.AssimilatorResidualBlock(hid_ch,
-                                         vec_size=(action_dim+vae_latent_size))
-        # EnvStepper hidden state shape is 8x8x128
-        self.attention = lyr.Attention(hid_ch)
-        self.norm1 = nn.LayerNorm([hid_ch, env_h_hw, env_h_hw])
-        self.norm2 = nn.LayerNorm([hid_ch, env_h_hw, env_h_hw])
-        self.norm3 = nn.LayerNorm([hid_ch, env_h_hw, env_h_hw])
-        self.resblock = lyr.ResidualBlock(hid_ch)
-
-    def forward(self, vae_sample, act, h=None):
-        vec = torch.cat([vae_sample, act], dim=1)
-        new_h = self.assimilator(h, vec)
-        new_h = self.norm1(new_h)
-        new_h = self.attention(new_h)
-        new_h = self.norm2(new_h)
-        new_h = self.resblock(new_h)
-        new_h = self.norm3(new_h)
-        return new_h
-
-class ObservationDecoder(nn.Module):
-    """Decodes the observation from the EnvStepper latent state.
-
-    At every timestep, the ObservationDecoder takes the EnvStepper latent state
-    as input and outputs the observation (what the agent sees).
-
-    It uses multiple upsampling residual blocks and a nonlocal layer
-    (self-attention). It has a final tanh activation to ensure predicted pixel
-    values have the same range as real pixels.
-
-    """
-    def __init__(self, device, env_h_ch=64, env_h_hw=8):
-        super(ObservationDecoder, self).__init__()
-        ch0 = env_h_ch
-        hw0 = env_h_hw
-
-        self.resblockup1 = lyr.ResBlockUp(ch0,    ch0//2, hw=hw0)
-        self.resblockup2 = lyr.ResBlockUp(ch0//2, 3, hw=hw0*2)
-        #self.resblockup3 = lyr.ResBlockUp(ch0//4, 3,      hw=hw0*4)
-        self.attention = lyr.Attention(ch0 // 2)
-        # self.net = nn.Sequential(self.resblockup1,
-        #                          self.attention,
-        #                          self.resblockup2,
-        #                          self.resblockup3)
-
-    def forward(self, x):
-        x = self.resblockup1(x)
-        x = self.attention(x)
-        x = self.resblockup2(x)
-        #x = self.resblockup3(x)
-        x = ( torch.tanh(x) / 2.) + 0.5
-        return x
-
-
-class RewardDecoder(nn.Module):
-    """Decodes the current reward from the EnvStepper latent state.
-
-    At every timestep, the RewardDecoder takes the EnvStepper latent state
-    as input and outputs the (predicted) reward for that timestep. The agent
-    doesn't see this reward directly. It is just used to train the VAE
-    in the hope that reward-salient aspects of the environment will be
-    represented in the EnvStepper latent state.
-
-    Note:
-        Some notes
-
-    Args:
-        param1 (str): Description of `param1`.
-        param2 (:obj:`int`, optional): Description of `param2`. Multiple
-            lines are supported.
-        param3 (:obj:`list` of :obj:`str`): Description of `param3`.
-
-    Attributes:
-        attr1 (str): Description of `attr1`.
-        attr2 (:obj:`int`, optional): Description of `attr2`.
-
-    """
-    def __init__(self, device, env_h_ch=64, env_h_hw=8):
-        super(RewardDecoder, self).__init__()
-        ch0 = env_h_ch
-        self.resblockdown = lyr.ResBlockDown(ch0,ch0//4,
-                               downsample=nn.AvgPool2d(kernel_size=2))
-        half_env_h_hw = env_h_hw//2
-        self.fc = nn.Linear(half_env_h_hw*half_env_h_hw*(ch0//4), 1)
-
-    def forward(self, x):
-        x = self.resblockdown(x)
-        x = self.fc(x.view(x.shape[0], -1))
-        return x
-
-class DoneDecoder(nn.Module):
-    """Decodes the 'Done' status from the EnvStepper latent state.
-
-    At every timestep, the DoneDecoder takes the EnvStepper latent state
-    as input and outputs the (predicted) 'Done' status for that timestep. This
-    indicates when the similator thinks the episode is over (e.g. if the agent
-    dies or completes the level).
-
-    It is identical to the RewardDecoder apart from the final sigmoid
-    activation, since we want to return a prediction for a boolean here.
-
-    Note:
-        Some notes
-
-    Args:
-        param1 (str): Description of `param1`.
-        param2 (:obj:`int`, optional): Description of `param2`. Multiple
-            lines are supported.
-        param3 (:obj:`list` of :obj:`str`): Description of `param3`.
-
-    Attributes:
-        attr1 (str): Description of `attr1`.
-        attr2 (:obj:`int`, optional): Description of `attr2`.
-
-    """
-    def __init__(self, device, env_h_ch=64, env_h_hw=8):
-        super(DoneDecoder, self).__init__()
-        ch0 = env_h_ch
-        self.resblockdown = lyr.ResBlockDown(ch0,ch0//4,
-                               downsample=nn.AvgPool2d(kernel_size=2))
-        half_env_h_hw = env_h_hw//2
-        self.fc = nn.Linear(half_env_h_hw*half_env_h_hw*(ch0//4), 1)
-
-    def forward(self, x):
-        x = self.resblockdown(x)
-        x = self.fc(x.view(x.shape[0], -1))
-        return torch.sigmoid(x)
+class Namespace:
+    def __init__(self, **kwargs):
+        self.__dict__.update(kwargs)

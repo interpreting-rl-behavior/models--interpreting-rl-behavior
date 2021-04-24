@@ -86,7 +86,7 @@ class PPO(BaseAgent):
         # hidden_state = torch.FloatTensor(hidden_state).to(device=self.device)
         # mask = torch.FloatTensor(1-done).to(device=self.device)
         mask = torch.ones_like(done).squeeze() - done.squeeze()
-        obs = obs.permute(0, 3, 1, 2)
+        # obs = obs.permute(0, 3, 1, 2)
         dist, value, hidden_state = self.policy(obs, hidden_state, mask)
         act = dist.logits.argmax(dim=1)
         # log_prob_act = dist.log_prob(act)

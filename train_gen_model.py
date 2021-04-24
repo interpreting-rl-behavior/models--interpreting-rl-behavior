@@ -54,8 +54,8 @@ def run():
     parser.add_argument('--log_interval', type=int, default=100)
     parser.add_argument('--lr', type=float, default=5e-4)
     parser.add_argument('--batch_size', type=int, default=128)
-    parser.add_argument('--num_recon_obs', type=int, default=8)
-    parser.add_argument('--num_pred_steps', type=int, default=22)
+    parser.add_argument('--num_initializing_steps', type=int, default=8)
+    parser.add_argument('--num_sim_steps', type=int, default=22)
     parser.add_argument('--use_discriminator', type=int, default=0)
 
     # multi threading
@@ -80,9 +80,12 @@ def run():
     log_level = args.log_level
     num_checkpoints = args.num_checkpoints
     batch_size = args.batch_size
-    num_recon_obs = args.num_recon_obs
-    num_pred_steps = args.num_pred_steps
-    total_seq_len = num_recon_obs + num_pred_steps
+    num_initializing_steps = args.num_initializing_steps
+    num_sim_steps = args.num_sim_steps
+    total_seq_len = num_initializing_steps + num_sim_steps - 1
+    # minus one because the first simulated observation is the last
+    # initializing context obs.
+
     set_global_seeds(seed)
     set_global_log_levels(log_level)
 
@@ -176,15 +179,14 @@ def run():
     # Set up generative model
     ## Make dataset
     train_dataset = ProcgenDataset('generative/data/data_gen_model.csv',
-                                   total_seq_len=total_seq_len,
-                                   inp_seq_len=num_recon_obs)
+                                   total_seq_len=total_seq_len)
     train_loader = torch.utils.data.DataLoader(train_dataset,
                                                batch_size=batch_size,
                                                shuffle=True,
                                                num_workers=0)
 
     ## Make or load generative model and optimizer
-    gen_model = VAE(agent, device, num_recon_obs, num_pred_steps)
+    gen_model = VAE(agent, device, num_initializing_steps, total_seq_len)
 
     gen_model = gen_model.to(device)
     optimizer = torch.optim.Adam(gen_model.parameters(), lr=args.lr)
@@ -212,7 +214,8 @@ def run():
                 vae_latent_size = 128
                 samples = torch.randn(viz_batch_size, vae_latent_size)
                 samples = samples.to(device)
-                samples = gen_model.decoder(samples, true_actions=None)[0]
+                z_c, z_g = torch.split(samples, split_size_or_sections=64, dim=1)
+                samples = gen_model.decoder(z_c, z_g, true_actions=None)[0]
                 samples = torch.stack(samples, dim=1)
                 for b in range(viz_batch_size):
                     sample = samples[b].permute(0, 2, 3, 1)
@@ -227,11 +230,11 @@ def run():
         # Demonstrate reconsruction and prediction quality by comparing preds
         # with ground truth (the closes thing a VAE gets to validation because
         # there are no labels).
-        demo_recon_quality(epoch, train_loader, optimizer, gen_model,
+        demo_recon_quality(args, epoch, train_loader, optimizer, gen_model,
                            logger, sess_dir, device)
 
 
-def loss_function(args, preds, labels, mu, logvar, train_info_bufs, device):
+def loss_function(args, preds, labels, mu_c, logvar_c, mu_g, logvar_g, train_info_bufs, device):
     """ Calculates the difference between predicted and actual:
         - observation
         - agent's recurrent hidden states
@@ -255,9 +258,12 @@ def loss_function(args, preds, labels, mu, logvar, train_info_bufs, device):
     # Reconstruction loss
     losses = []
     for key in preds.keys():
+        if key == 'values':
+            continue
         #if key in ['obs']: # for debugging only
         pred  = torch.stack(preds[key], dim=1).squeeze()
         label = labels[key].to(device).float().squeeze()
+        label = label[:, -args.num_sim_steps:]
         if key == 'obs':
             # # Calculate a mask to exclude loss on 'zero' observations
             # mask = torch.ones_like(labels['done']) - labels['done'] # excludes done timesteps
@@ -266,7 +272,7 @@ def loss_function(args, preds, labels, mu, logvar, train_info_bufs, device):
             # mask = mask.unsqueeze(dim=-1).unsqueeze(dim=-1).unsqueeze(dim=-1) # so it can be broadcast to same shape as loss sum
 
             # Calculate loss
-            label = label / 255.
+            label = (label / 255. )# - 0.5
             loss = torch.abs(pred - label)
             # loss = loss * mask
             loss = torch.mean(loss)  # Mean Absolute Error
@@ -285,6 +291,8 @@ def loss_function(args, preds, labels, mu, logvar, train_info_bufs, device):
     # Kingma and Welling. Auto-Encoding Variational Bayes. ICLR, 2014
     # https://arxiv.org/abs/1312.6114
     # 0.5 * sum(1 + log(sigma^2) - mu^2 - sigma^2)
+    mu = torch.cat([mu_c, mu_g], dim=1)
+    logvar = torch.cat([logvar_c, logvar_g], dim=1)
     kl_divergence = -0.5 * torch.mean(1 + logvar - mu.pow(2) - logvar.exp(),
                                      dim=1) # Mean(sum?) along latent size dim.
     kl_divergence = torch.mean(kl_divergence)  # Mean along batch dim
@@ -317,15 +325,15 @@ def train(epoch, args, train_loader, optimizer, gen_model, agent, logger, save_d
         # Get input data for generative model (only taking the first
         # n=inp_seq_len timesteps)
         full_obs = data['obs']
-        inp_obs = data['obs'][:, 0:train_loader.dataset.inp_seq_len]
-        agent_hx = data['hx'][:, 0:train_loader.dataset.inp_seq_len]
-        actions_all = data['action']
+        inp_obs = data['obs']
+        agent_hx = data['hx'][:, -args.num_sim_steps:]
+        actions_all = data['action'][:, -args.num_sim_steps:]
 
         # Forward and backward pass and update generative model parameters
         optimizer.zero_grad()
-        mu, logvar, preds = gen_model(inp_obs, agent_hx, actions_all,
+        mu_c, logvar_c, mu_g, logvar_g, preds = gen_model(inp_obs, agent_hx, actions_all,
                                       use_true_actions=True)
-        loss, train_info_bufs = loss_function(args, preds, data, mu, logvar,
+        loss, train_info_bufs = loss_function(args, preds, data, mu_c, logvar_c, mu_g, logvar_g,
                                               train_info_bufs, device)
         for p in gen_model.decoder.agent.policy.parameters():
             if p.grad is not None:  # freeze agent parameters but not model's.
@@ -371,12 +379,13 @@ def train(epoch, args, train_loader, optimizer, gen_model, agent, logger, save_d
 
                     # Make predictions and ground truth into right format for
                     #  video saving
+                    # pred_ob = (pred_ob / 2) + 0.5
                     pred_ob = pred_ob * 255
 
                     pred_ob = pred_ob.clone().detach().type(torch.uint8)
                     pred_ob = pred_ob.cpu().numpy()
                     full_ob = full_ob.clone().detach().type(torch.uint8)
-                    full_ob = full_ob.cpu().numpy()
+                    full_ob = full_ob.cpu().numpy()[-args.num_sim_steps:]
 
                     # Join the prediction and the true observation side-by-side
                     combined_ob = np.concatenate([pred_ob, full_ob], axis=2)
@@ -387,8 +396,9 @@ def train(epoch, args, train_loader, optimizer, gen_model, agent, logger, save_d
                                str(b) + '.mp4'
                     tvio.write_video(save_str, combined_ob, fps=14)
 
-
-def demo_recon_quality(epoch, train_loader, optimizer, gen_model, logger,
+#TODO fioverwriting of samples every epoch (something to do with names)
+# TODO fix dir name not being used - always test.
+def demo_recon_quality(args, epoch, train_loader, optimizer, gen_model, logger,
           save_dir, device):
 
     # Set up logging objects
@@ -406,13 +416,13 @@ def demo_recon_quality(epoch, train_loader, optimizer, gen_model, logger,
         # Get input data for generative model (only taking inp_seq_len
         # timesteps)
         full_obs = data['obs']
-        inp_obs = full_obs[:, 0:train_loader.dataset.inp_seq_len]
-        agent_hx = data['hx'][:, 0:train_loader.dataset.inp_seq_len]
-        actions_all = data['action']
+        inp_obs = data['obs']
+        agent_hx = data['hx'][:, -args.num_sim_steps:]
+        actions_all = data['action'][:, -args.num_sim_steps:]
 
         # Forward pass to get predicted observations
         optimizer.zero_grad()
-        mu, logvar, preds = gen_model(inp_obs, agent_hx, actions_all,
+        mu_c, logvar_c, mu_g, logvar_g, preds = gen_model(inp_obs, agent_hx, actions_all,
                                       use_true_actions=True)
 
         with torch.no_grad():
@@ -433,7 +443,7 @@ def demo_recon_quality(epoch, train_loader, optimizer, gen_model, logger,
                 pred_ob = pred_ob.clone().detach().type(torch.uint8)
                 pred_ob = pred_ob.cpu().numpy()
                 full_ob = full_ob.clone().detach().type(torch.uint8)
-                full_ob = full_ob.cpu().numpy()
+                full_ob = full_ob.cpu().numpy()[-args.num_sim_steps:]
 
                 # Join the prediction and the true observation side-by-side
                 combined_ob = np.concatenate([pred_ob, full_ob], axis=2)

@@ -8,7 +8,7 @@ from torch.utils.data import Dataset
 class ProcgenDataset(Dataset):
     """Coinrun dataset."""
 
-    def __init__(self, csv_file, total_seq_len, inp_seq_len):
+    def __init__(self, csv_file, total_seq_len):
         """
         Args:
             csv_file (string): Path to the csv file with annotations.
@@ -16,7 +16,6 @@ class ProcgenDataset(Dataset):
         self.procgen_data = pd.read_csv(csv_file)
         self.seq_len = total_seq_len
         self.dataset_len = len(self.procgen_data)
-        self.inp_seq_len = inp_seq_len
 
     def __len__(self):
         return len(self.procgen_data)
