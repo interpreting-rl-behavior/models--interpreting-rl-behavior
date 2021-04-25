@@ -56,7 +56,7 @@ def run():
     parser.add_argument('--batch_size', type=int, default=128)
     parser.add_argument('--num_initializing_steps', type=int, default=8)
     parser.add_argument('--num_sim_steps', type=int, default=22)
-    parser.add_argument('--use_discriminator', type=int, default=0)
+    parser.add_argument('--layer_norm', type=int, default=0)
 
     # multi threading
     parser.add_argument('--num_threads', type=int, default=8)
@@ -258,9 +258,8 @@ def loss_function(args, preds, labels, mu_c, logvar_c, mu_g, logvar_g, train_inf
     # Reconstruction loss
     losses = []
     for key in preds.keys():
-        if key == 'values':
+        if key == 'values': # Not using values for loss
             continue
-        #if key in ['obs']: # for debugging only
         pred  = torch.stack(preds[key], dim=1).squeeze()
         label = labels[key].to(device).float().squeeze()
         label = label[:, -args.num_sim_steps:]
@@ -273,11 +272,14 @@ def loss_function(args, preds, labels, mu_c, logvar_c, mu_g, logvar_g, train_inf
 
             # Calculate loss
             label = (label / 255. )# - 0.5
-            loss = torch.abs(pred - label)
-            # loss = loss * mask
-            loss = torch.mean(loss)  # Mean Absolute Error
+            # loss = torch.abs(pred - label)
+            # # loss = loss * mask
+            # loss = torch.mean(loss)  # Mean Absolute Error
+
+            loss = torch.mean((pred - label) ** 2)
         else:
-            loss = torch.mean(torch.abs(pred - label))  # Mean Absolute Error
+            # loss = torch.mean(torch.abs(pred - label))  # Mean Absolute Error
+            loss = torch.mean((pred - label) ** 2)  # MSE
 
         #mse = F.mse_loss(pred, label) # TODO test whether MSE or MAbsE is better (I think the VQ-VAE2 paper suggested MAE was better)
         train_info_bufs[key].append(loss.item())

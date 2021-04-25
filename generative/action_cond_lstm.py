@@ -205,6 +205,56 @@ class LayerNormLSTMCell(jit.ScriptModule):
         return hy, (hy, cy)
 
 
+class ActionCondLayerNormLSTMCell(jit.ScriptModule):
+    def __init__(self, input_size, hidden_size, fusion_size, action_space_dim, decompose_layernorm=False):
+        super(ActionCondLayerNormLSTMCell, self).__init__()
+        self.input_size = input_size
+        self.hidden_size = hidden_size
+        self.weight_ih = Parameter(torch.randn(4 * hidden_size, input_size))
+        self.weight_hh = Parameter(torch.randn(4 * hidden_size, fusion_size))
+        self.weight_vh = Parameter(torch.randn(hidden_size, fusion_size))
+        self.weight_va = Parameter(torch.randn(action_space_dim, fusion_size))
+        # The layernorms provide learnable biases
+
+        if decompose_layernorm:
+            ln = LayerNorm
+        else:
+            ln = nn.LayerNorm
+
+        self.layernorm_i = ln(4 * hidden_size)
+        self.layernorm_h = ln(4 * hidden_size)
+        self.layernorm_c = ln(hidden_size)
+        self.layernorm_v = ln(fusion_size)
+
+    @jit.script_method
+    def forward(self, obs_input: Tensor, act_input: Tensor,
+                state: Tuple[Tensor, Tensor]) -> Tuple[Tensor, Tuple[Tensor, Tensor]]:
+
+        hx, cx = state
+
+        # Action fusion
+        v = torch.mm(hx, self.weight_vh) * \
+            torch.mm(act_input, self.weight_va)
+        v = self.layernorm_v(v)
+
+        # Gate update
+
+        igates = self.layernorm_i(torch.mm(obs_input, self.weight_ih.t()))
+        hgates = self.layernorm_h(torch.mm(v, self.weight_hh.t()))
+        gates = igates + hgates
+        ingate, forgetgate, cellgate, outgate = gates.chunk(4, 1)
+
+        ingate = torch.sigmoid(ingate)
+        forgetgate = torch.sigmoid(forgetgate)
+        cellgate = torch.tanh(cellgate)
+        outgate = torch.sigmoid(outgate)
+
+        cy = self.layernorm_c((forgetgate * cx) + (ingate * cellgate))
+        hy = outgate * torch.tanh(cy)
+
+        return hy, (hy, cy)
+
+
 class ActionCondLSTMLayer(jit.ScriptModule):
     def __init__(self, cell, *cell_args):
         super(ActionCondLSTMLayer, self).__init__()

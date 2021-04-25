@@ -7,7 +7,7 @@ import numpy as np
 from torch.nn import init
 import torch.optim as optim
 from torch.nn import Parameter as P
-from .action_cond_lstm import ActionCondLSTMLayer, LSTMCell, ActionCondLSTMCell, LSTMState
+from .action_cond_lstm import ActionCondLSTMLayer, LSTMCell, ActionCondLSTMCell, ActionCondLayerNormLSTMCell, LSTMState
 
 class LayeredConvNet(nn.Module):
     """Template class
@@ -31,7 +31,9 @@ class LayeredConvNet(nn.Module):
                  kernel_sizes=[6, 6, 6],
                  padding_hs=[1, 1, 1],
                  padding_ws=[1, 1, 1],
-                 deconv=False):
+                 input_hw=64,
+                 deconv=False,
+                 layer_norm=False):
         super(LayeredConvNet, self).__init__()
 
         # Check all inps have right len
@@ -40,8 +42,12 @@ class LayeredConvNet(nn.Module):
            not len(padding_hs) == len(padding_ws):
             raise ValueError("One of your conv lists has the wrong length.")
 
+        self.input_hw = input_hw
+        layer_in_hw = self.input_hw
         self.nets = nn.ModuleList([])
+        self.deconv = deconv
         ch_in = channels[0]
+        self.lns = [] # for debugging only
         for i, (ch_out, k, p_h, p_w) in enumerate(zip(channels[1:],
                                                  kernel_sizes,
                                                  padding_hs,
@@ -57,7 +63,16 @@ class LayeredConvNet(nn.Module):
                                 stride=(stride,stride),
                                 padding=(p_h,p_w))
             self.nets.append(net)
-            if i < len(kernel_sizes) - 1: # Doesn't add actv on last layer
+            if i < len(kernel_sizes) - 1: # Doesn't add actv or LN on last layer
+                if layer_norm:
+                    layer_in_hw = conv_output_size(layer_in_hw,
+                                                   stride=stride,
+                                                   padding=p_h,
+                                                   kernel_size=k,
+                                                   transposed=deconv)
+                    ln = nn.LayerNorm([ch_out, layer_in_hw, layer_in_hw])
+                    self.lns.append(ln)
+                    self.nets.append(ln)
                 self.nets.append(nn.RReLU())
             ch_in = ch_out
 
@@ -151,7 +166,7 @@ class VAE(nn.Module):
             agent_hidden_size=64,
             action_space_dim=15,
             env_stepper_rnn_hidden_size=1024,
-
+            layer_norm=True
         )
         self.device = device
 
@@ -239,7 +254,8 @@ class Encoder(nn.Module):
                                channels=[3,64,32,32],
                                kernel_sizes=[6,4,3],
                                padding_hs=[1,1,1],
-                               padding_ws=[1,1,1])
+                               padding_ws=[1,1,1],
+                               layer_norm=hyperparams.layer_norm)
 
         self.global_context_encoder = \
             GlobalContextEncoder(rnn_hidden_size=hyperparams.global_context_encoder_rnn_hidden_size,
@@ -248,7 +264,8 @@ class Encoder(nn.Module):
                                  channels=[3, 32, 16, 16],
                                  kernel_sizes=[6, 4, 3],
                                  padding_hs=[1, 1, 1],
-                                 padding_ws=[1, 1, 1])
+                                 padding_ws=[1, 1, 1],
+                                 layer_norm=hyperparams.layer_norm)
 
         self.init_seq_len = hyperparams.num_initialization_obs
         self.global_context_seq_len = hyperparams.num_sim_steps
@@ -296,13 +313,14 @@ class InitializerEncoder(nn.Module):
     """
     def __init__(self, rnn_hidden_size, agent_hidden_size,
                  sample_dim, stride, channels,
-                 kernel_sizes, padding_hs, padding_ws):
+                 kernel_sizes, padding_hs, padding_ws, layer_norm):
         super(InitializerEncoder, self).__init__()
         self.conv_input = LayeredConvNet(stride=stride,
                                          channels=channels,
                                          kernel_sizes=kernel_sizes,
                                          padding_hs=padding_hs,
-                                         padding_ws=padding_ws)
+                                         padding_ws=padding_ws,
+                                         layer_norm=layer_norm)
         # conv will output tensor of shape 32 * 8 * 8
 
         self.rnn = nn.LSTM(input_size=32 * 8 * 8,
@@ -375,13 +393,14 @@ class GlobalContextEncoder(nn.Module):
 
     """
     def __init__(self, rnn_hidden_size, sample_dim, stride, channels,
-                 kernel_sizes, padding_hs, padding_ws):
+                 kernel_sizes, padding_hs, padding_ws, layer_norm):
         super(GlobalContextEncoder, self).__init__()
         self.conv_input = LayeredConvNet(stride=stride,
                                          channels=channels,
                                          kernel_sizes=kernel_sizes,
                                          padding_hs=padding_hs,
-                                         padding_ws=padding_ws)
+                                         padding_ws=padding_ws,
+                                         layer_norm=layer_norm)
         # conv will output tensor of shape 16 * 8 * 8
 
         self.rnn = nn.LSTM(input_size=16 * 8 * 8, # TODO make output size an attribute of LayeredConvNet so that you don't have to hard code this.
@@ -455,7 +474,7 @@ class Decoder(nn.Module):
         self.action_space_dim = hyperparams.action_space_dim
         agent_h0_size = hyperparams.agent_hidden_size
         env_h_size = hyperparams.env_stepper_rnn_hidden_size
-
+        layer_norm = layer_norm=hyperparams.layer_norm
         self.num_sim_steps = hyperparams.num_sim_steps
 
         env_conv_top_shape = [32, 8, 8]
@@ -464,11 +483,11 @@ class Decoder(nn.Module):
         self.agent_initializer = NLayerPerceptron([z_c_size,
                                                    256,
                                                    agent_h0_size],
-                                                  layer_norm=True)
+                                                  layer_norm=layer_norm)
 
         # Make EnvStepperInitializerNetwork
         self.env_stepper_initializer = \
-            EnvStepperStateInitializer(z_c_size, z_g_size, env_h_size)
+            EnvStepperStateInitializer(z_c_size, z_g_size, env_h_size, layer_norm=layer_norm)
 
         # Make EnvStepper
         self.env_stepper = EnvStepper(env_hidden_size=env_h_size,
@@ -482,7 +501,8 @@ class Decoder(nn.Module):
                                       channels_out=[32, 32, 64, 3],
                                       kernel_sizes_out=[3, 5, 6],
                                       padding_hs_out=[1, 1, 1],
-                                      padding_ws_out=[1, 1, 1],)
+                                      padding_ws_out=[1, 1, 1],
+                                      layer_norm=layer_norm)
 
         # Make agent into an attribute of the decoder class
         self.agent = agent
@@ -572,11 +592,11 @@ class EnvStepperStateInitializer(nn.Module):
         attr2 (:obj:`int`, optional): Description of `attr2`.
 
     """
-    def __init__(self, z_c_size, z_g_size, env_h_size):
+    def __init__(self, z_c_size, z_g_size, env_h_size, layer_norm):
         super(EnvStepperStateInitializer, self).__init__()
         self.base = NLayerPerceptron([z_c_size + z_g_size,
                                       env_h_size,
-                                      env_h_size * 2], layer_norm=True)
+                                      env_h_size * 2], layer_norm=layer_norm)
         self.cell_net = nn.Sequential(nn.ReLU(),
             nn.Linear(env_h_size * 2, env_h_size),
                                       nn.Sigmoid())
@@ -612,7 +632,7 @@ class EnvStepper(nn.Module):
                  stride_in, channels_in, kernel_sizes_in, padding_hs_in,
                  padding_ws_in,
                  stride_out, channels_out, kernel_sizes_out, padding_hs_out,
-                 padding_ws_out,):
+                 padding_ws_out, layer_norm):
         super(EnvStepper, self).__init__()
 
         self.env_h_size = env_hidden_size
@@ -628,17 +648,23 @@ class EnvStepper(nn.Module):
                                               kernel_sizes=kernel_sizes_out,
                                               padding_hs=padding_hs_out,
                                               padding_ws=padding_ws_out,
-                                              deconv=True)
+                                              deconv=True,
+                                              layer_norm=layer_norm,
+                                              input_hw=self.ob_conv_top_shape[1])
         self.done_decoder = NLayerPerceptron([env_hidden_size, 64, 1],
-                                             layer_norm=False)
+                                             layer_norm=layer_norm)
         self.reward_decoder = NLayerPerceptron([env_hidden_size, 64, 1],
-                                               layer_norm=False)
+                                               layer_norm=layer_norm)
 
         # Networks in forward step
         # inp = torch.randn(seq_len, batch, input_size)
         # state = LSTMState(torch.randn(batch, hidden_size),
         #                   torch.randn(batch, hidden_size))
-        self.env_rnn = ActionCondLSTMLayer(ActionCondLSTMCell,
+        if layer_norm:
+            cell = ActionCondLayerNormLSTMCell
+        else:
+            cell = ActionCondLSTMCell
+        self.env_rnn = ActionCondLSTMLayer(cell,
                                  self.env_h_size,  # input size
                                  self.env_h_size,  # hx size
                                  self.env_h_size*2,  # fusion size
@@ -653,9 +679,11 @@ class EnvStepper(nn.Module):
                                                  channels=channels_in,
                                                  kernel_sizes=kernel_sizes_in,
                                                  padding_hs=padding_hs_in,
-                                                 padding_ws=padding_ws_in)
+                                                 padding_ws=padding_ws_in,
+                                                layer_norm=layer_norm)
         self.env_ob_input_fc = NLayerPerceptron([self.ob_conv_top_size,
-                                                 self.env_h_size])
+                                                 self.env_h_size],
+                                                layer_norm=layer_norm)
 
     def encode_and_step(self, ob_in, act, rnn_state):
         # Encode observation for input to RNN
@@ -733,3 +761,11 @@ class GenericClass(nn.Module):
 class Namespace:
     def __init__(self, **kwargs):
         self.__dict__.update(kwargs)
+
+def conv_output_size(input_hw, stride, padding, kernel_size, transposed=False):
+    """assumes a square input"""
+    if transposed:
+        out_hw = stride * (input_hw - 1) + kernel_size - 2 * padding
+    else:
+        out_hw = ( (input_hw - kernel_size + ( 2 * padding)) / stride) + 1
+    return int(out_hw)
