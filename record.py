@@ -16,6 +16,9 @@ import torch
 import pandas as pd
 
 if __name__=='__main__':
+    start_time = time.time()
+    secs_in_24h = 60*60*24
+
     parser = argparse.ArgumentParser()
     parser.add_argument('--exp_name',         type=str, default = 'test', help='experiment name')
     parser.add_argument('--env_name',         type=str, default = 'coinrun', help='environment ID')
@@ -167,7 +170,7 @@ if __name__=='__main__':
     episode_number = 0
 
     max_episodes = 50
-    start_time = datetime.time
+
 
     ## Make dirs for files #TODO add some unique identifier so you don't end up with a bunch of partial episodes due to overwriting
     dir_name = logdir + 'episode' + str(episode_number)
@@ -247,7 +250,8 @@ if __name__=='__main__':
 
             hidden_state = np.zeros_like(hidden_state) #New
 
-        if max_episodes is not None and episode_number >= max_episodes:
+        if (episode_number >= max_episodes) or \
+                ((time.time() - start_time) > (secs_in_24h - 600)):
             break
 
         # _, _, last_val, hidden_state = agent.predict(obs, hidden_state, done)
