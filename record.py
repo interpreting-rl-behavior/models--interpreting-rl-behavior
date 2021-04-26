@@ -1,3 +1,6 @@
+"""Makes a dataset for the generative model."""
+import datetime
+
 from common.env.procgen_wrappers import *
 from common.logger import Logger
 from common.storage import Storage
@@ -31,6 +34,7 @@ if __name__=='__main__':
 
     #render parameters
     parser.add_argument('--model_file', type=str)
+    parser.add_argument('--logdir', type=str, default='generative/')
 
     args = parser.parse_args()
     exp_name = args.exp_name
@@ -133,8 +137,8 @@ if __name__=='__main__':
     agent.n_envs = n_envs
 
     # Make save dirs
-    logdir_base = 'generative/'
-    logdir = 'generative/data/'
+    logdir_base = args.logdir
+    logdir = os.path.join(logdir_base, 'data/')
     if not (os.path.exists(logdir_base)):
         os.makedirs(logdir_base)
     if not (os.path.exists(logdir)):
@@ -162,7 +166,8 @@ if __name__=='__main__':
     episode_steps = 0
     episode_number = 0
 
-    max_episodes = 10
+    max_episodes = 50
+    start_time = datetime.time
 
     ## Make dirs for files #TODO add some unique identifier so you don't end up with a bunch of partial episodes due to overwriting
     dir_name = logdir + 'episode' + str(episode_number)
@@ -211,7 +216,7 @@ if __name__=='__main__':
             data.to_csv(logdir + f'data_gen_model_{episode_number}.csv', index=False) #TODO change so that it doesn't get slower over time due to the growing size of the data csv. save each individually then combine once done.
 
             # Make dirs for files
-            dir_name = logdir + 'episode' + str(episode_number)
+            dir_name = os.path.join(logdir, 'episode' + str(episode_number))
             if not (os.path.exists(dir_name)):
                 os.makedirs(dir_name)
 
