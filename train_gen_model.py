@@ -22,7 +22,7 @@ def run():
     parser = argparse.ArgumentParser()
     parser.add_argument('--exp_name', type=str, default='test',
                         help='experiment name')
-    parser.add_argument('--tgm_exp_name', type=str, default='test',
+    parser.add_argument('--tgm_exp_name', type=str, default='test_tgm',
                         help='experiment name')
     parser.add_argument('--env_name', type=str, default='coinrun',
                         help='environment ID')
@@ -50,6 +50,7 @@ def run():
                         help='number of checkpoints to store')
     parser.add_argument('--model_file', type=str)
     parser.add_argument('--agent_file', type=str)
+    parser.add_argument('--data_dir', type=str, default='generative/')
     parser.add_argument('--save_interval', type=int, default=100)
     parser.add_argument('--log_interval', type=int, default=100)
     parser.add_argument('--lr', type=float, default=5e-4)
@@ -110,7 +111,7 @@ def run():
 
     # Make save dirs
     print('INITIALIZING LOGGER...')
-    logdir_base = 'generative/'
+    logdir_base = args.data_dir
     if not (os.path.exists(logdir_base)):
         os.makedirs(logdir_base)
     resdir = logdir_base + 'results/'
@@ -252,8 +253,7 @@ def loss_function(args, preds, labels, mu_c, logvar_c, mu_g, logvar_g, train_inf
                         'hx': args.loss_scale_hx,
                         'reward': args.loss_scale_reward,
                         'done': args.loss_scale_done,
-                        'act_log_probs': args.loss_scale_act_log_probs,
-                        'gen_adv': args.loss_scale_gen_adv}
+                        'act_log_probs': args.loss_scale_act_log_probs}
 
     # Reconstruction loss
     losses = []
@@ -343,6 +343,7 @@ def train(epoch, args, train_loader, optimizer, gen_model, agent, logger, save_d
         loss.backward()
         torch.nn.utils.clip_grad_norm_(gen_model.parameters(), 0.001)
         optimizer.step()
+        #TODO sort out hyperparameters (incl archi) - put them all in one namespace.
 
         # Logging and saving info
         if batch_idx % args.log_interval == 0:
@@ -379,6 +380,9 @@ def train(epoch, args, train_loader, optimizer, gen_model, agent, logger, save_d
                     pred_ob = pred_obs[b].permute(0, 2, 3, 1)
                     full_ob = full_obs[b].permute(0, 2, 3, 1)
 
+                    if torch.sum(full_ob) == 0:
+                        print("boop")
+
                     # Make predictions and ground truth into right format for
                     #  video saving
                     # pred_ob = (pred_ob / 2) + 0.5
@@ -398,8 +402,12 @@ def train(epoch, args, train_loader, optimizer, gen_model, agent, logger, save_d
                                str(b) + '.mp4'
                     tvio.write_video(save_str, combined_ob, fps=14)
 
-#TODO fioverwriting of samples every epoch (something to do with names)
-# TODO fix dir name not being used - always test.
+#DONE fioverwriting of samples every epoch (something to do with names): Decided that it's better to keep it the way it is and just get rid of it for online publication. It's also nice to be able to see which runs I'd left running based on num files in dir. # TODO remove this comment when you're happy with the decision.
+
+# TODO check ur iin the right train/test mode
+
+# TODO fix why samples are either only black or visible. Should transition from visible to black occasionally.
+# TODO related to the immediately above - reinstate zeroing-out of obs after done.
 def demo_recon_quality(args, epoch, train_loader, optimizer, gen_model, logger,
           save_dir, device):
 

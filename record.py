@@ -233,7 +233,7 @@ if __name__=='__main__':
             hx_name = dir_name + '/' + 'hx.npy'
             lp_name = dir_name + '/' + 'lp.npy'
 
-            # Save stacked array
+            # Save stacked array #TODO is the agent being reset properly?
             np.save(obs_name, np.array(obs_array * 255, dtype=np.uint8))
             np.save(hx_name, hx_array)
             np.save(lp_name, lp_array)
@@ -262,6 +262,6 @@ if __name__=='__main__':
         epi_filename = logdir + f'data_gen_model_{e}.csv'
         data_e = pd.read_csv(epi_filename)
         data = data.append(data_e)
-        os.remove(epi_filename)
+        # os.remove(epi_filename)
     data.to_csv(logdir + f'data_gen_model.csv',
                 index=False)
