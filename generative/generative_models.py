@@ -474,7 +474,7 @@ class Decoder(nn.Module):
         self.action_space_dim = hyperparams.action_space_dim
         agent_h0_size = hyperparams.agent_hidden_size
         env_h_size = hyperparams.env_stepper_rnn_hidden_size
-        layer_norm = layer_norm=hyperparams.layer_norm
+        layer_norm = hyperparams.layer_norm
         self.num_sim_steps = hyperparams.num_sim_steps
 
         env_conv_top_shape = [32, 8, 8]
@@ -492,6 +492,7 @@ class Decoder(nn.Module):
         # Make EnvStepper
         self.env_stepper = EnvStepper(env_hidden_size=env_h_size,
                                       env_conv_top_shape=env_conv_top_shape,
+                                      z_g_size=z_g_size,
                                       stride_in=2,
                                       channels_in=[3, 64, 32, 32],
                                       kernel_sizes_in=[6, 4, 3],
@@ -547,7 +548,6 @@ class Decoder(nn.Module):
             # Code in the for loop following here spans t AND t+1
             ## Step forward the agent to get act@t and logprobs@t, but
             ## agent_h@t+1
-            # ob = ob.permute(0, 2, 3, 1)
             act, logits, value, agent_h = self.agent.predict_STE(ob, agent_h,
                                                                  done)
             pred_acts.append(act)
@@ -561,10 +561,9 @@ class Decoder(nn.Module):
                 # actions for input to env
                 act = true_actions[:, i]
                 act = torch.nn.functional.one_hot(act.long(), num_classes=self.action_space_dim)
-                # act = torch.nn.functional.one_hot(act.float(), num_classes=self.action_space_dim)
                 act = act.float()
             env_rnn_state = \
-                self.env_stepper.encode_and_step(ob, act, env_rnn_state)
+                self.env_stepper.encode_and_step(ob, act, env_rnn_state, z_g)
             env_h, env_cell_state = env_rnn_state # env@t+1
 
             ## Get ready for new step
@@ -628,7 +627,7 @@ class EnvStepper(nn.Module):
         attr2 (:obj:`int`, optional): Description of `attr2`.
 
     """
-    def __init__(self, env_hidden_size, env_conv_top_shape,
+    def __init__(self, env_hidden_size, env_conv_top_shape, z_g_size,
                  stride_in, channels_in, kernel_sizes_in, padding_hs_in,
                  padding_ws_in,
                  stride_out, channels_out, kernel_sizes_out, padding_hs_out,
@@ -639,6 +638,7 @@ class EnvStepper(nn.Module):
         self.ob_conv_top_shape = env_conv_top_shape
         self.shp = self.ob_conv_top_shape  # legibility
         self.ob_conv_top_size = np.prod(self.ob_conv_top_shape)
+        self.z_g_size = z_g_size
 
         # Networks in output step
         self.ob_decoder_fc = NLayerPerceptron([self.env_h_size,
@@ -657,23 +657,16 @@ class EnvStepper(nn.Module):
                                                layer_norm=layer_norm)
 
         # Networks in forward step
-        # inp = torch.randn(seq_len, batch, input_size)
-        # state = LSTMState(torch.randn(batch, hidden_size),
-        #                   torch.randn(batch, hidden_size))
         if layer_norm:
             cell = ActionCondLayerNormLSTMCell
         else:
             cell = ActionCondLSTMCell
         self.env_rnn = ActionCondLSTMLayer(cell,
-                                 self.env_h_size,  # input size
+                                 self.env_h_size + self.z_g_size,  # input size
                                  self.env_h_size,  # hx size
                                  self.env_h_size*2,  # fusion size
                                  15,  # action space dim
                                  )
-        # self.env_rnn = LSTMLayer(LSTMCell,
-        #                          self.env_h_size,  # input size
-        #                          self.env_h_size,  # hx size  # action space dim
-        #                          )
 
         self.env_ob_input_conv = LayeredConvNet(stride=stride_in,
                                                  channels=channels_in,
@@ -685,7 +678,7 @@ class EnvStepper(nn.Module):
                                                  self.env_h_size],
                                                 layer_norm=layer_norm)
 
-    def encode_and_step(self, ob_in, act, rnn_state):
+    def encode_and_step(self, ob_in, act, rnn_state, z_g):
         # Encode observation for input to RNN
         ob_in, _ = self.env_ob_input_conv(ob_in)
         ob_in = ob_in.view(ob_in.shape[0], -1)
@@ -696,15 +689,13 @@ class EnvStepper(nn.Module):
         # Unsqueeze to create unitary time dimension
         ob_in = torch.unsqueeze(ob_in, dim=1)
         act = torch.unsqueeze(act, dim=1)
+        z_g = torch.unsqueeze(z_g, dim=1)
 
         # Step RNN (Time increments here)
-        out, out_state = self.env_rnn(ob_in, act, rnn_state)
+        in_vec = torch.cat([ob_in, z_g], dim=2)
+        out, out_state = self.env_rnn(in_vec, act, rnn_state)
 
-        # # Make predictions based on RNN output
-        # ob_out, rew_out, done_out = self.decode_hx(hx=out)
-
-
-        return out_state#, ob_out, rew_out, done_out
+        return out_state
 
     def decode_hx(self, hx):
 
