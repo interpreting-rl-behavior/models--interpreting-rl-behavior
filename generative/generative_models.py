@@ -276,7 +276,6 @@ class Encoder(nn.Module):
 
         # Split frames into initialization frames and global context frames
         init_obs = full_obs[:, 0:self.init_seq_len]
-        init_obs = torch.flip(init_obs, dims=[1]) # reverse time
         glob_ctx_obs = full_obs[:, -self.global_context_seq_len:]
 
         # Run InitializerEncoder
