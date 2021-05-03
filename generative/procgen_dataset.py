@@ -8,7 +8,7 @@ from torch.utils.data import Dataset
 class ProcgenDataset(Dataset):
     """Coinrun dataset."""
 
-    def __init__(self, data_dir='generative/data/', total_seq_len=None):
+    def __init__(self, data_dir='generative/data/', initializer_seq_len=None, total_seq_len=None):
         """
         Args:
             csv_file (string): Path to the csv file with annotations.
@@ -17,6 +17,7 @@ class ProcgenDataset(Dataset):
         self.seq_len = total_seq_len
         self.dataset_len = len(self.procgen_data)
         self.data_dir = data_dir
+        self.init_seq_len = initializer_seq_len
 
     def __len__(self):
         return len(self.procgen_data)
@@ -37,7 +38,7 @@ class ProcgenDataset(Dataset):
 
         episode_number = frames['episode'].iloc[0]
         initial_episode_step = frames['episode_step'].iloc[0]
-
+        
         # Put columns into data_dict
         keys = list(frames.keys())
         data_keys = ['done', 'reward', 'value', 'action']
