@@ -223,7 +223,7 @@ def run():
                     sample = sample * 255
                     sample = sample.clone().detach().type(torch.uint8)
                     sample = sample.cpu().numpy()
-                    save_str = sess_dir + '/sample_' + str(epoch) + '_' + str(b) + '.mp4'
+                    save_str = sess_dir + '/generated_sample_' + str(epoch) + '_' + str(b) + '.mp4'
                     tvio.write_video(save_str, sample, fps=14)
 
         # Demonstrate reconsruction and prediction quality by comparing preds
@@ -455,7 +455,7 @@ def demo_recon_quality(args, epoch, train_loader, optimizer, gen_model, logger,
                 combined_ob = np.concatenate([pred_ob, full_ob], axis=2)
 
                 # Save vid
-                save_str = save_dir + '/recons_v_preds' + '/sample_' + \
+                save_str = save_dir + '/recons_v_preds' + '/demo_' + \
                            str(epoch) + '_' + str(batch_idx) + '_' + \
                            str(b) + '.mp4'
                 tvio.write_video(save_str, combined_ob, fps=14)
