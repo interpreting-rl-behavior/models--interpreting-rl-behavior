@@ -1,5 +1,5 @@
 import torch
-
+import os
 import pandas as pd
 import numpy as np
 from torch.utils.data import Dataset
@@ -8,14 +8,15 @@ from torch.utils.data import Dataset
 class ProcgenDataset(Dataset):
     """Coinrun dataset."""
 
-    def __init__(self, csv_file, total_seq_len):
+    def __init__(self, data_dir='generative/data/', total_seq_len=None):
         """
         Args:
             csv_file (string): Path to the csv file with annotations.
         """
-        self.procgen_data = pd.read_csv(csv_file)
+        self.procgen_data = pd.read_csv(os.path.join(data_dir, 'data_gen_model.csv'))
         self.seq_len = total_seq_len
         self.dataset_len = len(self.procgen_data)
+        self.data_dir = data_dir
 
     def __len__(self):
         return len(self.procgen_data)
@@ -23,6 +24,12 @@ class ProcgenDataset(Dataset):
     def __getitem__(self, idx):
         if torch.is_tensor(idx):
             idx = idx.tolist()
+        # TODO some way to ensure that the episode doesn't end during the
+        #  initialisation sequence (but it's okay if it ends on the 0th
+        #  timestep of the main simulated sequence).
+
+        # TODO some way to ensure that the initialization sequence can start
+        #  on the 0th timestep of the episode.
 
         # Gets frames starting at idx #TODO proper treatment of when the end of the dataset is sampled
         end_frame_idx = idx + self.seq_len
@@ -39,6 +46,7 @@ class ProcgenDataset(Dataset):
         for values, key in zip(data, keys):
             if key in data_keys:
                 if end_frame_idx >= self.dataset_len:
+                    print("Debugging: end_frame_idx >= self.dataset_len, which should happen only once per epoch")
                     # Fill with zeros if asking for data indices that are
                     # beyond the end of the dataset (and therefore don't exist)
                     zero_num = 0. if type(values[0])==float else 0
@@ -51,19 +59,21 @@ class ProcgenDataset(Dataset):
         else:
             segment_len = self.seq_len
 
-        for key, value in data_dict.items():
+        # Remove any info from the following episode that is not part
+        # of the batch element.
+        for key, value in data_dict.items(): # TODO consider just freezing the frame at the last frame instead of zeroing it out.
             if key == 'done':
                 value[:segment_len-1] = 0. # -1 because the final frame of the
                 # episode should be 'done'(==1)
                 value[segment_len:] = 1.
-            if key == 'reward':
+            elif key == 'reward':
                 value[segment_len:] = 0.
-            if key == 'value':
+            elif key == 'value':
                 value[segment_len:] = 0.
             data_dict[key] = np.stack(value)
 
         # Get obs, hx, and log probs and set anything after episode done to zero
-        save_path = 'generative/data/episode' + str(episode_number)
+        save_path = self.data_dir + 'episode' + str(episode_number)
         obs = np.load(save_path + '/ob.npy')
         hx  = np.load(save_path + '/hx.npy')
         lp  = np.load(save_path + '/lp.npy')
@@ -72,9 +82,10 @@ class ProcgenDataset(Dataset):
         ## observations
         if episode_len > initial_episode_step+self.seq_len:
             obs = obs[initial_episode_step:initial_episode_step+self.seq_len]
+            obs = obs / 255.
         else:
             t, c, h, w = obs.shape
-            zeros = np.zeros([self.seq_len,c,h,w])
+            zeros = np.zeros([self.seq_len, c, h, w])
             obs = obs[initial_episode_step:episode_len]
             zeros[0:episode_len-initial_episode_step] = obs
             obs = zeros / 255.

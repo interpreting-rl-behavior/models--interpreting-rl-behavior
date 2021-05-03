@@ -50,7 +50,7 @@ def run():
                         help='number of checkpoints to store')
     parser.add_argument('--model_file', type=str)
     parser.add_argument('--agent_file', type=str)
-    parser.add_argument('--data_dir', type=str, default='generative/')
+    parser.add_argument('--data_dir', type=str, default='generative/data/')
     parser.add_argument('--save_interval', type=int, default=100)
     parser.add_argument('--log_interval', type=int, default=100)
     parser.add_argument('--lr', type=float, default=5e-4)
@@ -111,7 +111,7 @@ def run():
 
     # Make save dirs
     print('INITIALIZING LOGGER...')
-    logdir_base = args.data_dir
+    logdir_base = 'generative/'
     if not (os.path.exists(logdir_base)):
         os.makedirs(logdir_base)
     resdir = logdir_base + 'results/'
@@ -179,7 +179,7 @@ def run():
 
     # Set up generative model
     ## Make dataset
-    train_dataset = ProcgenDataset('generative/data/data_gen_model.csv',
+    train_dataset = ProcgenDataset(args.data_dir,
                                    total_seq_len=total_seq_len)
     train_loader = torch.utils.data.DataLoader(train_dataset,
                                                batch_size=batch_size,
@@ -223,9 +223,7 @@ def run():
                     sample = sample * 255
                     sample = sample.clone().detach().type(torch.uint8)
                     sample = sample.cpu().numpy()
-                    save_str = sess_dir + '/sample_' + str(
-                        epoch) + '_' + str(epoch) + '_' + str(
-                        b) + '.mp4'
+                    save_str = sess_dir + '/sample_' + str(epoch) + '_' + str(b) + '.mp4'
                     tvio.write_video(save_str, sample, fps=14)
 
         # Demonstrate reconsruction and prediction quality by comparing preds
@@ -271,7 +269,6 @@ def loss_function(args, preds, labels, mu_c, logvar_c, mu_g, logvar_g, train_inf
             # mask = mask.unsqueeze(dim=-1).unsqueeze(dim=-1).unsqueeze(dim=-1) # so it can be broadcast to same shape as loss sum
 
             # Calculate loss
-            label = (label / 255. )# - 0.5
             # loss = torch.abs(pred - label)
             # # loss = loss * mask
             # loss = torch.mean(loss)  # Mean Absolute Error
@@ -321,20 +318,19 @@ def train(epoch, args, train_loader, optimizer, gen_model, agent, logger, save_d
         # Make all data into floats and put on the right device
         data = {k: v.to(device).float() for k, v in data.items()}
 
-        data['obs'] = data['obs'].clamp(min=1.) # It's easier for the model to
-        # learn when most of the frame isn't pitch black
 
         # Get input data for generative model (only taking the first
         # n=inp_seq_len timesteps)
         full_obs = data['obs']
         inp_obs = data['obs']
-        agent_hx = data['hx'][:, -args.num_sim_steps:]
+        agent_hx = data['hx'][:, -(args.num_sim_steps):] # TODO THink maybe data and labels aren't aligned properly - obs and hx may be fed at different timesteps. Shifting ts by 1 led to lower loss....
         actions_all = data['action'][:, -args.num_sim_steps:]
 
         # Forward and backward pass and update generative model parameters
         optimizer.zero_grad()
         mu_c, logvar_c, mu_g, logvar_g, preds = gen_model(inp_obs, agent_hx, actions_all,
-                                      use_true_actions=True)
+                                                          use_true_h0=True,
+                                                          use_true_actions=True)
         loss, train_info_bufs = loss_function(args, preds, data, mu_c, logvar_c, mu_g, logvar_g,
                                               train_info_bufs, device)
         for p in gen_model.decoder.agent.policy.parameters():
@@ -387,6 +383,7 @@ def train(epoch, args, train_loader, optimizer, gen_model, agent, logger, save_d
                     #  video saving
                     # pred_ob = (pred_ob / 2) + 0.5
                     pred_ob = pred_ob * 255
+                    full_ob = full_ob * 255
 
                     pred_ob = pred_ob.clone().detach().type(torch.uint8)
                     pred_ob = pred_ob.cpu().numpy()
@@ -406,8 +403,6 @@ def train(epoch, args, train_loader, optimizer, gen_model, agent, logger, save_d
 
 # TODO check ur iin the right train/test mode
 
-# TODO fix why samples are either only black or visible. Should transition from visible to black occasionally.
-# TODO related to the immediately above - reinstate zeroing-out of obs after done.
 def demo_recon_quality(args, epoch, train_loader, optimizer, gen_model, logger,
           save_dir, device):
 
@@ -449,6 +444,7 @@ def demo_recon_quality(args, epoch, train_loader, optimizer, gen_model, logger,
                 # Make predictions and ground truth into right format for
                 #  video saving
                 pred_ob = pred_ob * 255
+                full_ob = full_ob * 255
 
                 pred_ob = pred_ob.clone().detach().type(torch.uint8)
                 pred_ob = pred_ob.cpu().numpy()

@@ -186,7 +186,10 @@ if __name__=='__main__':
 
     while True:
         agent.policy.eval()
-        # for _ in range(agent.n_steps):
+
+        # Debugging note from Lee 20210503: I've double checked this script and I'm
+        # confident that data are being recorded appropriately (i.e. timesteps are aligned
+        # for each of the different data types).
 
         # Step agent and environment
         act, log_prob_act, value, next_hidden_state = agent.predict_record(obs, hidden_state, done)
@@ -204,7 +207,6 @@ if __name__=='__main__':
             'action': act[0],
         }, ignore_index=True)
 
-
         obs_list.append(obs)
         hx_list.append(hidden_state)
         logprob_list.append(log_prob_act)
@@ -216,7 +218,7 @@ if __name__=='__main__':
         episode_steps += 1
 
         if done[0]:  # At end of episode
-            data.to_csv(logdir + f'data_gen_model_{episode_number}.csv', index=False) #TODO change so that it doesn't get slower over time due to the growing size of the data csv. save each individually then combine once done.
+            data.to_csv(logdir + f'data_gen_model_{episode_number}.csv', index=False)
 
             # Make dirs for files
             dir_name = os.path.join(logdir, 'episode' + str(episode_number))
@@ -233,7 +235,7 @@ if __name__=='__main__':
             hx_name = dir_name + '/' + 'hx.npy'
             lp_name = dir_name + '/' + 'lp.npy'
 
-            # Save stacked array #TODO is the agent being reset properly?
+            # Save stacked array
             np.save(obs_name, np.array(obs_array * 255, dtype=np.uint8))
             np.save(hx_name, hx_array)
             np.save(lp_name, lp_array)
@@ -248,13 +250,11 @@ if __name__=='__main__':
             hx_list = []
             logprob_list = []
 
-            hidden_state = np.zeros_like(hidden_state) #New
+            hidden_state = np.zeros_like(hidden_state)
 
         if (episode_number >= max_episodes) or \
                 ((time.time() - start_time) > (secs_in_24h - 600)):
             break
-
-        # _, _, last_val, hidden_state = agent.predict(obs, hidden_state, done)
 
     print("Combining datasets")
     data = pd.DataFrame(columns=column_names)
