@@ -319,16 +319,14 @@ def train(epoch, args, train_loader, optimizer, gen_model, agent, logger, save_d
         data = {k: v.to(device).float() for k, v in data.items()}
 
 
-        # Get input data for generative model (only taking the first
-        # n=inp_seq_len timesteps)
+        # Get input data for generative model
         full_obs = data['obs']
-        inp_obs = data['obs']
         agent_hx = data['hx'][:, -(args.num_sim_steps):] # TODO THink maybe data and labels aren't aligned properly - obs and hx may be fed at different timesteps. Shifting ts by 1 led to lower loss....
         actions_all = data['action'][:, -args.num_sim_steps:]
 
         # Forward and backward pass and update generative model parameters
         optimizer.zero_grad()
-        mu_c, logvar_c, mu_g, logvar_g, preds = gen_model(inp_obs, agent_hx, actions_all,
+        mu_c, logvar_c, mu_g, logvar_g, preds = gen_model(full_obs, agent_hx, actions_all,
                                                           use_true_h0=True,
                                                           use_true_actions=True)
         loss, train_info_bufs = loss_function(args, preds, data, mu_c, logvar_c, mu_g, logvar_g,
@@ -418,16 +416,14 @@ def demo_recon_quality(args, epoch, train_loader, optimizer, gen_model, logger,
             break
         data = {k: v.to(device).float() for k,v in data.items()}
 
-        # Get input data for generative model (only taking inp_seq_len
-        # timesteps)
+        # Get input data for generative model
         full_obs = data['obs']
-        inp_obs = data['obs']
         agent_hx = data['hx'][:, -args.num_sim_steps:]
         actions_all = data['action'][:, -args.num_sim_steps:]
 
         # Forward pass to get predicted observations
         optimizer.zero_grad()
-        mu_c, logvar_c, mu_g, logvar_g, preds = gen_model(inp_obs, agent_hx, actions_all,
+        mu_c, logvar_c, mu_g, logvar_g, preds = gen_model(full_obs, agent_hx, actions_all,
                                       use_true_actions=True)
 
         with torch.no_grad():
