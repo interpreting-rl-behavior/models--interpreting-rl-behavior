@@ -197,7 +197,7 @@ if __name__=='__main__':
 
         # Store non-array variables
         data = data.append({
-            'level_seed': info[0]['level_seed'],
+            'level_seed': info[0]['level_seed'], # TODO for some reason seed is misaligned for the first step of each episode except the 0th episode.
             'episode': episode_number,
             'global_step': global_steps,
             'episode_step': episode_steps,
@@ -257,11 +257,11 @@ if __name__=='__main__':
             break
 
     print("Combining datasets")
-    data = pd.DataFrame(columns=column_names)
+    data = pd.DataFrame(columns=['global_step', 'episode'])
     for e in range(episode_number):
         epi_filename = logdir + f'data_gen_model_{e}.csv'
         data_e = pd.read_csv(epi_filename)
-        data = data.append(data_e)
+        data = data.append(data_e[['global_step', 'episode']])
         # os.remove(epi_filename)
-    data.to_csv(logdir + f'data_gen_model.csv',
+    data.to_csv(logdir + f'idx_to_episode.csv',
                 index=False)

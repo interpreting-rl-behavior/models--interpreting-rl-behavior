@@ -180,7 +180,8 @@ def run():
     # Set up generative model
     ## Make dataset
     train_dataset = ProcgenDataset(args.data_dir,
-                                   total_seq_len=total_seq_len)
+                                   initializer_seq_len=num_initializing_steps,
+                                   total_seq_len=total_seq_len,)
     train_loader = torch.utils.data.DataLoader(train_dataset,
                                                batch_size=batch_size,
                                                shuffle=True,
@@ -262,6 +263,13 @@ def loss_function(args, preds, labels, mu_c, logvar_c, mu_g, logvar_g, train_inf
         label = labels[key].to(device).float().squeeze()
         label = label[:, -args.num_sim_steps:]
         if key == 'obs':
+            # TODO reinstate this masking - we don't really want the network
+            #  to learn the dynamics after 'done' because hx is determined
+            #  by the agent's fixed weights and so can only be affected
+            #  indirectly by observations, and even then it may not be
+            #  sufficient to bring hx to 0 (or keep constant or whatever)
+            #  so is only likely to add noise to the grads for the task we care
+            #  about.
             # # Calculate a mask to exclude loss on 'zero' observations
             # mask = torch.ones_like(labels['done']) - labels['done'] # excludes done timesteps
             # for b, argmin in enumerate(torch.argmax(labels['done'], dim=1)):

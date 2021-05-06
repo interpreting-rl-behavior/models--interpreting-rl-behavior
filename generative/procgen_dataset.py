@@ -13,108 +13,105 @@ class ProcgenDataset(Dataset):
         Args:
             csv_file (string): Path to the csv file with annotations.
         """
-        self.procgen_data = pd.read_csv(os.path.join(data_dir, 'data_gen_model.csv'))
+        self.idx_to_epi_table = pd.read_csv(os.path.join(data_dir, 'idx_to_episode.csv')).iloc[0:999]
+        # TODO undo above slicing
         self.seq_len = total_seq_len
-        self.dataset_len = len(self.procgen_data)
+        self.dataset_len = len(self.idx_to_epi_table)
         self.data_dir = data_dir
         self.init_seq_len = initializer_seq_len
+        hx_size = 64
+        obs_hw = 64
+        obs_ch = 3
+        act_space_size = 15
+        self.null_element = {'done': np.zeros(self.seq_len),
+                             'reward': np.zeros(self.seq_len),
+                             'value': np.zeros(self.seq_len),
+                             'action': np.zeros(self.seq_len),
+                             'obs': np.zeros((self.seq_len, obs_ch, obs_hw, obs_hw)),
+                             'hx': np.zeros((self.seq_len, hx_size)),
+                             'act_log_probs': np.zeros((self.seq_len, act_space_size)),
+                             }
+        self.data_keys = list(self.null_element.keys())
 
     def __len__(self):
-        return len(self.procgen_data)
+        # note: - self.seq_len to avoid sampling the end of the dataset where
+        # the remaining sequence is too short.
+        return len(self.idx_to_epi_table) - self.seq_len
+
 
     def __getitem__(self, idx):
+        """It's kind of complicated, but it's as simple as I could make it so
+        that it could fetch all the types of edge cases we should expect:
+            - normal - init seq same as main seq and NOT close to end of epi
+            - normal end - init seq same as main seq and epi ends during main seq
+            - last epi - init seq or main seq extends beyond last epi
+            - init seq 0 - init seq ends on final timestep of epi
+            - init seq 1 - init seq ends 1 timestep before final timestep
+            - init seq k - init seq ends k timesteps before final timestep
+                and init seq k end - init seq ends k timesteps before final timestep
+                and epi ends during main seq
+
+        A note on nomenclature: 'element' refers to the batch element, which
+        is what is output. 'Full segment' refers to the segment of the episode
+        that is retrieved from storage."""
         if torch.is_tensor(idx):
             idx = idx.tolist()
-        # TODO some way to ensure that the episode doesn't end during the
-        #  initialisation sequence (but it's okay if it ends on the 0th
-        #  timestep of the main simulated sequence).
 
-        # TODO some way to ensure that the initialization sequence can start
-        #  on the 0th timestep of the episode.
-
-        # Gets frames starting at idx #TODO proper treatment of when the end of the dataset is sampled
-        end_frame_idx = idx + self.seq_len
-        frames = self.procgen_data.iloc[idx:end_frame_idx]
-
+        # Decide which episode to use.
+        frames = self.idx_to_epi_table.iloc[idx:idx + self.seq_len]
         episode_number = frames['episode'].iloc[0]
-        initial_episode_step = frames['episode_step'].iloc[0]
-        
-        # Put columns into data_dict
-        keys = list(frames.keys())
-        data_keys = ['done', 'reward', 'value', 'action']
-        data = frames.to_numpy().T.tolist()
-        data_dict = {}
-        for values, key in zip(data, keys):
-            if key in data_keys:
-                if end_frame_idx >= self.dataset_len:
-                    print("Debugging: end_frame_idx >= self.dataset_len, which should happen only once per epoch")
-                    # Fill with zeros if asking for data indices that are
-                    # beyond the end of the dataset (and therefore don't exist)
-                    zero_num = 0. if type(values[0])==float else 0
-                    values.extend([zero_num] * (end_frame_idx - self.dataset_len))
-                data_dict[key] = np.array(values)
+        use_next_epi = frames['episode'].iloc[0] != \
+                       frames['episode'].iloc[self.init_seq_len]
+        episode_number = episode_number + use_next_epi
 
-        # Goes to end of episode and fills in the rest with zeros
-        if np.any(data_dict['done']):
-            segment_len = np.argmax(data_dict['done']) + 1
+        # Get data
+        csv_load_path = self.data_dir + 'data_gen_model_%i.csv' % episode_number
+        data = pd.read_csv(csv_load_path)
+        vecs_load_path = self.data_dir + 'episode' + str(episode_number)
+        obs = np.load(vecs_load_path + '/ob.npy')
+        hx  = np.load(vecs_load_path + '/hx.npy')
+        lp  = np.load(vecs_load_path + '/lp.npy')
+
+        # Now get the data segment and the initial index to place it on
+        ## first get the starting timestep of the segment.
+        full_segment_init_global_step = frames['global_step'].iloc[0]
+        if use_next_epi:
+            full_segment_init_step = 0
+            element_first_step = np.argmin(-(frames['episode'] == episode_number)) - 1  # n.b. -1 because we want the last element of the init seq to be the 0th element of the simulated seq.
+            if not element_first_step >= 0:
+                print("boop")
+                assert element_first_step >= 0
         else:
-            segment_len = self.seq_len
+            full_segment_init_step = \
+                data['episode_step'].loc[data['global_step'] == \
+                                         full_segment_init_global_step]
+            full_segment_init_step = int(full_segment_init_step)
+            element_first_step = 0
 
-        # Remove any info from the following episode that is not part
-        # of the batch element.
-        for key, value in data_dict.items(): # TODO consider just freezing the frame at the last frame instead of zeroing it out.
-            if key == 'done':
-                value[:segment_len-1] = 0. # -1 because the final frame of the
-                # episode should be 'done'(==1)
-                value[segment_len:] = 1.
-            elif key == 'reward':
-                value[segment_len:] = 0.
-            elif key == 'value':
-                value[segment_len:] = 0.
-            data_dict[key] = np.stack(value)
+        full_segment_len = sum(frames['episode'] == episode_number)
+        full_segment_last_step = full_segment_init_step + full_segment_len
+        element_last_step = element_first_step + full_segment_len
 
-        # Get obs, hx, and log probs and set anything after episode done to zero
-        save_path = self.data_dir + 'episode' + str(episode_number)
-        obs = np.load(save_path + '/ob.npy')
-        hx  = np.load(save_path + '/hx.npy')
-        lp  = np.load(save_path + '/lp.npy')
+        ## Make data_dict and put the parts you want in the batch element.
+        data = data[self.data_keys[:4]]
+        data = data.to_numpy().T.tolist()
+        vec_list = [obs, hx, lp]
+        data.extend(vec_list)
+        data_dict = {k: v for k, v in zip(self.data_keys, data)}
 
-        episode_len = len(obs)
-        ## observations
-        if episode_len > initial_episode_step+self.seq_len:
-            obs = obs[initial_episode_step:initial_episode_step+self.seq_len]
-            obs = obs / 255.
-        else:
-            t, c, h, w = obs.shape
-            zeros = np.zeros([self.seq_len, c, h, w])
-            obs = obs[initial_episode_step:episode_len]
-            zeros[0:episode_len-initial_episode_step] = obs
-            obs = zeros / 255.
+        ## Insert data into null vecs
+        batch_ele = self.null_element.copy()
+        for key, val in data_dict.items():
+            assert len(list(range(element_first_step,
+                                  element_last_step))) == \
+                   len(list(range(full_segment_init_step,
+                                  full_segment_last_step)))
+            data_array = np.array(data_dict[key][full_segment_init_step:
+                                                 full_segment_last_step])
+            if key == 'obs':
+                data_array = data_array / 255.
+                # TODO consider copying the last frame after 'done' instead
+                #  of leaving as all zeros.
+            batch_ele[key][element_first_step:element_last_step] = data_array
 
-        ## hidden states
-        if episode_len > initial_episode_step+self.seq_len:
-            hx = hx[initial_episode_step:initial_episode_step+self.seq_len]
-        else:
-            t, d = hx.shape
-            zeros = np.zeros([self.seq_len, d])
-            hx = hx[initial_episode_step:episode_len]
-            zeros[0:episode_len-initial_episode_step] = hx
-            hx = zeros
-
-        ## action log probs
-        if episode_len > initial_episode_step+self.seq_len:
-            lp = lp[initial_episode_step:initial_episode_step+self.seq_len]
-        else:
-            t, d = lp.shape
-            zeros = np.zeros([self.seq_len, d])
-            lp = lp[initial_episode_step:episode_len]
-            zeros[0:episode_len-initial_episode_step] = lp
-            lp = zeros
-
-        # Add arrays to data_dict
-        array_keys = ['obs', 'hx', 'act_log_probs']
-        arrays = [obs, hx, lp]
-        for k, v in zip(array_keys, arrays):
-            data_dict[k] = v
-
-        return data_dict
+        return batch_ele
