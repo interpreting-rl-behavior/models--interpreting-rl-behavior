@@ -175,12 +175,12 @@ class VAE(nn.Module):
         self.decoder = Decoder(hyperparams, agent)
 
 
-    def forward(self, obs, agent_hxs, actions, use_true_h0=False, use_true_actions=False):
+    def forward(self, obs, agent_h0, actions, use_true_h0=False, use_true_actions=False):
 
         # Feed inputs into encoder and return the mean
         # and log(variance)
 
-        mu_c, logvar_c, mu_g, logvar_g = self.encoder(obs, agent_hxs[:, 0, :])
+        mu_c, logvar_c, mu_g, logvar_g = self.encoder(obs, agent_h0)
 
         sigma_c = torch.exp(0.5 * logvar_c)  # log(var) -> standard deviation
         sigma_g = torch.exp(0.5 * logvar_g)
@@ -192,7 +192,7 @@ class VAE(nn.Module):
 
         # Decode
         if use_true_h0:
-            true_h0 = agent_hxs[:, 0, :]
+            true_h0 = agent_h0
         else:
             true_h0 = None
             # therefore decoder doesn't use true agent h0 and uses the one
