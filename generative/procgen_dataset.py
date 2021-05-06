@@ -13,8 +13,8 @@ class ProcgenDataset(Dataset):
         Args:
             csv_file (string): Path to the csv file with annotations.
         """
-        self.idx_to_epi_table = pd.read_csv(os.path.join(data_dir, 'idx_to_episode.csv')).iloc[0:999]
-        # TODO undo above slicing
+        self.idx_to_epi_table = pd.read_csv(
+            os.path.join(data_dir, 'idx_to_episode.csv'))
         self.seq_len = total_seq_len
         self.dataset_len = len(self.idx_to_epi_table)
         self.data_dir = data_dir
