@@ -164,7 +164,7 @@ class VAE(nn.Module):
             global_context_sample_dim=64,
             global_context_encoder_rnn_hidden_size=512,
             agent_hidden_size=64,
-            action_space_dim=15,
+            action_space_dim=agent.env.action_space.n,
             env_stepper_rnn_hidden_size=1024,
             layer_norm=True
         )
