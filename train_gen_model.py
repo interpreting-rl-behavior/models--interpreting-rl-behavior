@@ -234,81 +234,6 @@ def run():
                            logger, sess_dir, device)
 
 
-def loss_function(args, preds, labels, mu_c, logvar_c, mu_g, logvar_g, train_info_bufs, device):
-    """ Calculates the difference between predicted and actual:
-        - observation
-        - agent's recurrent hidden states
-        - agent's logprobs
-        - rewards
-        - 'done' status
-
-        If this is insufficient to produce high quality samples, then we'll
-        add the attentive mask described in Rupprecht et al. (2019). And if
-        _that_ is still insufficient, then we'll look into adding a GAN
-        discriminator and loss term.
-      """
-
-    loss_hyperparams = {'obs': args.loss_scale_obs,
-                        'hx': args.loss_scale_hx,
-                        'reward': args.loss_scale_reward,
-                        'done': args.loss_scale_done,
-                        'act_log_probs': args.loss_scale_act_log_probs}
-
-    # Reconstruction loss
-    losses = []
-    for key in preds.keys():
-        if key == 'values': # Not using values for loss
-            continue
-        pred  = torch.stack(preds[key], dim=1).squeeze()
-        label = labels[key].to(device).float().squeeze()
-        label = label[:, -args.num_sim_steps:]
-        if key == 'obs':
-            # TODO reinstate this masking - we don't really want the network
-            #  to learn the dynamics after 'done' because hx is determined
-            #  by the agent's fixed weights and so can only be affected
-            #  indirectly by observations, and even then it may not be
-            #  sufficient to bring hx to 0 (or keep constant or whatever)
-            #  so is only likely to add noise to the grads for the task we care
-            #  about.
-            # # Calculate a mask to exclude loss on 'zero' observations
-            # mask = torch.ones_like(labels['done']) - labels['done'] # excludes done timesteps
-            # for b, argmin in enumerate(torch.argmax(labels['done'], dim=1)):
-            #     mask[b, argmin] = 1. # unexcludes the first 'done' timestep
-            # mask = mask.unsqueeze(dim=-1).unsqueeze(dim=-1).unsqueeze(dim=-1) # so it can be broadcast to same shape as loss sum
-
-            # Calculate loss
-            # loss = torch.abs(pred - label)
-            # # loss = loss * mask
-            # loss = torch.mean(loss)  # Mean Absolute Error
-
-            loss = torch.mean((pred - label) ** 2)
-        else:
-            # loss = torch.mean(torch.abs(pred - label))  # Mean Absolute Error
-            loss = torch.mean((pred - label) ** 2)  # MSE
-
-        #mse = F.mse_loss(pred, label) # TODO test whether MSE or MAbsE is better (I think the VQ-VAE2 paper suggested MAE was better)
-        train_info_bufs[key].append(loss.item())
-        loss = loss * loss_hyperparams[key]
-        losses.append(loss)
-
-    loss = sum(losses)
-    train_info_bufs['total recon w/o KL'].append(loss.item())
-
-    # see Appendix B from VAE paper:
-    # Kingma and Welling. Auto-Encoding Variational Bayes. ICLR, 2014
-    # https://arxiv.org/abs/1312.6114
-    # 0.5 * sum(1 + log(sigma^2) - mu^2 - sigma^2)
-    mu = torch.cat([mu_c, mu_g], dim=1)
-    logvar = torch.cat([logvar_c, logvar_g], dim=1)
-    kl_divergence = -0.5 * torch.mean(1 + logvar - mu.pow(2) - logvar.exp(),
-                                     dim=1) # Mean(sum?) along latent size dim.
-    kl_divergence = torch.mean(kl_divergence)  # Mean along batch dim
-    train_info_bufs['KL'].append(kl_divergence.item())
-    kl_divergence *= args.loss_scale_kl
-
-    return loss + kl_divergence, train_info_bufs
-
-
 def train(epoch, args, train_loader, optimizer, gen_model, agent, logger, save_dir, device):
 
     # Set up logging queue objects
@@ -404,6 +329,81 @@ def train(epoch, args, train_loader, optimizer, gen_model, agent, logger, save_d
                                str(epoch) + '_' + str(batch_idx) + '_' + \
                                str(b) + '.mp4'
                     tvio.write_video(save_str, combined_ob, fps=14)
+
+
+def loss_function(args, preds, labels, mu_c, logvar_c, mu_g, logvar_g, train_info_bufs, device):
+    """ Calculates the difference between predicted and actual:
+        - observation
+        - agent's recurrent hidden states
+        - agent's logprobs
+        - rewards
+        - 'done' status
+
+        If this is insufficient to produce high quality samples, then we'll
+        add the attentive mask described in Rupprecht et al. (2019). And if
+        _that_ is still insufficient, then we'll look into adding a GAN
+        discriminator and loss term.
+      """
+
+    loss_hyperparams = {'obs': args.loss_scale_obs,
+                        'hx': args.loss_scale_hx,
+                        'reward': args.loss_scale_reward,
+                        'done': args.loss_scale_done,
+                        'act_log_probs': args.loss_scale_act_log_probs}
+
+    # Reconstruction loss
+    losses = []
+    for key in preds.keys():
+        if key == 'values': # Not using values for loss
+            continue
+        pred  = torch.stack(preds[key], dim=1).squeeze()
+        label = labels[key].to(device).float().squeeze()
+        label = label[:, -args.num_sim_steps:]
+        if key == 'obs':
+            # TODO reinstate this masking - we don't really want the network
+            #  to learn the dynamics after 'done' because hx is determined
+            #  by the agent's fixed weights and so can only be affected
+            #  indirectly by observations, and even then it may not be
+            #  sufficient to bring hx to 0 (or keep constant or whatever)
+            #  so is only likely to add noise to the grads for the task we care
+            #  about.
+            # # Calculate a mask to exclude loss on 'zero' observations
+            # mask = torch.ones_like(labels['done']) - labels['done'] # excludes done timesteps
+            # for b, argmin in enumerate(torch.argmax(labels['done'], dim=1)):
+            #     mask[b, argmin] = 1. # unexcludes the first 'done' timestep
+            # mask = mask.unsqueeze(dim=-1).unsqueeze(dim=-1).unsqueeze(dim=-1) # so it can be broadcast to same shape as loss sum
+
+            # Calculate loss
+            # loss = torch.abs(pred - label)
+            # # loss = loss * mask
+            # loss = torch.mean(loss)  # Mean Absolute Error
+
+            loss = torch.mean((pred - label) ** 2)
+        else:
+            # loss = torch.mean(torch.abs(pred - label))  # Mean Absolute Error
+            loss = torch.mean((pred - label) ** 2)  # MSE
+
+        #mse = F.mse_loss(pred, label) # TODO test whether MSE or MAbsE is better (I think the VQ-VAE2 paper suggested MAE was better)
+        train_info_bufs[key].append(loss.item())
+        loss = loss * loss_hyperparams[key]
+        losses.append(loss)
+
+    loss = sum(losses)
+    train_info_bufs['total recon w/o KL'].append(loss.item())
+
+    # see Appendix B from VAE paper:
+    # Kingma and Welling. Auto-Encoding Variational Bayes. ICLR, 2014
+    # https://arxiv.org/abs/1312.6114
+    # 0.5 * sum(1 + log(sigma^2) - mu^2 - sigma^2)
+    mu = torch.cat([mu_c, mu_g], dim=1)
+    logvar = torch.cat([logvar_c, logvar_g], dim=1)
+    kl_divergence = -0.5 * torch.mean(1 + logvar - mu.pow(2) - logvar.exp(),
+                                     dim=1) # Mean(sum?) along latent size dim.
+    kl_divergence = torch.mean(kl_divergence)  # Mean along batch dim
+    train_info_bufs['KL'].append(kl_divergence.item())
+    kl_divergence *= args.loss_scale_kl
+
+    return loss + kl_divergence, train_info_bufs
 
 #DONE fioverwriting of samples every epoch (something to do with names): Decided that it's better to keep it the way it is and just get rid of it for online publication. It's also nice to be able to see which runs I'd left running based on num files in dir. # TODO remove this comment when you're happy with the decision.
 
