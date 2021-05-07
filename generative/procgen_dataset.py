@@ -19,17 +19,17 @@ class ProcgenDataset(Dataset):
         self.dataset_len = len(self.idx_to_epi_table)
         self.data_dir = data_dir
         self.init_seq_len = initializer_seq_len
-        hx_size = 64
-        obs_hw = 64
-        obs_ch = 3
-        act_space_size = 15
+        self.hx_size = 64
+        self.obs_hw = 64
+        self.obs_ch = 3
+        self.act_space_size = 15
         self.null_element = {'done': np.zeros(self.seq_len),
                              'reward': np.zeros(self.seq_len),
                              'value': np.zeros(self.seq_len),
                              'action': np.zeros(self.seq_len),
-                             'obs': np.zeros((self.seq_len, obs_ch, obs_hw, obs_hw)),
-                             'hx': np.zeros((self.seq_len, hx_size)),
-                             'act_log_probs': np.zeros((self.seq_len, act_space_size)),
+                             'obs': np.zeros((self.seq_len, self.obs_ch, self.obs_hw, self.obs_hw)),
+                             'hx': np.zeros((self.seq_len, self.hx_size)),
+                             'act_log_probs': np.zeros((self.seq_len, self.act_space_size)),
                              }
         self.data_keys = list(self.null_element.keys())
 
@@ -100,7 +100,14 @@ class ProcgenDataset(Dataset):
         data_dict = {k: v for k, v in zip(self.data_keys, data)}
 
         ## Insert data into null vecs
-        batch_ele = self.null_element.copy()
+        batch_ele = {'done': np.zeros(self.seq_len),
+                     'reward': np.zeros(self.seq_len),
+                     'value': np.zeros(self.seq_len),
+                     'action': np.zeros(self.seq_len),
+                     'obs': np.zeros((self.seq_len, self.obs_ch, self.obs_hw, self.obs_hw)),
+                     'hx': np.zeros((self.seq_len, self.hx_size)),
+                     'act_log_probs': np.zeros((self.seq_len, self.act_space_size)),
+                     }
         for key, val in data_dict.items():
             assert len(list(range(element_first_step,
                                   element_last_step))) == \
