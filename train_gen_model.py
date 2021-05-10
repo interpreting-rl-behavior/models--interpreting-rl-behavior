@@ -254,7 +254,7 @@ def train(epoch, args, train_loader, optimizer, gen_model, agent, logger, save_d
 
         # Get input data for generative model
         full_obs = data['obs']
-        agent_h0 = data['hx'][:, -args.num_sim_steps, :] # TODO THink maybe data and labels aren't aligned properly - obs and hx may be fed at different timesteps. Shifting ts by 1 led to lower loss....
+        agent_h0 = data['hx'][:, -args.num_sim_steps, :]
         actions_all = data['action'][:, -args.num_sim_steps:]
 
         # Forward and backward pass and update generative model parameters
@@ -264,11 +264,12 @@ def train(epoch, args, train_loader, optimizer, gen_model, agent, logger, save_d
                                                           use_true_actions=True)
         loss, train_info_bufs = loss_function(args, preds, data, mu_c, logvar_c, mu_g, logvar_g,
                                               train_info_bufs, device)
+
+        loss.backward()
+        torch.nn.utils.clip_grad_norm_(gen_model.parameters(), 0.001)
         for p in gen_model.decoder.agent.policy.parameters():
             if p.grad is not None:  # freeze agent parameters but not model's.
                 p.grad.data = torch.zeros_like(p.grad.data)
-        loss.backward()
-        torch.nn.utils.clip_grad_norm_(gen_model.parameters(), 0.001)
         optimizer.step()
         #TODO sort out hyperparameters (incl archi) - put them all in one namespace.
 
@@ -294,7 +295,8 @@ def train(epoch, args, train_loader, optimizer, gen_model, agent, logger, save_d
             logger.info('Generative model saved to {}'.format(model_path))
 
         # Visualize the predictions compared with the ground truth
-        if batch_idx % 1000 == 0 or (epoch < 2 and batch_idx % 200 == 0):
+        if True:
+        # if batch_idx % 1000 == 0 or (epoch < 2 and batch_idx % 200 == 0):
 
             with torch.no_grad():
                 pred_obs = torch.stack(preds['obs'], dim=1).squeeze()
@@ -344,7 +346,8 @@ def loss_function(args, preds, labels, mu_c, logvar_c, mu_g, logvar_g, train_inf
         _that_ is still insufficient, then we'll look into adding a GAN
         discriminator and loss term.
       """
-
+    # TODO - either here or in record.py, clip the 'reward' always to be either
+    # 0 or 1.
     loss_hyperparams = {'obs': args.loss_scale_obs,
                         'hx': args.loss_scale_hx,
                         'reward': args.loss_scale_reward,
