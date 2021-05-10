@@ -338,12 +338,12 @@ class InitializerEncoder(nn.Module):
         self.converter_split_lv = nn.Linear(rnn_hidden_size,
                                             sample_dim)  # log var
 
-    def forward(self, rev_obs_seq, agent_h0):
-        """Takes the __reversed__ sequence of inputs to encode context to
+    def forward(self, inp_obs_seq, agent_h0):
+        """Takes the sequence of inputs to encode context to
         initialise the env stepper and agent initial hidden state"""
         # Flatten inp seqs along time dimension to pass all to conv nets
         # along batch dim
-        x = rev_obs_seq
+        x = inp_obs_seq
         batches = x.shape[0]
         ts = x.shape[1]
         h = x.shape[2]
