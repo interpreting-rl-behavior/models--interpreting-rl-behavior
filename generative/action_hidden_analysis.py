@@ -23,7 +23,10 @@ def parse_args():
     parser = argparse.ArgumentParser(
         description='args for plotting')
     parser.add_argument(
-        '--presaved_data_path', type=str, default="/media/lee/DATA/DDocs/AI_neuro_work/Assurance Project stuff/data/precollected/")
+        '--data_dir', type=str,
+        default="generative/data")
+    parser.add_argument(
+        '--presaved_data_path', type=str, default="/media/lee/DATA/DDocs/AI_neuro_work/assurance_project_stuff/data/precollected/")
     args = parser.parse_args()
     return args
 
@@ -31,27 +34,34 @@ def parse_args():
 # EPISODE_STRINGS = {v:str(v) for v in range(3431)}
 def run():
     args = parse_args()
-    num_episodes = 3000  # number of episodes to make plots for
-    num_epi_paths = 9
-    path_epis = [x for x in range(num_epi_paths)]
+    num_episodes = 2000  # number of episodes to make plots for
+    num_epi_paths = 9  # Number of episode to plot paths through time for. Arrow plots.
+    path_epis = list(range(num_epi_paths))
 
     seed = 42  # for the tSNE algo
     plot_pca = True
     plot_tsne = True
-    # TODO args parser func
+
+    # Prepare load and save dirs
+    save_path = 'analysis/hx_plots'
+    os.makedirs(save_path, exist_ok=True)
+
     presaved_data_path = args.presaved_data_path
     hx_presaved_filepath = presaved_data_path + "hxs_%i.npy" % num_episodes
     lp_presaved_filepath = presaved_data_path + "lp_%i.npy" % num_episodes
 
-    # Load the agent's output
-    data = pd.read_csv(f'data/data_gen_model.csv')
+    # Load the non vector outputs
+    main_data_path = args.data_dir
+    data = pd.read_csv(os.path.join(main_data_path, 'data_gen_model_0.csv'))
+    for ep in range(1, num_episodes):
+        data_epi = pd.read_csv(os.path.join(main_data_path,
+                                             f'data_gen_model_{ep}.csv'))
+        data = data.append(data_epi)
     data = data.loc[data['episode'] < num_episodes]
     print('data shape', data.shape)
     #level_seed, episode, global_step, episode_step, done, reward, value, action
 
-    # Prepare save dir
-    save_path = 'analysis/hx_plots'
-    os.makedirs(save_path, exist_ok=True)
+
 
     # Get hidden states
     if os.path.isfile(hx_presaved_filepath):
@@ -59,9 +69,10 @@ def run():
         hx = np.load(hx_presaved_filepath)
     else:
         # Collect them one by one
-        hx = np.load('data/episode0/hx.npy')
-        for ep in range(1,num_episodes):
-            hx_to_cat = np.load(f'data/episode{ep}/hx.npy')
+        hx = np.load(os.path.join(main_data_path, 'episode0/hx.npy'))
+        for ep in range(1, num_episodes):
+            hx_to_cat = np.load(os.path.join(main_data_path,
+                                             f'episode{ep}/hx.npy'))
             hx = np.concatenate((hx, hx_to_cat))
         # TODO save
 
@@ -71,9 +82,9 @@ def run():
         lp = np.load(lp_presaved_filepath)
     else:
         # Collect them one by one
-        lp = np.load('data/episode0/lp.npy')
+        lp = np.load(os.path.join(main_data_path, 'episode0/lp.npy'))
         for ep in range(1,num_episodes):
-            lp_to_cat = np.load(f'data/episode{ep}/lp.npy')
+            lp_to_cat = np.load(os.path.join(main_data_path,f'episode{ep}/lp.npy'))
             lp = np.concatenate((lp, lp_to_cat))
     lp_max = np.argmax(lp, axis=1)
     entropy = -1 * np.sum(np.exp(lp)*lp, axis=1)
@@ -147,7 +158,7 @@ def run():
                   'episode_rewarded':        'cool',
                   'reward':                  'cool',}
 
-    data = pd.read_csv(presaved_data_path + 'data_w_tsne_pca.csv')
+    # data = pd.read_csv(presaved_data_path + 'data_w_tsne_pca.csv')
 
     # Plotting
     if plot_pca:
@@ -166,8 +177,9 @@ def run():
         fig.set_size_inches(21., 18.)
         for plot_idx, col in enumerate(plotting_variables, start=1):
             ax = fig.add_subplot(3, 3, plot_idx)
-            splot = plt.scatter(data['pca_X'], data['pca_Y'],
-                                c=data[col],
+            splot = plt.scatter(data['pca_X'].loc[data['episode_step']!=0],
+                                data['pca_Y'].loc[data['episode_step']!=0],
+                                c=data[col].loc[data['episode_step']!=0],
                             cmap=plot_cmaps[col],
                             s=0.005, alpha=1.)
             fig.colorbar(splot, fraction=0.023, pad=0.04)
@@ -188,9 +200,9 @@ def run():
         for plot_idx in range(1, 13):
             ax = fig.add_subplot(3, 4, plot_idx)
             splot = plt.scatter(
-                data['pca_X'],
-                data['pca_Y'],
-                c=data['% through episode'],
+                data['pca_X'].loc[data['episode_step']!=0],
+                data['pca_Y'].loc[data['episode_step']!=0],
+                c=data['% through episode'].loc[data['episode_step']!=0],
                 cmap=plot_cmaps['% through episode'],
                 s=0.005, alpha=1.)
             # for epi in path_epis:
@@ -230,8 +242,9 @@ def run():
         fig.set_size_inches(21., 18.)
         for plot_idx, col in enumerate(plotting_variables, start=1):
             ax = fig.add_subplot(3, 3, plot_idx)
-            splot = plt.scatter(data['tsne_X'], data['tsne_Y'],
-                                c=data[col],
+            splot = plt.scatter(data['tsne_X'].loc[data['episode_step']!=0],
+                                data['tsne_Y'].loc[data['episode_step']!=0],
+                                c=data[col].loc[data['episode_step']!=0],
                                 cmap=plot_cmaps[col],
                                 s=0.05, alpha=0.99)
             fig.colorbar(splot, fraction=0.023, pad=0.04)
@@ -250,35 +263,34 @@ def run():
         fig = plt.figure()
         fig.subplots_adjust(hspace=0.8, wspace=0.8)
         fig.set_size_inches(21., 18.)
-        for plot_idx in range(1, 10):
-            ax = fig.add_subplot(3, 3, plot_idx)
+        for plot_idx in range(1, 13):
+            ax = fig.add_subplot(3, 4, plot_idx)
             splot = plt.scatter(
-                data['tsne_X'],
-                data['tsne_Y'],
-                c=data['% through episode'],
+                data['tsne_X'].loc[data['episode_step']!=0],
+                data['tsne_Y'].loc[data['episode_step']!=0],
+                c=data['% through episode'].loc[data['episode_step']!=0],
                 cmap=plot_cmaps['% through episode'],
                 s=0.005, alpha=1.)
-            for epi in path_epis:
-                epi_data = groups[epi][1]
-                for i in range(len(epi_data) - 1):
-                    x1, y1 = epi_data.iloc[i][['tsne_X', 'tsne_Y']]
-                    x2, y2 = epi_data.iloc[i + 1][['tsne_X', 'tsne_Y']]
-                    dx, dy = x2 - x1, y2 - y1
-                    arrow = matplotlib.patches.FancyArrowPatch((x1, y1),
-                                                               (x2, y2),
-                                                               arrowstyle=matplotlib.patches.ArrowStyle.CurveB(
-                                                                   head_length=1.5,
-                                                                   head_width=2.0),
-                                                               mutation_scale=1,
-                                                               shrinkA=0.,
-                                                               shrinkB=0.,
-                                                               color='black')
-                    ax.add_patch(arrow)
-                    ax.set_frame_on(False)
+            epi_data = groups[plot_idx-1][1]
+            for i in range(len(epi_data) - 1):
+                x1, y1 = epi_data.iloc[i][['tsne_X', 'tsne_Y']]
+                x2, y2 = epi_data.iloc[i + 1][['tsne_X', 'tsne_Y']]
+                dx, dy = x2 - x1, y2 - y1
+                arrow = matplotlib.patches.FancyArrowPatch((x1, y1),
+                                                           (x2, y2),
+                                                           arrowstyle=matplotlib.patches.ArrowStyle.CurveB(
+                                                               head_length=1.5,
+                                                               head_width=2.0),
+                                                           mutation_scale=1,
+                                                           shrinkA=0.,
+                                                           shrinkB=0.,
+                                                           color='black')
+                ax.add_patch(arrow)
+                ax.set_frame_on(False)
             fig.colorbar(splot, fraction=0.023, pad=0.04)
         fig.tight_layout()
         fig.savefig(
-            f'{save_path}/agent_pca_epsd{num_episodes}_arrows_at{time.strftime("%Y%m%d-%H%M%S")}.png')
+            f'{save_path}/agent_tsne_epsd{num_episodes}_arrows_at{time.strftime("%Y%m%d-%H%M%S")}.png')
         plt.close()
 
 # fig = plt.figure(figsize=(11,11))
