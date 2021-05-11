@@ -16,6 +16,7 @@ if __name__=='__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument('--exp_name',         type=str, default = 'test', help='experiment name')
     parser.add_argument('--env_name',         type=str, default = 'coinrun', help='environment ID')
+    parser.add_argument('--val_env_name',     type=str, default = None, help='optional validation environment ID')
     parser.add_argument('--start_level',      type=int, default = int(0), help='start-level for environment')
     parser.add_argument('--num_levels',       type=int, default = int(0), help='number of training levels for environment')
     parser.add_argument('--distribution_mode',type=str, default = 'easy', help='distribution mode for environment')
@@ -34,6 +35,7 @@ if __name__=='__main__':
     args = parser.parse_args()
     exp_name = args.exp_name
     env_name = args.env_name
+    val_env_name = args.val_env_name if args.val_env_name else args.env_name
     start_level = args.start_level
     num_levels = args.num_levels
     distribution_mode = args.distribution_mode
@@ -72,7 +74,7 @@ if __name__=='__main__':
     print('INITIALIZAING ENVIRONMENTS...')
     def create_venv(args, hyperparameters, is_valid=False):
         venv = ProcgenEnv(num_envs=hyperparameters.get('n_envs', 256),
-                          env_name=args.env_name,
+                          env_name=val_env_name if is_valid else env_name,
                           num_levels=0 if is_valid else args.num_levels,
                           start_level=0 if is_valid else args.start_level,
                           distribution_mode=args.distribution_mode,
