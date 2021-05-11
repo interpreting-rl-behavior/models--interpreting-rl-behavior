@@ -10,7 +10,7 @@ import gym
 from procgen import ProcgenEnv
 import random
 import torch
-from generative.generative_models import VAE, Discriminator
+from generative.generative_models import VAE
 from generative.procgen_dataset import ProcgenDataset
 
 from collections import deque
@@ -47,9 +47,12 @@ class LatentSpaceExperiment():
         log_level = args.log_level
         num_checkpoints = args.num_checkpoints
         batch_size = args.batch_size
-        num_recon_obs = args.num_recon_obs
-        num_pred_steps = args.num_pred_steps
-        total_seq_len = num_recon_obs + num_pred_steps
+        num_initializing_steps = args.num_initializing_steps
+        num_sim_steps = args.num_sim_steps
+        total_seq_len = num_initializing_steps + num_sim_steps - 1
+        # minus one because the first simulated observation is the last
+        # initializing context obs.
+
         set_global_seeds(seed)
         set_global_log_levels(log_level)
 
@@ -66,40 +69,33 @@ class LatentSpaceExperiment():
         elif args.device == 'cpu':
             device = torch.device('cpu')
 
-        # Environment # Not used, just for initializing agent.
+        # Set up environment (Only used for initializing agent)
         print('INITIALIZING ENVIRONMENTS...')
-
-        def create_venv(args, hyperparameters, is_valid=False):
-            venv = ProcgenEnv(num_envs=hyperparameters.get('n_envs', 256),
-                              env_name=args.env_name,
-                              num_levels=0 if is_valid else args.num_levels,
-                              start_level=0 if is_valid else args.start_level,
-                              distribution_mode=args.distribution_mode,
-                              num_threads=args.num_threads)
-            venv = VecExtractDictObs(venv, "rgb")
-            normalize_rew = hyperparameters.get('normalize_rew', True)
-            if normalize_rew:
-                venv = VecNormalize(venv, ob=False)
-            venv = TransposeFrame(venv)
-            venv = ScaledFloatFrame(venv)
-            return venv
-        n_steps = 1#hyperparameters.get('n_steps', 256)
+        n_steps = 1  # hyperparameters.get('n_steps', 256)
         n_envs = hyperparameters.get('n_envs', 64)
         env = create_venv(args, hyperparameters)
 
-        #
-        # # TODO put exp name as main dir then this as subdir
-        # gen_model_session_name = datetime.now().strftime("%Y%m%d_%H%M%S")
-        # sess_dir = os.path.join(resdir, gen_model_session_name)
+        # Make save dirs
+        print('INITIALIZING LOGGER...')
+        logdir_base = 'experiments/'
+        if not (os.path.exists(logdir_base)):
+            os.makedirs(logdir_base)
+        resdir = logdir_base + 'results/'
+        if not (os.path.exists(resdir)):
+            os.makedirs(resdir)
+        resdir = resdir + args.ls_exp_name
+        if not (os.path.exists(resdir)):
+            os.makedirs(resdir)
+        # session_name = datetime.now().strftime("%Y%m%d_%H%M%S")
+        # current_time = session_name
+        # sess_dir = os.path.join(resdir, session_name)
         # if not (os.path.exists(sess_dir)):
         #     os.makedirs(sess_dir)
-        # logger.configure(dir=sess_dir, format_strs=['csv', 'stdout'])
-        # reconpred_dir = os.path.join(sess_dir, 'recons_v_preds')
-        # if not (os.path.exists(reconpred_dir)):
-        #     os.makedirs(reconpred_dir)
 
+        # Logger
+        logger.configure(dir=resdir, format_strs=['csv', 'stdout'])
 
-        # Model
+        # Set up agent
         print('INTIALIZING AGENT MODEL...')
         observation_space = env.observation_space
         observation_shape = observation_space.shape
@@ -107,13 +103,13 @@ class LatentSpaceExperiment():
         in_channels = observation_shape[0]
         action_space = env.action_space
 
-        # Model architecture
+        ## Agent architecture
         if architecture == 'nature':
             model = NatureModel(in_channels=in_channels)
         elif architecture == 'impala':
             model = ImpalaModel(in_channels=in_channels)
 
-        # Discrete action space
+        ## Agent's discrete action space
         recurrent = hyperparameters.get('recurrent', False)
         if isinstance(action_space, gym.spaces.Discrete):
             action_size = action_space.n
@@ -122,13 +118,13 @@ class LatentSpaceExperiment():
             raise NotImplementedError
         policy.to(device)
 
-        # Storage
+        ## Agent's storage
         print('INITIALIZING STORAGE...')
         hidden_state_dim = model.output_dim
         storage = Storage(observation_shape, hidden_state_dim, n_steps, n_envs,
                           device)
 
-        # Agent
+        ## And, finally, the agent itself
         print('INTIALIZING AGENT...')
         algo = hyperparameters.get('algo', 'ppo')
         if algo == 'ppo':
@@ -145,27 +141,29 @@ class LatentSpaceExperiment():
 
         print("Done loading agent.")
 
-        # Generative model stuff:
-
+        # Set up generative model
         ## Make dataset
-        train_dataset = ProcgenDataset('generative/data/data_gen_model.csv',
-                                       total_seq_len=total_seq_len,
-                                       inp_seq_len=num_recon_obs)
+        train_dataset = ProcgenDataset(args.data_dir,
+                                       initializer_seq_len=num_initializing_steps,
+                                       total_seq_len=total_seq_len, )
         train_loader = torch.utils.data.DataLoader(train_dataset,
                                                    batch_size=batch_size,
                                                    shuffle=True,
                                                    num_workers=0)
 
         ## Make or load generative model and optimizer
-        gen_model = VAE(agent, device, num_recon_obs, num_pred_steps)
-        discrim   = Discriminator(device)
+        gen_model = VAE(agent, device, num_initializing_steps, total_seq_len)
+
         gen_model = gen_model.to(device)
+        optimizer = torch.optim.Adam(gen_model.parameters(), lr=args.lr)
 
         if args.model_file is not None:
             checkpoint = torch.load(args.model_file, map_location=device)
-            gen_model.load_state_dict(checkpoint['gen_model_state_dict'], device)
-            discrim.load_state_dict(checkpoint['discrim_state_dict'], device)
-            logger.info('Loaded generative model from {}.'.format(args.model_file))
+            gen_model.load_state_dict(checkpoint['gen_model_state_dict'],
+                                      device)
+            optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
+            logger.info(
+                'Loaded generative model from {}.'.format(args.model_file))
         else:
             logger.info('Using an UNTRAINED generative model')
 
@@ -173,7 +171,7 @@ class LatentSpaceExperiment():
         self.gen_model = gen_model
         self.agent = agent
         self.train_loader = train_loader
-        # self.sess_dir = sess_dir
+        self.resdir = resdir
         self.device = device
         self.logger = logger
 
@@ -226,6 +224,20 @@ class LatentSpaceExperiment():
                         b) + '.mp4'
                     tvio.write_video(save_str, combined_ob, fps=14)
 
+def create_venv(args, hyperparameters, is_valid=False):
+    venv = ProcgenEnv(num_envs=hyperparameters.get('n_envs', 256),
+                      env_name=args.env_name,
+                      num_levels=0 if is_valid else args.num_levels,
+                      start_level=0 if is_valid else args.start_level,
+                      distribution_mode=args.distribution_mode,
+                      num_threads=args.num_threads)
+    venv = VecExtractDictObs(venv, "rgb")
+    normalize_rew = hyperparameters.get('normalize_rew', True)
+    if normalize_rew:
+        venv = VecNormalize(venv, ob=False)
+    venv = TransposeFrame(venv)
+    venv = ScaledFloatFrame(venv)
+    return venv
 
 def safe_mean(xs):
     return np.nan if len(xs) == 0 else np.mean(xs)
