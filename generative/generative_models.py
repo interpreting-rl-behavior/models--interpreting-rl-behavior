@@ -426,15 +426,22 @@ class GlobalContextEncoder(nn.Module):
         w = x.shape[3]
         ch = x.shape[4]
 
-        x = x.reshape([batches*ts, h, w, ch])
+        # Get only the even-numbered timesteps (because it's wasteful that a
+        # global context encoder should see every single frame)
+        chosen_ts = [t for t in list(range(0, ts)) if t % 2 == 0] # gets even ts
+        num_chosen_ts = len(chosen_ts)
+        x = x[:,chosen_ts]
+
+
+        x = x.reshape([batches*num_chosen_ts, h, w, ch])
         x, _ = self.conv_input(x)
 
         # Unflatten conv outputs again to reconstruct time dim
 
-        x = x.reshape([batches, ts, x.shape[1], x.shape[2], x.shape[3]])
+        x = x.reshape([batches, num_chosen_ts, x.shape[1], x.shape[2], x.shape[3]])
 
         # Flatten conv outputs to size HxWxCH to get rnn input vecs
-        x = x.reshape([batches, ts, -1])
+        x = x.reshape([batches, num_chosen_ts, -1])
 
         # Pass seq of vecs to global context RNN
         x, _ = self.rnn(x)
@@ -477,7 +484,7 @@ class Decoder(nn.Module):
         layer_norm = hyperparams.layer_norm
         self.num_sim_steps = hyperparams.num_sim_steps
 
-        env_conv_top_shape = [32, 8, 8]
+        env_conv_top_shape = [64, 8, 8]
 
         # Make agent initializer network
         self.agent_initializer = NLayerPerceptron([z_c_size,
@@ -494,12 +501,12 @@ class Decoder(nn.Module):
                                       env_conv_top_shape=env_conv_top_shape,
                                       z_g_size=z_g_size,
                                       stride_in=2,
-                                      channels_in=[3, 64, 32, 32],
+                                      channels_in=[3, 256, 64, 64],
                                       kernel_sizes_in=[6, 4, 3],
                                       padding_hs_in=[1, 1, 1],
                                       padding_ws_in=[1, 1, 1],
                                       stride_out=2,
-                                      channels_out=[32, 32, 64, 3],
+                                      channels_out=[64, 64, 256, 3],
                                       kernel_sizes_out=[3, 5, 6],
                                       padding_hs_out=[1, 1, 1],
                                       padding_ws_out=[1, 1, 1],
