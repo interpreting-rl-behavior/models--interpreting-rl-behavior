@@ -37,6 +37,7 @@ class TargetFunction():
             self.target_actions = 1
             self.min_loss = 1e-3
             self.num_its = 50
+            self.timesteps = [0,1,2]
 
         elif target_function_type == 'value_increase':
             raise NotImplementedError
