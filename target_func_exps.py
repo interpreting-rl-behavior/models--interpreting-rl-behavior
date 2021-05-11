@@ -23,33 +23,46 @@ class TargetFunction():
         """
         super(TargetFunction, self).__init__()
         self.device = device
-        if timesteps is None:
-            self.timesteps = list(range(0, sim_len))
-        else:
-            self.timesteps = timesteps
+        print("Target function type: %s" % target_function_type)
         COINRUN_ACTIONS = {0: 'downleft', 1: 'left', 2: 'upleft',
                            3: 'down', 4: None, 5: 'up',
                            6: 'downright', 7: 'right', 8: 'upright',
                            9: None, 10: None, 11: None,
                            12: None, 13: None, 14: None}
+
+        # Set default settings (particular target funcs will modify some of
+        #  these)
+        self.lr = 1e-4
+        self.min_loss = 1e-3
+        self.num_its = 100
+        self.time_of_jump = min([15, sim_len//2])
+        self.origin_attraction_scale = 0.2
+        if timesteps is None:
+            self.timesteps = list(range(0, sim_len))
+        else:
+            self.timesteps = timesteps
+        # Set settings for specific target functions
         if target_function_type == 'left_action_seq':
             self.loss_func = self.left_action_seq_target_function
-            self.target_actions = 1
-            self.min_loss = 1e-3
-            self.num_its = 50
-            self.timesteps = [0,1,2]
-
+            self.target_actions = (6, 7, 8)
+            # self.timesteps = list(range(0,8))
+            self.lr = 5e-2
         elif target_function_type == 'value_increase':
-            raise NotImplementedError
+            self.loss_func = self.value_incr_or_decr_target_function
+            self.decrease = False
         elif target_function_type == 'value_decrease':
-            raise NotImplementedError
+            self.loss_func = self.value_incr_or_decr_target_function
+            self.decrease = True
         elif target_function_type == 'high_value':
-            raise NotImplementedError
+            self.loss_func = self.value_high_or_low_target_function
+            self.decrease = False
         elif target_function_type == 'low_value':
-            raise NotImplementedError
+            self.loss_func = self.value_high_or_low_target_function
+            self.decrease = True
 
     def left_action_seq_target_function(self, preds_dict):
         preds = preds_dict['act_log_probs']
+        sample_vecs = preds_dict['sample_vecs']
         preds = torch.stack(preds, dim=1).squeeze()
         seq_len = preds.shape[1]  # Number of ts in sequence
         action_space_dim = preds.shape[2]
@@ -60,7 +73,7 @@ class TargetFunction():
 
         target_log_probs = preds.clone().detach().cpu().numpy()
         print(target_log_probs[:, self.timesteps, target_actions].sum())
-        target_log_probs[:, self.timesteps, target_actions] += 0.001
+        target_log_probs[:, self.timesteps, target_actions] += 0.1
         target_log_probs = torch.tensor(target_log_probs, device=self.device)
 
         # Calculate the difference between the target log probs and the pred
@@ -72,6 +85,73 @@ class TargetFunction():
         diff_cum_df = torch.cumsum(diff.sum(dim=[1,2]), dim=0)
         top_quart_ind = int(diff_cum_df.shape[0] * 0.75)
         loss_info_dict = {'top_quartile_loss': diff_cum_df[top_quart_ind]}
+
+        sample_l2_loss = self.origin_attraction_scale*(sample_vecs ** 2).sum()
+        loss_sum = loss_sum + sample_l2_loss
+
+        return loss_sum, loss_info_dict
+
+    def value_incr_or_decr_target_function(self, preds_dict):
+        preds = preds_dict['value']
+        sample_vecs = preds_dict['sample_vecs']
+        preds = torch.stack(preds, dim=1).squeeze()
+        seq_len = preds.shape[1]  # Number of ts in sequence
+
+        # Make a target log prob that is simply slightly higher than
+        # the current prediction.
+        target_values = preds.clone().detach().cpu().numpy()
+        print(target_values.sum())
+        increment = 0.7
+        if self.decrease:
+            increment = increment * -1
+        target_values[:, :self.time_of_jump] -= increment
+        target_values[:, self.time_of_jump:] += increment
+        target_values = torch.tensor(target_values, device=self.device)
+
+        # Calculate the difference between the target log probs and the pred
+        diff = torch.abs(target_values - preds)
+        loss_sum = diff.sum()
+
+        # Calculate the cumulative distribution of the samples' losses and
+        # find the top quartile boundary
+        diff_cum_df = torch.cumsum(diff.sum(dim=[1]), dim=0)
+        top_quart_ind = int(diff_cum_df.shape[0] * 0.75)
+        loss_info_dict = {'top_quartile_loss': diff_cum_df[top_quart_ind]}
+
+        sample_l2_loss = self.origin_attraction_scale*(sample_vecs ** 2).sum()
+        loss_sum = loss_sum + sample_l2_loss
+
+        return loss_sum, loss_info_dict
+
+    def value_high_or_low_target_function(self, preds_dict):
+        preds = preds_dict['value']
+        sample_vecs = preds_dict['sample_vecs']
+        preds = torch.stack(preds, dim=1).squeeze()
+        seq_len = preds.shape[1]  # Number of ts in sequence
+
+        # Make a target log prob that is simply slightly higher than
+        # the current prediction.
+        target_values = preds.clone().detach().cpu().numpy()
+        print(target_values.sum())
+        increment = 0.5
+        if self.decrease:
+            increment = increment * -1
+        target_values += increment
+        target_values = torch.tensor(target_values, device=self.device)
+
+        # Calculate the difference between the target log probs and the pred
+        diff = torch.abs(target_values - preds)
+        loss_sum = diff.sum()
+
+
+        # Calculate the cumulative distribution of the samples' losses and
+        # find the top quartile boundary
+        diff_cum_df = torch.cumsum(diff.sum(dim=[1]), dim=0)
+        top_quart_ind = int(diff_cum_df.shape[0] * 0.75)
+        loss_info_dict = {'top_quartile_loss': diff_cum_df[top_quart_ind]}
+
+        sample_l2_loss = self.origin_attraction_scale*(sample_vecs ** 2).sum()
+        loss_sum = loss_sum + sample_l2_loss
 
         return loss_sum, loss_info_dict
 
@@ -137,7 +217,7 @@ if __name__=='__main__':
     target_func = TargetFunction(target_function_type=args.target_function_type,
                                  sim_len=args.num_sim_steps)
 
-    # Get random starting vectors, which we will optimize
+    # Set some hyperparams
     viz_batch_size = 20
     vae_latent_size = 128
     z_c_size = 64
@@ -148,6 +228,8 @@ if __name__=='__main__':
     tfe.gen_model.requires_grad = False
 
     for epoch in range(num_epochs):
+        print("Epoch: " + str(epoch))
+        # Get random starting vectors, which we will optimize
         sample_vecs = torch.randn(viz_batch_size, vae_latent_size).to(
             tfe.device)
         sample_vecs = torch.nn.Parameter(sample_vecs)
@@ -155,16 +237,18 @@ if __name__=='__main__':
 
         # Set up optimizer for samples
         targ_func_opt = torch.optim.SGD(params=[sample_vecs], momentum=0.3,
-                                        lr=1e-4)
+                                        lr=target_func.lr)
 
         # Start target func optimization loop
         run_target_func_loop = True
         iteration_count = 0
         while run_target_func_loop:
+
             pred_obs, pred_rews, pred_dones, pred_agent_hs, \
             pred_agent_logprobs, pred_agent_values = \
                 tfe.gen_model.decoder(z_c=sample_vecs[:,0:z_c_size],
-                                      z_g=sample_vecs[:,z_c_size:z_c_size+z_g_size],
+                                      z_g=sample_vecs[:,z_c_size:z_c_size + \
+                                                                 z_g_size],
                                       true_actions=None,
                                       true_h0=None)
             preds_dict = {'obs': pred_obs,
@@ -172,7 +256,8 @@ if __name__=='__main__':
                           'reward': pred_rews,
                           'done': pred_dones,
                           'act_log_probs': pred_agent_logprobs,
-                          'value': pred_agent_values}
+                          'value': pred_agent_values,
+                          'sample_vecs': sample_vecs}
 
             # Calculate Target function loss
             target_func_loss, loss_info = target_func.loss_func(preds_dict)
@@ -187,6 +272,8 @@ if __name__=='__main__':
             target_func_loss.backward()
             targ_func_opt.step()
 
+            # Prepare for the next step
+            targ_func_opt.zero_grad()
             iteration_count += 1
 
         # Visualize the optimized latent vectors
