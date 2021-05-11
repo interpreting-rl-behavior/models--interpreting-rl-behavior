@@ -522,21 +522,23 @@ class Decoder(nn.Module):
         # Initialize env@t=0 and agent_h@t=0
         env_rnn_state = self.env_stepper_initializer(z_c, z_g)
         env_h, env_cell_state = env_rnn_state
-        if true_h0 is not None:
-            # if we want to feed the correct h0 instead of the
-            # guessed h0 (for purposes of being able to train the
-            # agent and the generative model on different agents), then
-            # we need to swap in the true h0 here, but we'll still store
-            # and return the guessed h0 in preds so that it can be
-            # trained to approximate true_h0.
-            agent_h = true_h0
-        else:
-            agent_h, _ = self.agent_initializer(z_c)
+
+        pred_agent_h0, _ = self.agent_initializer(z_c)
+        pred_agent_hs.append(pred_agent_h0)
+
+        # if we want to feed the correct h0 instead of the
+        # guessed h0 (for purposes of being able to train the
+        # agent and the generative model on different agents), then
+        # we need to swap in the true h0 here, but we'll still store
+        # and return the guessed h0 in preds so that it can be
+        # trained to approximate true_h0.
+        agent_h = true_h0 if true_h0 is not None else pred_agent_h0
 
         for i in range(self.num_sim_steps):
             # The first part of the for-loop happens only within t
             pred_env_hs.append(env_rnn_state)  # env@t
-            pred_agent_hs.append(agent_h)  # agent_h@t
+            if i > 0:
+                pred_agent_hs.append(agent_h)  # agent_h@t
 
             ## Decode env_h@t to get ob/rew/done@t
             ob, rew, done = self.env_stepper.decode_hx(
