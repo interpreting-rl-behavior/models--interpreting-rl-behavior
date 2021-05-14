@@ -26,6 +26,7 @@ if __name__=='__main__':
     parser.add_argument('--seed',             type=int, default = random.randint(0,9999), help='Random generator seed')
     parser.add_argument('--log_level',        type=int, default = int(40), help='[10,20,30,40]')
     parser.add_argument('--num_checkpoints',  type=int, default = int(1), help='number of checkpoints to store')
+    parser.add_argument('--random_percent',   type=float, default=0., help='percent of environments in which coin is randomized (only for coinrun)')
 
     #multi threading
     parser.add_argument('--num_threads', type=int, default=8)
@@ -34,6 +35,7 @@ if __name__=='__main__':
     parser.add_argument('--tps', type=int, default=15, help="env fps")
     parser.add_argument('--vid_dir', type=str, default=None)
     parser.add_argument('--model_file', type=str)
+    parser.add_argument('--save_value', action='store_true')
 
     args = parser.parse_args()
     exp_name = args.exp_name
@@ -82,7 +84,8 @@ if __name__=='__main__':
                           start_level=0 if is_valid else args.start_level,
                           distribution_mode=args.distribution_mode,
                           num_threads=1,
-                          render_mode="rgb_array")
+                          render_mode="rgb_array",
+                          random_percent=args.random_percent)
         venv = ViewerWrapper(venv, tps=args.tps, info_key="rgb")
         if args.vid_dir is not None:
             venv = VideoRecorderWrapper(venv, directory=args.vid_dir,
@@ -112,6 +115,7 @@ if __name__=='__main__':
     logdir = os.path.join('logs', logdir)
     if not (os.path.exists(logdir)):
         os.makedirs(logdir)
+    print(f'Logging to {logdir}')
     logger = Logger(n_envs, logdir)
 
     ###########
@@ -169,15 +173,33 @@ if __name__=='__main__':
     hidden_state = np.zeros((agent.n_envs, agent.storage.hidden_state_size))
     done = np.zeros(agent.n_envs)
 
+
+    # save observations and value estimates
+    def save_value_estimates(storage, num):
+        """write observations and value estimates to npy / csv file"""
+        print(f"Saving observations and values to {logdir}")
+        np.save(logdir + f"/observations_{num}", storage.obs_batch)
+        np.save(logdir + f"/value_{num}", storage.value_batch)
+        return
+
+
+    num = 0
     while True:
         agent.policy.eval()
-        for _ in range(agent.n_steps):
+        for _ in range(agent.n_steps):  # = 256
             act, log_prob_act, value, next_hidden_state = agent.predict(obs, hidden_state, done)
             next_obs, rew, done, info = agent.env.step(act)
             agent.storage.store(obs, hidden_state, act, rew, done, info, log_prob_act, value)
             obs = next_obs
             hidden_state = next_hidden_state
+
         _, _, last_val, hidden_state = agent.predict(obs, hidden_state, done)
         agent.storage.store_last(obs, hidden_state, last_val)
+        if args.save_value:
+            save_value_estimates(agent.storage, num)
+            num += 1
         agent.storage.compute_estimates(agent.gamma, agent.lmbda, agent.use_gae,
                                        agent.normalize_adv)
+
+
+

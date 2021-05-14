@@ -28,6 +28,7 @@ if __name__=='__main__':
     parser.add_argument('--log_level',        type=int, default = int(40), help='[10,20,30,40]')
     parser.add_argument('--num_checkpoints',  type=int, default = int(1), help='number of checkpoints to store')
     parser.add_argument('--model_file', type=str)
+    parser.add_argument('--random_percent',   type=float, default=0., help='percent of environments in which coin is randomized (only for coinrun)')
 
     #multi threading
     parser.add_argument('--num_threads', type=int, default=8)
@@ -78,7 +79,8 @@ if __name__=='__main__':
                           num_levels=0 if is_valid else args.num_levels,
                           start_level=0 if is_valid else args.start_level,
                           distribution_mode=args.distribution_mode,
-                          num_threads=args.num_threads)
+                          num_threads=args.num_threads,
+                          random_percent=args.random_percent)
         venv = VecExtractDictObs(venv, "rgb")
         normalize_rew = hyperparameters.get('normalize_rew', True)
         if normalize_rew:
