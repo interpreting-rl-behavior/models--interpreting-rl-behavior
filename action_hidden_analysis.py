@@ -26,6 +26,8 @@ def parse_args():
         '--data_dir', type=str,
         default="generative/data")
     parser.add_argument(
+        '--precomputed_analysis_data_path', type=str, default="/home/lee/Documents/AI_ML_neur_projects/aisc_project/train-procgen-pytorch/analysis/hx_analysis_precomp")
+    parser.add_argument(
         '--presaved_data_path', type=str, default="/media/lee/DATA/DDocs/AI_neuro_work/assurance_project_stuff/data/precollected/")
     args = parser.parse_args()
     return args
@@ -34,11 +36,9 @@ def parse_args():
 # EPISODE_STRINGS = {v:str(v) for v in range(3431)}
 def run():
     args = parse_args()
-    num_episodes = 100  # number of episodes to make plots for
+    num_episodes = 1000  # number of episodes to make plots for. Needs to be
+    # the same as the precomputed data you want to use
     num_epi_paths = 9  # Number of episode to plot paths through time for. Arrow plots.
-    path_epis = list(range(num_epi_paths))
-
-    seed = 42  # for the tSNE algo
     plot_pca = True
     plot_tsne = True
 
@@ -143,8 +143,14 @@ def run():
         value_deltas.extend(delta)
     data['neg_log_value_delta'] = value_deltas
 
+    # nmf max factor
+    hx_nmf = np.load(args.precomputed_analysis_data_path + \
+                     '/hx_nmf_%i.npy' % num_episodes)
+    nmf_max_factor = np.argmax(hx_nmf, axis=1)
+    data['nmf_max_factor'] = nmf_max_factor
+
     # Prepare for plotting
-    plotting_variables = ['entropy', 'argmax_action_log_prob', 'action',
+    plotting_variables = ['entropy', 'argmax_action_log_prob', 'nmf_max_factor', #'action',
                           'episode_max_steps', '% through episode',
                           'done',
                           'value', 'episode_rewarded', 'reward']
@@ -152,6 +158,7 @@ def run():
     plot_cmaps = {'entropy':                 'winter',
                   'argmax_action_log_prob':  'Paired_r',
                   'action':                  'tab20',
+                  'nmf_max_factor':          'tab20',
                   'episode_max_steps':       'turbo',
                   '% through episode':       'brg',
                   'done':                    'autumn_r',
@@ -163,15 +170,18 @@ def run():
 
     # Plotting
     if plot_pca:
-        print('Starting PCA...')
-        hx = StandardScaler().fit_transform(hx)
-        pca = PCA(n_components=2)
-        hx_pca = pca.fit_transform(hx)
-        print('PCA finished.')
+        hx_pca = np.load(args.precomputed_analysis_data_path + \
+                         '/hx_pca_%i.npy' % num_episodes)
+        # print('Starting PCA...')
+        # hx = StandardScaler().fit_transform(hx)
+        # pca = PCA(n_components=2)
+        # hx_pca = pca.fit_transform(hx)
+        # print('PCA finished.')
         data['pca_X'] = hx_pca[:, 0]
         data['pca_Y'] = hx_pca[:, 1]
 
         # Create grid of plots
+        pca_alpha = 0.2
         fig = plt.figure()
         fig.subplots_adjust(hspace=0.8, wspace=0.8)
         fig.set_size_inches(21., 18.)
@@ -181,7 +191,7 @@ def run():
                                 data['pca_Y'].loc[data['episode_step']!=0],
                                 c=data[col].loc[data['episode_step']!=0],
                                 cmap=plot_cmaps[col],
-                                s=0.005, alpha=1.)
+                                s=0.005, alpha=pca_alpha)
             fig.colorbar(splot, fraction=0.023, pad=0.04)
             ax.legend(title=col, bbox_to_anchor=(1.01, 1),borderaxespad=0)
             ax.set_frame_on(False)
@@ -204,7 +214,7 @@ def run():
                 data['pca_Y'].loc[data['episode_step']!=0],
                 c=data['% through episode'].loc[data['episode_step']!=0],
                 cmap=plot_cmaps['% through episode'],
-                s=0.005, alpha=1.)
+                s=0.005, alpha=pca_alpha)
             # for epi in path_epis:
             epi_data = groups[plot_idx-1][1]
             for i in range(len(epi_data) - 1):
@@ -230,10 +240,12 @@ def run():
         plt.close()
 
     if plot_tsne:
+        hx_tsne = np.load(args.precomputed_analysis_data_path + \
+                         '/hx_tsne_%i.npy' % num_episodes)
         print('Starting tSNE...')
-        _pca_for_tsne = PCA(n_components=64)
-        hx_tsne = TSNE(n_components=2, random_state=seed).fit_transform(hx)
-        print("tSNE finished.")
+        # _pca_for_tsne = PCA(n_components=64)
+        # hx_tsne = TSNE(n_components=2, random_state=seed).fit_transform(hx)
+        # print("tSNE finished.")
         data['tsne_X'] = hx_tsne[:, 0]
         data['tsne_Y'] = hx_tsne[:, 1]
 
