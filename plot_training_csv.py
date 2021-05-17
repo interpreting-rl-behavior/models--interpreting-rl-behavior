@@ -46,6 +46,26 @@ def plot():
     plt.xlabel('timesteps')
     plt.legend()
     plt.savefig(args.datapath + "/plot.png")
+    plt.close()
+
+def simple_plot_for_figure():
+    args = parse_args()
+    data = pd.read_csv(args.datapath + "/log.csv")
+
+    # Plot
+    alpha=0.75
+    plt.plot(data['timesteps'], data['mean_episode_rewards'],
+             label='Training set mean episode rewards',
+             alpha=alpha)
+    plt.plot(data['timesteps'], data['val_mean_episode_rewards'],
+             label='Validation set mean episode rewards',
+             alpha=alpha)
+    plt.xlabel('Timesteps')
+    plt.ylabel('Reward')
+    plt.legend()
+    plt.savefig(args.datapath + "/plot_for_fig.png")
+    plt.close()
 
 if __name__ == '__main__':
     plot()
+    simple_plot_for_figure()
