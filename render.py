@@ -4,6 +4,7 @@ from common.storage import Storage
 from common.model import NatureModel, ImpalaModel
 from common.policy import CategoricalPolicy
 from common import set_global_seeds, set_global_log_levels
+import torchvision.io as tvio
 
 import os, time, yaml, argparse
 import gym
@@ -82,6 +83,7 @@ if __name__=='__main__':
                           start_level=0 if is_valid else args.start_level,
                           distribution_mode=args.distribution_mode,
                           num_threads=1,
+                          use_backgrounds=False,
                           render_mode="rgb_array")
         venv = ViewerWrapper(venv, tps=args.tps, info_key="rgb")
         if args.vid_dir is not None:
@@ -158,7 +160,7 @@ if __name__=='__main__':
         raise NotImplementedError
     agent = AGENT(env, policy, logger, storage, device, num_checkpoints, **hyperparameters)
 
-    agent.policy.load_state_dict(torch.load(args.model_file, map_location=device)["state_dict"])
+    agent.policy.load_state_dict(torch.load(args.model_file, map_location=device)["model_state_dict"])
     agent.n_envs = n_envs
 
     ##############
@@ -169,9 +171,14 @@ if __name__=='__main__':
     hidden_state = np.zeros((agent.n_envs, agent.storage.hidden_state_size))
     done = np.zeros(agent.n_envs)
 
-    while True:
+    all_obs = []
+    num_episodes_to_render = 8
+    episode = 0
+    for e in range(num_episodes_to_render):
+    #while True:
         agent.policy.eval()
         for _ in range(agent.n_steps):
+            all_obs.append(obs)
             act, log_prob_act, value, next_hidden_state = agent.predict(obs, hidden_state, done)
             next_obs, rew, done, info = agent.env.step(act)
             agent.storage.store(obs, hidden_state, act, rew, done, info, log_prob_act, value)
@@ -179,6 +186,19 @@ if __name__=='__main__':
             hidden_state = next_hidden_state
             if np.any(done):
                 hidden_state[done] = np.zeros_like(hidden_state[done])  # New
+                # Save vid of obs
+                all_obs = np.squeeze(np.stack(all_obs, 1))
+                all_obs = all_obs.transpose([0, 2, 3, 1])
+                all_obs = all_obs * 255
+                # sample = sample.clone().detach().type(torch.uint8)
+                # sample = sample.cpu().numpy()
+                save_str = 'logs/rendered_what_agent_sees_%i.mp4' % episode
+                full_resvid_names = [f for f in os.listdir('logs/') \
+                                     if
+                                     os.path.isfile(os.path.join('logs/', f))]
+                tvio.write_video(save_str, all_obs, fps=14)
+                all_obs = []
+                episode += 1
         _, _, last_val, hidden_state = agent.predict(obs, hidden_state, done)
         agent.storage.store_last(obs, hidden_state, last_val)
         agent.storage.compute_estimates(agent.gamma, agent.lmbda, agent.use_gae,

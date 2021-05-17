@@ -34,7 +34,7 @@ def parse_args():
 # EPISODE_STRINGS = {v:str(v) for v in range(3431)}
 def run():
     args = parse_args()
-    num_episodes = 2000  # number of episodes to make plots for
+    num_episodes = 100  # number of episodes to make plots for
     num_epi_paths = 9  # Number of episode to plot paths through time for. Arrow plots.
     path_epis = list(range(num_epi_paths))
 
@@ -91,6 +91,7 @@ def run():
     del lp
     # TODO consider adding UMAP
     # TODO clusters of hx
+
     # Add extra columns for further analyses variables
     # -  % way through episode
     # -  episode_rewarded?
@@ -170,7 +171,6 @@ def run():
         data['pca_X'] = hx_pca[:, 0]
         data['pca_Y'] = hx_pca[:, 1]
 
-
         # Create grid of plots
         fig = plt.figure()
         fig.subplots_adjust(hspace=0.8, wspace=0.8)
@@ -180,8 +180,8 @@ def run():
             splot = plt.scatter(data['pca_X'].loc[data['episode_step']!=0],
                                 data['pca_Y'].loc[data['episode_step']!=0],
                                 c=data[col].loc[data['episode_step']!=0],
-                            cmap=plot_cmaps[col],
-                            s=0.005, alpha=1.)
+                                cmap=plot_cmaps[col],
+                                s=0.005, alpha=1.)
             fig.colorbar(splot, fraction=0.023, pad=0.04)
             ax.legend(title=col, bbox_to_anchor=(1.01, 1),borderaxespad=0)
             ax.set_frame_on(False)
@@ -222,7 +222,8 @@ def run():
                                                            color='black')
                 ax.add_patch(arrow)
                 ax.set_frame_on(False)
-            fig.colorbar(splot, fraction=0.023, pad=0.04)
+            if plot_idx == 4:
+                fig.colorbar(splot, fraction=0.023, pad=0.04)
         fig.tight_layout()
         fig.savefig(
             f'{save_path}/agent_pca_epsd{num_episodes}_arrows_at{time.strftime("%Y%m%d-%H%M%S")}.png')
@@ -262,7 +263,7 @@ def run():
                   data.groupby(by='episode')[['tsne_X', 'tsne_Y']]]
         fig = plt.figure()
         fig.subplots_adjust(hspace=0.8, wspace=0.8)
-        fig.set_size_inches(21., 18.)
+        fig.set_size_inches(21., 15.)
         for plot_idx in range(1, 13):
             ax = fig.add_subplot(3, 4, plot_idx)
             splot = plt.scatter(
@@ -287,7 +288,10 @@ def run():
                                                            color='black')
                 ax.add_patch(arrow)
                 ax.set_frame_on(False)
-            fig.colorbar(splot, fraction=0.023, pad=0.04)
+                ax.axes.xaxis.set_visible(False)
+                ax.axes.yaxis.set_visible(False)
+            if plot_idx==4:
+                fig.colorbar(splot, fraction=0.023, pad=0.04)
         fig.tight_layout()
         fig.savefig(
             f'{save_path}/agent_tsne_epsd{num_episodes}_arrows_at{time.strftime("%Y%m%d-%H%M%S")}.png')
