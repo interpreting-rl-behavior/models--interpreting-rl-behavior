@@ -29,6 +29,8 @@ if __name__=='__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument('--exp_name', type=str, default='test',
                         help='experiment name')
+    parser.add_argument('--ls_exp_name', type=str, default='interpolation_exp',
+                        help='type of latent space experiment')
     parser.add_argument('--env_name', type=str, default='coinrun',
                         help='environment ID')
     parser.add_argument('--epochs', type=int, default=400,
@@ -55,12 +57,13 @@ if __name__=='__main__':
                         help='number of checkpoints to store')
     parser.add_argument('--model_file', type=str)
     parser.add_argument('--agent_file', type=str)
+    parser.add_argument('--data_dir', type=str, default='generative/data/')
     parser.add_argument('--save_interval', type=int, default=100)
     parser.add_argument('--log_interval', type=int, default=100)
     parser.add_argument('--lr', type=float, default=5e-4)
     parser.add_argument('--batch_size', type=int, default=128)
-    parser.add_argument('--num_recon_obs', type=int, default=8)
-    parser.add_argument('--num_pred_steps', type=int, default=22)
+    parser.add_argument('--num_initializing_steps', type=int, default=8)
+    parser.add_argument('--num_sim_steps', type=int, default=22)
 
     # multi threading
     parser.add_argument('--num_threads', type=int, default=8)
@@ -70,7 +73,7 @@ if __name__=='__main__':
     iexp = LatentSpaceExperiment(args)  # for 'Interpolation Experiment'
 
     # Prepare save dirs
-    experiment_type = 'latent_interpolation'
+    experiment_type = args.ls_exp_name
     logdir_base = 'experiments/'
     if not (os.path.exists(logdir_base)):
         os.makedirs(logdir_base)
@@ -82,15 +85,17 @@ if __name__=='__main__':
         os.makedirs(resdir)
     current_time = datetime.now().strftime("%Y%m%d_%H%M%S")
 
-    # Get latent size
+    # Set some hyperparams
     latent_size = 128
+    z_c_size = 64
+    z_g_size = 64
 
     # Choose two vecs
     vec1 = torch.normal(0., 1., size=[latent_size]).to(iexp.device)
     vec2 = torch.normal(0., 1., size=[latent_size]).to(iexp.device)
 
     # Choose number of points along line
-    num_interpol_points = 9
+    num_interpol_points = 7
 
     # Get equally spaced points along line
     vecs = []
@@ -101,9 +106,14 @@ if __name__=='__main__':
 
     # Stack them along batch dimension
     vecs = torch.stack(vecs, dim=0)
-    samples = torch.stack(iexp.gen_model.decoder(vecs,
-                                                 true_actions=None)[0], dim=1)
-
+    pred_obs, pred_rews, pred_dones, pred_agent_hs, \
+    pred_agent_logprobs, pred_agent_values = \
+        iexp.gen_model.decoder(z_c=vecs[:, 0:z_c_size],
+                              z_g=vecs[:, z_c_size:z_c_size + z_g_size],
+                              true_actions=None,
+                              true_h0=None)
+    samples = pred_obs
+    samples = torch.stack(samples, dim=1)
     vids = []
     for i in range(num_interpol_points):
         sample = samples[i].permute(0, 2, 3, 1)
