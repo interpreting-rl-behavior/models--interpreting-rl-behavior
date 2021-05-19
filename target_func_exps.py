@@ -16,68 +16,144 @@ from datetime import datetime
 import torchvision.io as tvio
 
 class TargetFunction():
-    def __init__(self, target_function_type, timesteps=None, sim_len=30, device='cuda'):
+    def __init__(self, args, sim_len=30, device='cuda'):
         """
         embedder: (torch.Tensor) model to extract the embedding for observation
         action_size: number of the categorical actions
         """
         super(TargetFunction, self).__init__()
         self.device = device
-        print("Target function type: %s" % target_function_type)
-        COINRUN_ACTIONS = {0: 'downleft', 1: 'left', 2: 'upleft',
-                           3: 'down', 4: None, 5: 'up',
-                           6: 'downright', 7: 'right', 8: 'upright',
-                           9: None, 10: None, 11: None,
-                           12: None, 13: None, 14: None}
+        print("Target function type: %s" % args.target_function_type)
+        self.coinrun_actions = {0: 'downleft', 1: 'left', 2: 'upleft',
+                                3: 'down', 4: None, 5: 'up',
+                                6: 'downright', 7: 'right', 8: 'upright',
+                                9: None, 10: None, 11: None,
+                                12: None, 13: None, 14: None}
+        # self.coinrun_actions = {k: v for k, v in self.coinrun_actions.items()
+        #                         if v is not None}
 
         # Set default settings (particular target funcs will modify some of
         #  these)
-        self.lr = 1e-4
+        # TODO add decaying 'temperature' setting that forces samples to be
+        #  different
+        self.lr = 1e-2
         self.min_loss = 1e-3
-        self.num_its = 100
+        self.num_its = 600
+        self.num_epochs = 1
         self.time_of_jump = min([15, sim_len//2])
         self.origin_attraction_scale = 0.2
-        if timesteps is None:
-            self.timesteps = list(range(0, sim_len))
-        else:
-            self.timesteps = timesteps
-        # Set settings for specific target functions
-        if target_function_type == 'left_action_seq':
-            self.loss_func = self.left_action_seq_target_function
-            self.target_actions = (6, 7, 8)
-            # self.timesteps = list(range(0,8))
-            self.lr = 5e-2
-        elif target_function_type == 'value_increase':
-            self.loss_func = self.value_incr_or_decr_target_function
-            self.decrease = False
-        elif target_function_type == 'value_decrease':
-            self.loss_func = self.value_incr_or_decr_target_function
-            self.decrease = True
-        elif target_function_type == 'high_value':
-            self.loss_func = self.value_high_or_low_target_function
-            self.decrease = False
-        elif target_function_type == 'low_value':
-            self.loss_func = self.value_high_or_low_target_function
-            self.decrease = True
+        self.directions_scale = 0.9
+        self.timesteps = list(range(0, sim_len))
+        self.distance_threshold = 1.3
+        self.target_function_type = args.target_function_type
+        num_episodes_precomputed = 1000 # hardcoded for dev
 
-    def left_action_seq_target_function(self, preds_dict):
+        # Set settings for specific target functions
+        if self.target_function_type == 'action':
+            self.loss_func = self.action_target_function
+            self.num_epochs = 15 #len(self.coinrun_actions)
+            # self.target_actions = 1#(0,1,2)#(6, 7, 8)
+            self.timesteps = (0,)#(0,1,2,3,4,)
+            self.lr = 5e-2
+            self.increment = 0.7
+            # self.num_its = 100
+        elif self.target_function_type == 'value_increase':
+            self.loss_func = self.value_incr_or_decr_target_function
+            self.decrease = False
+            self.increment = 0.7
+        elif self.target_function_type == 'value_decrease':
+            self.loss_func = self.value_incr_or_decr_target_function
+            self.decrease = True
+            self.increment = 0.7
+        elif self.target_function_type == 'high_value':
+            self.loss_func = self.value_high_or_low_target_function
+            self.decrease = False
+            self.increment = 0.7
+            self.distance_threshold = 4.0
+        elif self.target_function_type == 'low_value':
+            self.loss_func = self.value_high_or_low_target_function
+            self.decrease = True
+            self.increment = 0.7
+            self.distance_threshold = 3.0
+        elif self.target_function_type == 'increase_hx_neuron':
+            self.loss_func = self.hx_neuron_target_function
+            self.decrease = False
+            self.num_epochs = 64
+            self.increment = 0.8
+            self.timesteps = (0,)
+        elif self.target_function_type == 'decrease_hx_neuron':
+            self.loss_func = self.hx_neuron_target_function
+            self.decrease = True
+            self.num_epochs = 64
+            self.increment = 0.8
+            self.timesteps = (0,)
+
+        elif self.target_function_type == 'increase_hx_direction_pca':
+            self.num_its = 400
+            self.loss_func = self.hx_direction_target_function
+            self.decrease = False
+            self.directions = np.load(args.precomputed_analysis_dir + \
+                                      '/pcomponents_%i.npy' %
+                                      num_episodes_precomputed)
+            self.num_epochs = self.directions.shape[0]
+            self.timesteps = (0,)
+            self.directions = [self.directions.copy()
+                               for _ in range(len(self.timesteps))]
+            self.directions = np.stack(self.directions, axis=0)
+        elif self.target_function_type == 'decrease_hx_direction_pca':
+            self.loss_func = self.hx_direction_target_function
+            self.decrease = True
+            self.directions = np.load(args.precomputed_analysis_dir + \
+                                      '/pcomponents_%i.npy' %
+                                      num_episodes_precomputed)
+            self.num_epochs = self.directions.shape[0]
+            self.timesteps = (0,)
+            self.directions = [self.directions.copy()
+                               for _ in range(len(self.timesteps))]
+            self.directions = np.stack(self.directions, axis=0)
+
+        elif self.target_function_type == 'increase_hx_direction_nmf':
+            self.num_its = 400
+            self.loss_func = self.hx_direction_target_function
+            self.decrease = False
+            self.directions = np.load(args.precomputed_analysis_dir + \
+                                      '/nmf_components_%i.npy' %
+                                      num_episodes_precomputed)
+            self.num_epochs = self.directions.shape[0]
+            self.timesteps = (0,)
+            self.directions = [self.directions.copy()
+                               for _ in range(len(self.timesteps))]
+            self.directions = np.stack(self.directions, axis=0)
+        elif self.target_function_type == 'decrease_hx_direction_nmf':
+            self.loss_func = self.hx_direction_target_function
+            self.decrease = True
+            self.directions = np.load(args.precomputed_analysis_dir + \
+                                      '/nmf_components_%i.npy' %
+                                      num_episodes_precomputed)
+            self.num_epochs = self.directions.shape[0]
+            self.timesteps = (0,)
+            self.directions = [self.directions.copy()
+                               for _ in range(len(self.timesteps))]
+            self.directions = np.stack(self.directions, axis=0)
+
+    def action_target_function(self, preds_dict, epoch):
         preds = preds_dict['act_log_probs']
         sample_vecs = preds_dict['sample_vecs']
         preds = torch.stack(preds, dim=1).squeeze()
-        seq_len = preds.shape[1]  # Number of ts in sequence
-        action_space_dim = preds.shape[2]
-        target_actions = 1
 
         # Make a target log prob that is simply slightly higher than
         # the current prediction.
-
+        target_action_idx = epoch
         target_log_probs = preds.clone().detach().cpu().numpy()
-        print(target_log_probs[:, self.timesteps, target_actions].sum())
-        target_log_probs[:, self.timesteps, target_actions] += 0.1
+        print(target_log_probs[:, self.timesteps, target_action_idx].sum())
+        target_log_probs[:, self.timesteps, target_action_idx] += \
+            self.increment * 2
+        target_log_probs[:, self.timesteps] -= \
+            self.increment
         target_log_probs = torch.tensor(target_log_probs, device=self.device)
 
         # Calculate the difference between the target log probs and the pred
-        diff = torch.abs(target_log_probs - preds)
+        diff = (target_log_probs - preds)**2
         loss_sum = diff.sum()
 
         # Calculate the cumulative distribution of the samples' losses and
@@ -86,29 +162,29 @@ class TargetFunction():
         top_quart_ind = int(diff_cum_df.shape[0] * 0.75)
         loss_info_dict = {'top_quartile_loss': diff_cum_df[top_quart_ind]}
 
+        # Add l2 loss on size of sample vector to attract the vector toward the
+        # origin
         sample_l2_loss = self.origin_attraction_scale*(sample_vecs ** 2).sum()
         loss_sum = loss_sum + sample_l2_loss
 
         return loss_sum, loss_info_dict
 
-    def value_incr_or_decr_target_function(self, preds_dict):
+    def value_incr_or_decr_target_function(self, preds_dict, epoch):
         preds = preds_dict['value']
         sample_vecs = preds_dict['sample_vecs']
         preds = torch.stack(preds, dim=1).squeeze()
-        seq_len = preds.shape[1]  # Number of ts in sequence
 
-        # Make a target log prob that is simply slightly higher than
+        # Make a target that is simply slightly higher than
         # the current prediction.
         target_values = preds.clone().detach().cpu().numpy()
         print(target_values.sum())
-        increment = 0.7
         if self.decrease:
-            increment = increment * -1
-        target_values[:, :self.time_of_jump] -= increment
-        target_values[:, self.time_of_jump:] += increment
+            self.increment = self.increment * -1
+        target_values[:, :self.time_of_jump] -= self.increment
+        target_values[:, self.time_of_jump:] += self.increment
         target_values = torch.tensor(target_values, device=self.device)
 
-        # Calculate the difference between the target log probs and the pred
+        # Calculate the difference between the target and the pred
         diff = torch.abs(target_values - preds)
         loss_sum = diff.sum()
 
@@ -118,28 +194,28 @@ class TargetFunction():
         top_quart_ind = int(diff_cum_df.shape[0] * 0.75)
         loss_info_dict = {'top_quartile_loss': diff_cum_df[top_quart_ind]}
 
+        # Add l2 loss on size of sample vector to attract the vector toward the
+        # origin
         sample_l2_loss = self.origin_attraction_scale*(sample_vecs ** 2).sum()
         loss_sum = loss_sum + sample_l2_loss
 
         return loss_sum, loss_info_dict
 
-    def value_high_or_low_target_function(self, preds_dict):
+    def value_high_or_low_target_function(self, preds_dict, epoch):
         preds = preds_dict['value']
         sample_vecs = preds_dict['sample_vecs']
         preds = torch.stack(preds, dim=1).squeeze()
-        seq_len = preds.shape[1]  # Number of ts in sequence
 
-        # Make a target log prob that is simply slightly higher than
+        # Make a target that is simply slightly higher than
         # the current prediction.
         target_values = preds.clone().detach().cpu().numpy()
         print(target_values.sum())
-        increment = 0.5
         if self.decrease:
-            increment = increment * -1
-        target_values += increment
+            self.increment = self.increment * -1
+        target_values += self.increment
         target_values = torch.tensor(target_values, device=self.device)
 
-        # Calculate the difference between the target log probs and the pred
+        # Calculate the difference between the target and the pred
         diff = torch.abs(target_values - preds)
         loss_sum = diff.sum()
 
@@ -150,14 +226,81 @@ class TargetFunction():
         top_quart_ind = int(diff_cum_df.shape[0] * 0.75)
         loss_info_dict = {'top_quartile_loss': diff_cum_df[top_quart_ind]}
 
+        # Add l2 loss on size of sample vector to attract the vector toward the
+        # origin
         sample_l2_loss = self.origin_attraction_scale*(sample_vecs ** 2).sum()
         loss_sum = loss_sum + sample_l2_loss
 
         return loss_sum, loss_info_dict
+
+    def hx_neuron_target_function(self, preds_dict, epoch):
+        preds = preds_dict['hx']
+        sample_vecs = preds_dict['sample_vecs']
+        preds = torch.stack(preds, dim=1).squeeze()
+        neuron_optimized = epoch
+
+        # Make a target that is simply slightly higher than
+        # the current prediction.
+
+        target_hx = preds.clone().detach().cpu().numpy()
+        print(target_hx[:, self.timesteps, neuron_optimized].sum())
+        target_hx[:, self.timesteps, neuron_optimized] += self.increment
+        target_hx = torch.tensor(target_hx, device=self.device)
+
+        # Calculate the difference between the target and the pred
+        diff = torch.abs(target_hx - preds)
+        loss_sum = diff.sum()
+
+        # Calculate the cumulative distribution of the samples' losses and
+        # find the top quartile boundary
+        diff_cum_df = torch.cumsum(diff.sum(dim=[1,2]), dim=0)
+        top_quart_ind = int(diff_cum_df.shape[0] * 0.75)
+        loss_info_dict = {'top_quartile_loss': diff_cum_df[top_quart_ind]}
+
+        # Add l2 loss on size of sample vector to attract the vector toward the
+        # origin
+        sample_l2_loss = self.origin_attraction_scale*(sample_vecs ** 2).sum()
+        loss_sum = loss_sum + sample_l2_loss
+
+        return loss_sum, loss_info_dict
+
+    def hx_direction_target_function(self, preds_dict, epoch):
+        preds = preds_dict['hx']
+        sample_vecs = preds_dict['sample_vecs']
+        preds = torch.stack(preds, dim=1).squeeze()
+        directions = self.directions[:, epoch]
+        # pred_magnitude = np.linalg.norm(preds[:, self.timesteps], axis=1)
+        # directions_magnitude = np.linalg.norm(directions, axis=1)
+        # direc_scales = pred_magnitude/directions_magnitude
+
+        # Make a target that is the direction of the target than
+        # the current prediction.
+        target_hx = preds.clone().detach().cpu().numpy()
+        target_hx[:, self.timesteps] += (directions * self.directions_scale)
+        target_hx = torch.tensor(target_hx, device=self.device)
+
+        # Calculate the difference between the target and the pred
+        diff = torch.abs(target_hx - preds)
+        loss_sum = diff.sum()
+
+        # Calculate the cumulative distribution of the samples' losses and
+        # find the top quartile boundary
+        diff_cum_df = torch.cumsum(diff.sum(dim=[1,2]), dim=0)
+        top_quart_ind = int(diff_cum_df.shape[0] * 0.75)
+        loss_info_dict = {'top_quartile_loss': diff_cum_df[top_quart_ind]}
+
+        # Add l2 loss on size of sample vector to attract the vector toward the
+        # origin
+        sample_l2_loss = self.origin_attraction_scale*(sample_vecs ** 2).sum()
+        loss_sum = loss_sum + sample_l2_loss
+
+        return loss_sum, loss_info_dict
+
 
 if __name__=='__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument('--target_function_type', type=str)
+    parser.add_argument('--directions_path', type=str)
     parser.add_argument('--ls_exp_name', type=str, default='target_func_exp',
                         help='type of latent space experiment')
     parser.add_argument('--exp_name', type=str, default='test',
@@ -189,6 +332,9 @@ if __name__=='__main__':
     parser.add_argument('--model_file', type=str)
     parser.add_argument('--agent_file', type=str)
     parser.add_argument('--data_dir', type=str, default='generative/data/') # TODO change to test data directory.
+    parser.add_argument('--precomputed_analysis_dir', type=str,
+                        default='analysis/hx_analysis_precomp/') # TODO change to test data directory.
+
     parser.add_argument('--save_interval', type=int, default=100)
     parser.add_argument('--log_interval', type=int, default=100)
     parser.add_argument('--lr', type=float, default=5e-4)
@@ -203,6 +349,12 @@ if __name__=='__main__':
     args = parser.parse_args()
     tfe = LatentSpaceExperiment(args)  # for 'Target Function Experiment'
 
+    # Device
+    if args.device == 'gpu':
+        device = torch.device('cuda')
+    elif args.device == 'cpu':
+        device = torch.device('cpu')
+
     # Prepare save dirs
     targ_func_type_dir = os.path.join(tfe.resdir, args.target_function_type)
     if not (os.path.exists(targ_func_type_dir)):
@@ -214,20 +366,20 @@ if __name__=='__main__':
         os.makedirs(sess_dir)
 
     # Make desired target function
-    target_func = TargetFunction(target_function_type=args.target_function_type,
-                                 sim_len=args.num_sim_steps)
+    target_func = TargetFunction(args=args,
+                                 sim_len=args.num_sim_steps,
+                                 device=device)
 
     # Set some hyperparams
-    viz_batch_size = 20
+    viz_batch_size = 9
     vae_latent_size = 128
     z_c_size = 64
     z_g_size = 64
-    num_epochs = 1
 
     # remove grads from generative model
     tfe.gen_model.requires_grad = False
 
-    for epoch in range(num_epochs):
+    for epoch in range(target_func.num_epochs):
         print("Epoch: " + str(epoch))
         # Get random starting vectors, which we will optimize
         sample_vecs = torch.randn(viz_batch_size, vae_latent_size).to(
@@ -237,7 +389,8 @@ if __name__=='__main__':
 
         # Set up optimizer for samples
         targ_func_opt = torch.optim.SGD(params=[sample_vecs], momentum=0.3,
-                                        lr=target_func.lr)
+                                        lr=target_func.lr,
+                                        nesterov=True)
 
         # Start target func optimization loop
         run_target_func_loop = True
@@ -260,12 +413,19 @@ if __name__=='__main__':
                           'sample_vecs': sample_vecs}
 
             # Calculate Target function loss
-            target_func_loss, loss_info = target_func.loss_func(preds_dict)
+            target_func_loss, loss_info = target_func.loss_func(preds_dict,
+                                                                epoch)
             print("Iteration %i target function loss: %f" % (iteration_count,
                                                              float(target_func_loss.item())))
             # Decide whether to stop the target func optimization
+            pairwise_dists = np.linalg.norm(sample_vecs[:,None,:].detach().clone().cpu().numpy() - \
+                                            sample_vecs[None,:,:].detach().clone().cpu().numpy(), axis=-1)
+            print("Distances between samples: %f" % pairwise_dists.mean())
+
+            # Decide whether to stop loop
             if loss_info['top_quartile_loss'] < target_func.min_loss or \
-               iteration_count > target_func.num_its:
+               iteration_count > target_func.num_its or \
+               pairwise_dists.mean() < target_func.distance_threshold:
                 run_target_func_loop = False
 
             # Get gradient and step the optimizer
@@ -276,16 +436,52 @@ if __name__=='__main__':
             targ_func_opt.zero_grad()
             iteration_count += 1
 
+        # Save results
+        sample_vec_save_str = sess_dir + '/sample_vecs_' + \
+                              args.target_function_type + \
+                              '_' + str(epoch) + '.npy'
+        np.save(sample_vec_save_str,
+                sample_vecs.clone().detach().cpu().numpy())
+
         # Visualize the optimized latent vectors
         obs = torch.stack(pred_obs, dim=1).squeeze()
+        overlay_vids = []
         for b in range(viz_batch_size):
             sample = obs[b].permute(0, 2, 3, 1)
+            overlay_vids.append(sample)
             sample = sample * 255
             sample = sample.clone().detach().type(
                 torch.uint8).cpu().numpy()
             save_str = sess_dir + '/' + args.target_function_type + \
-                       'sample_' + str(epoch) + '_' + str(b) + '_' + str(b) + \
+                       '_' + str(epoch) + '_' + str(b) + \
                        '.mp4'
             tvio.write_video(save_str, sample, fps=14)
 
+        # Make another vid with all samples overlaid to help find commonalities
+        # between vids
+        overlaid_vids = torch.stack(overlay_vids).sum(dim=0) / viz_batch_size
+        overlaid_vids = overlaid_vids * 255
+        overlaid_vids = overlaid_vids.clone().detach().type(
+                                         torch.uint8).cpu().numpy()
+        save_str = sess_dir + '/overlay_' + args.target_function_type + \
+                   '_' + str(epoch) + \
+                   '.mp4'
+        tvio.write_video(save_str, overlaid_vids, fps=14)
 
+        # Make another vid that sets 9 samples in a grid
+        grid_size = 9 #4 #16
+        sqrt_grid_size = int(np.sqrt(grid_size))
+        grid_vids = overlay_vids[0:grid_size]
+        grid_vids = [(vid * 255).clone().detach().type(torch.uint8).cpu().numpy()
+                     for vid in grid_vids]
+        grid_rows = [grid_vids[sqrt_grid_size*i:sqrt_grid_size*(i+1)]
+                     for i in range(sqrt_grid_size)]
+        grid_rows = [np.concatenate(row, axis=2) for row in grid_rows]
+        grid = np.concatenate(grid_rows, axis=1)
+        save_str = sess_dir + '/grid_' + args.target_function_type + \
+                   '_' + str(epoch) + \
+                   '.mp4'
+        tvio.write_video(save_str, grid, fps=14)
+
+
+        # TODO save sample vecs
