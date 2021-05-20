@@ -413,7 +413,7 @@ def loss_function(args, preds, labels, mu_c, logvar_c, mu_g, logvar_g, train_inf
 # TODO check ur iin the right train/test mode
 
 def demo_recon_quality(args, epoch, train_loader, optimizer, gen_model, logger,
-          save_dir, device):
+          save_dir, device, use_true_h0=False, use_true_actions=True):
 
     # Set up logging objects
     logger.info('Demonstrating reconstruction and prediction quality')
@@ -435,7 +435,7 @@ def demo_recon_quality(args, epoch, train_loader, optimizer, gen_model, logger,
         # Forward pass to get predicted observations
         optimizer.zero_grad()
         mu_c, logvar_c, mu_g, logvar_g, preds = gen_model(full_obs, agent_h0, actions_all,
-                                      use_true_actions=True)
+                                      use_true_h0, use_true_actions)
 
         with torch.no_grad():
             pred_obs = torch.stack(preds['obs'], dim=1).squeeze()
