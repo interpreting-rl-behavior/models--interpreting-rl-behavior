@@ -16,6 +16,9 @@ class Logger(object):
         for _ in range(n_envs):
             self.episode_rewards.append([])
             self.episode_values.append([])
+        self.episode_timeout_buffer = deque(maxlen = 40)
+        self.episode_timeout_buffer_v = deque(maxlen = 40)
+
         self.episode_len_buffer = deque(maxlen = 40)
         self.episode_reward_buffer = deque(maxlen = 40)
 
@@ -35,8 +38,10 @@ class Logger(object):
                                'max_episode_rewards', 'mean_episode_rewards','min_episode_rewards',
                                'max_episode_len', 'mean_episode_len', 'min_episode_len',
                                'mean_episode_value', 'mean_policy_loss', 'mean_value_loss', 'mean_entropy_loss',
+                               'mean_timeouts',
                                'val_max_episode_rewards', 'val_mean_episode_rewards', 'val_min_episode_rewards',
-                               'val_max_episode_len', 'val_mean_episode_len', 'val_min_episode_len'])
+                               'val_max_episode_len', 'val_mean_episode_len', 'val_min_episode_len',
+                               'val_mean_timeouts'])
         self.writer = SummaryWriter(logdir)
         self.timesteps = 0
         self.num_episodes = 0
@@ -60,6 +65,7 @@ class Logger(object):
                 if valid:
                     self.episode_rewards_v[i].append(rew_batch_v[i][j])
                 if done_batch[i][j]:
+                    self.episode_timeout_buffer.append(1 if j == steps-1 else 0)
                     self.episode_len_buffer.append(len(self.episode_rewards[i]))
                     self.episode_reward_buffer.append(np.sum(self.episode_rewards[i]))
                     self.episode_value_buffer.append(np.mean(self.episode_values[i]))
@@ -68,6 +74,7 @@ class Logger(object):
                     self.num_episodes += 1
                 if valid:
                     if done_batch_v[i][j]:
+                        self.episode_timeout_buffer_v.append(1 if j == steps-1 else 0)
                         self.episode_len_buffer_v.append(len(self.episode_rewards_v[i]))
                         self.episode_reward_buffer_v.append(np.sum(self.episode_rewards_v[i]))
                         self.episode_rewards_v[i] = []
@@ -108,11 +115,13 @@ class Logger(object):
         episode_statistics['Len/max_episodes']  = np.max(self.episode_len_buffer)
         episode_statistics['Len/mean_episodes'] = np.mean(self.episode_len_buffer)
         episode_statistics['Len/min_episodes']  = np.min(self.episode_len_buffer)
+        episode_statistics['Len/mean_timeout'] = np.mean(self.episode_timeout_buffer)
 
         episode_statistics['Values/mean_episodes'] = np.mean(self.episode_value_buffer)
         episode_statistics['Loss/value'] = np.mean(self.value_loss_buffer)
         episode_statistics['Loss/policy'] = np.mean(self.policy_loss_buffer)
         episode_statistics['Loss/entropy'] = np.mean(self.entropy_loss_buffer)
+
 
         # valid
         episode_statistics['[Valid] Rewards/max_episodes'] = np.max(self.episode_reward_buffer_v)
@@ -121,4 +130,5 @@ class Logger(object):
         episode_statistics['[Valid] Len/max_episodes'] = np.max(self.episode_len_buffer_v)
         episode_statistics['[Valid] Len/mean_episodes'] = np.max(self.episode_len_buffer_v)
         episode_statistics['[Valid] Len/min_episodes'] = np.max(self.episode_len_buffer_v)
+        episode_statistics['[Valid] Len/mean_timeout'] = np.mean(self.episode_timeout_buffer_v)
         return episode_statistics
