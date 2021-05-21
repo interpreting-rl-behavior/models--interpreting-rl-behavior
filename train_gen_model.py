@@ -185,7 +185,7 @@ def run():
     train_loader = torch.utils.data.DataLoader(train_dataset,
                                                batch_size=batch_size,
                                                shuffle=True,
-                                               num_workers=0)
+                                               num_workers=2)
 
     ## Make or load generative model and optimizer
     gen_model = VAE(agent, device, num_initializing_steps, total_seq_len)
@@ -295,8 +295,7 @@ def train(epoch, args, train_loader, optimizer, gen_model, agent, logger, save_d
             logger.info('Generative model saved to {}'.format(model_path))
 
         # Visualize the predictions compared with the ground truth
-        if True:
-        # if batch_idx % 1000 == 0 or (epoch < 2 and batch_idx % 200 == 0):
+        if batch_idx % 2000 == 0 or (epoch < 1 and batch_idx % 1000 == 0):
 
             with torch.no_grad():
                 pred_obs = torch.stack(preds['obs'], dim=1).squeeze()
