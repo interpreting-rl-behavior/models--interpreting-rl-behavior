@@ -73,7 +73,8 @@ class LayeredConvNet(nn.Module):
                     ln = nn.LayerNorm([ch_out, layer_in_hw, layer_in_hw])
                     self.lns.append(ln)
                     self.nets.append(ln)
-                self.nets.append(nn.RReLU())
+                # self.nets.append(nn.RReLU())
+                self.nets.append(nn.LeakyReLU(negative_slope=((1/3)-0.125)))
             ch_in = ch_out
 
     def forward(self, x):
@@ -114,7 +115,8 @@ class NLayerPerceptron(nn.Module):
             if i < len(sizes)-1:  # Doesn't add activation (or LN) to final layer
                 if layer_norm:
                     self.nets.append(nn.LayerNorm(sizes[i+1]))
-                self.nets.append(nn.RReLU())
+                #self.nets.append(nn.RReLU())
+                self.nets.append(nn.LeakyReLU(negative_slope=((1/3)-0.125)))
 
     def forward(self, x):
         # TODO convert outs to a dict and name each of the saved outputs
@@ -548,8 +550,7 @@ class Decoder(nn.Module):
                 pred_agent_hs.append(agent_h)  # agent_h@t
 
             ## Decode env_h@t to get ob/rew/done@t
-            ob, rew, done = self.env_stepper.decode_hx(
-                env_h)
+            ob, rew, done = self.env_stepper.decode_hx(env_h)
             pred_obs.append(ob)
             pred_rews.append(rew)
             pred_dones.append(done)
