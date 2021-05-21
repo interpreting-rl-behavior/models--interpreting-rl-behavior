@@ -38,103 +38,119 @@ class TargetFunction():
         #  different
         self.lr = 1e-2
         self.min_loss = 1e-3
-        self.num_its = 600
+        self.num_its = 800
         self.num_epochs = 1
         self.time_of_jump = min([15, sim_len//2])
-        self.origin_attraction_scale = 0.2
-        self.directions_scale = 0.9
+        self.origin_attraction_scale = 0.1#0.01
+        self.targ_func_loss_scale = 1000.
+        self.directions_scale = 0.05
         self.timesteps = list(range(0, sim_len))
         self.distance_threshold = 1.3
         self.target_function_type = args.target_function_type
-        num_episodes_precomputed = 1000 # hardcoded for dev
+        num_episodes_precomputed = 2000 # hardcoded for dev
 
         # Set settings for specific target functions
         if self.target_function_type == 'action':
             self.loss_func = self.action_target_function
             self.num_epochs = 15 #len(self.coinrun_actions)
-            # self.target_actions = 1#(0,1,2)#(6, 7, 8)
-            self.timesteps = (0,)#(0,1,2,3,4,)
-            self.lr = 5e-2
-            self.increment = 0.7
+            #self.timesteps = (0,)
+            self.lr = 1e-2
+            self.increment = 10.0
+            self.targ_func_loss_scale = 1.
             # self.num_its = 100
         elif self.target_function_type == 'value_increase':
             self.loss_func = self.value_incr_or_decr_target_function
             self.decrease = False
-            self.increment = 0.7
+            self.increment = 1.0
+            self.lr = 1e-1
+            self.targ_func_loss_scale = 1.
         elif self.target_function_type == 'value_decrease':
             self.loss_func = self.value_incr_or_decr_target_function
             self.decrease = True
-            self.increment = 0.7
+            self.increment = 1.0
+            self.lr = 1e-1
+            self.targ_func_loss_scale = 1.
         elif self.target_function_type == 'high_value':
             self.loss_func = self.value_high_or_low_target_function
             self.decrease = False
-            self.increment = 0.7
-            self.distance_threshold = 4.0
+            self.increment = 1.0
+            #self.timesteps = (0,)
+            self.lr = 1e-1
+            self.targ_func_loss_scale = 1.
         elif self.target_function_type == 'low_value':
             self.loss_func = self.value_high_or_low_target_function
             self.decrease = True
-            self.increment = 0.7
-            self.distance_threshold = 3.0
+            self.increment = 1.0
+            self.lr = 1e-1
+            self.targ_func_loss_scale = 1.
         elif self.target_function_type == 'increase_hx_neuron':
             self.loss_func = self.hx_neuron_target_function
             self.decrease = False
             self.num_epochs = 64
-            self.increment = 0.8
+            self.increment = 1.0
             self.timesteps = (0,)
+            self.lr = 1e-0
         elif self.target_function_type == 'decrease_hx_neuron':
             self.loss_func = self.hx_neuron_target_function
             self.decrease = True
             self.num_epochs = 64
-            self.increment = 0.8
+            self.increment = 1.0
             self.timesteps = (0,)
-
+            self.lr = 1e-0
         elif self.target_function_type == 'increase_hx_direction_pca':
-            self.num_its = 400
+            # self.num_its = 400
             self.loss_func = self.hx_direction_target_function
             self.decrease = False
-            self.directions = np.load(args.precomputed_analysis_dir + \
+            directions = np.load(args.precomputed_analysis_dir + \
                                       '/pcomponents_%i.npy' %
                                       num_episodes_precomputed)
-            self.num_epochs = self.directions.shape[0]
+            self.num_epochs = directions.shape[0]
             self.timesteps = (0,)
-            self.directions = [self.directions.copy()
+            directions = [directions.copy()
                                for _ in range(len(self.timesteps))]
-            self.directions = np.stack(self.directions, axis=0)
+            self.directions = np.stack(directions, axis=0)
+            self.increment = 1.0
+            self.lr = 1e-1
         elif self.target_function_type == 'decrease_hx_direction_pca':
             self.loss_func = self.hx_direction_target_function
             self.decrease = True
-            self.directions = np.load(args.precomputed_analysis_dir + \
+            directions = np.load(args.precomputed_analysis_dir + \
                                       '/pcomponents_%i.npy' %
                                       num_episodes_precomputed)
-            self.num_epochs = self.directions.shape[0]
+            self.num_epochs = directions.shape[0]
             self.timesteps = (0,)
-            self.directions = [self.directions.copy()
+            directions = [directions.copy()
                                for _ in range(len(self.timesteps))]
-            self.directions = np.stack(self.directions, axis=0)
-
+            self.directions = np.stack(directions, axis=0)
+            self.increment = 1.0
+            self.lr = 1e-1
         elif self.target_function_type == 'increase_hx_direction_nmf':
             self.num_its = 400
             self.loss_func = self.hx_direction_target_function
             self.decrease = False
-            self.directions = np.load(args.precomputed_analysis_dir + \
+            directions = np.load(args.precomputed_analysis_dir + \
                                       '/nmf_components_%i.npy' %
                                       num_episodes_precomputed)
-            self.num_epochs = self.directions.shape[0]
+            self.num_epochs = directions.shape[0]
             self.timesteps = (0,)
-            self.directions = [self.directions.copy()
+            directions = [directions.copy()
                                for _ in range(len(self.timesteps))]
-            self.directions = np.stack(self.directions, axis=0)
+            self.directions = np.stack(directions, axis=0)
+            self.increment = 1.0
+            self.lr = 1e-1
         elif self.target_function_type == 'decrease_hx_direction_nmf':
             self.loss_func = self.hx_direction_target_function
             self.decrease = True
-            self.directions = np.load(args.precomputed_analysis_dir + \
+            directions = np.load(args.precomputed_analysis_dir + \
                                       '/nmf_components_%i.npy' %
                                       num_episodes_precomputed)
-            self.num_epochs = self.directions.shape[0]
+            self.num_epochs = directions.shape[0]
             self.timesteps = (0,)
-            self.directions = [self.directions.copy()
+            directions = [directions.copy()
                                for _ in range(len(self.timesteps))]
-            self.directions = np.stack(self.directions, axis=0)
+            self.directions = np.stack(directions, axis=0)
+            self.increment = 1.0
+            self.lr = 1e-1
 
     def action_target_function(self, preds_dict, epoch):
         preds = preds_dict['act_log_probs']
@@ -145,16 +161,15 @@ class TargetFunction():
         # the current prediction.
         target_action_idx = epoch
         target_log_probs = preds.clone().detach().cpu().numpy()
-        print(target_log_probs[:, self.timesteps, target_action_idx].sum())
+        print(target_log_probs[:, self.timesteps, target_action_idx].mean())
         target_log_probs[:, self.timesteps, target_action_idx] += \
-            self.increment * 2
-        target_log_probs[:, self.timesteps] -= \
-            self.increment
+            self.increment #* 2
+        #target_log_probs[:, self.timesteps] -= self.increment
         target_log_probs = torch.tensor(target_log_probs, device=self.device)
 
         # Calculate the difference between the target log probs and the pred
         diff = (target_log_probs - preds)**2
-        loss_sum = diff.sum()
+        loss_sum = diff.mean() * self.targ_func_loss_scale
 
         # Calculate the cumulative distribution of the samples' losses and
         # find the top quartile boundary
@@ -164,7 +179,8 @@ class TargetFunction():
 
         # Add l2 loss on size of sample vector to attract the vector toward the
         # origin
-        sample_l2_loss = self.origin_attraction_scale*(sample_vecs ** 2).sum()
+        sample_l2_loss = self.origin_attraction_scale*(sample_vecs ** 2).mean()
+        print("TargFunc loss: %f ; vec l2 loss: %f " % (loss_sum, sample_l2_loss))
         loss_sum = loss_sum + sample_l2_loss
 
         return loss_sum, loss_info_dict
@@ -177,16 +193,20 @@ class TargetFunction():
         # Make a target that is simply slightly higher than
         # the current prediction.
         target_values = preds.clone().detach().cpu().numpy()
-        print(target_values.sum())
+        print(target_values[:, :self.time_of_jump].mean())
+        print(target_values[:, self.time_of_jump:].mean())
         if self.decrease:
             self.increment = self.increment * -1
-        target_values[:, :self.time_of_jump] -= self.increment
-        target_values[:, self.time_of_jump:] += self.increment
+        base_increments = np.arange(start=-1, stop=1,
+                                    step=(2/target_values.shape[1]))
+        target_values += base_increments * self.increment
+        # target_values[:, :self.time_of_jump] -= self.increment
+        # target_values[:, self.time_of_jump:] += self.increment
         target_values = torch.tensor(target_values, device=self.device)
 
         # Calculate the difference between the target and the pred
         diff = torch.abs(target_values - preds)
-        loss_sum = diff.sum()
+        loss_sum = diff.mean() * self.targ_func_loss_scale
 
         # Calculate the cumulative distribution of the samples' losses and
         # find the top quartile boundary
@@ -196,7 +216,8 @@ class TargetFunction():
 
         # Add l2 loss on size of sample vector to attract the vector toward the
         # origin
-        sample_l2_loss = self.origin_attraction_scale*(sample_vecs ** 2).sum()
+        sample_l2_loss = self.origin_attraction_scale*(sample_vecs ** 2).mean()
+        print("TargFunc loss: %f ; vec l2 loss: %f " % (loss_sum, sample_l2_loss))
         loss_sum = loss_sum + sample_l2_loss
 
         return loss_sum, loss_info_dict
@@ -209,15 +230,15 @@ class TargetFunction():
         # Make a target that is simply slightly higher than
         # the current prediction.
         target_values = preds.clone().detach().cpu().numpy()
-        print(target_values.sum())
+        print(target_values.mean())
         if self.decrease:
             self.increment = self.increment * -1
         target_values += self.increment
         target_values = torch.tensor(target_values, device=self.device)
 
         # Calculate the difference between the target and the pred
-        diff = torch.abs(target_values - preds)
-        loss_sum = diff.sum()
+        diff = (target_values - preds)**2#torch.abs(target_values - preds)
+        loss_sum = diff.mean() * self.targ_func_loss_scale
 
 
         # Calculate the cumulative distribution of the samples' losses and
@@ -228,7 +249,8 @@ class TargetFunction():
 
         # Add l2 loss on size of sample vector to attract the vector toward the
         # origin
-        sample_l2_loss = self.origin_attraction_scale*(sample_vecs ** 2).sum()
+        sample_l2_loss = self.origin_attraction_scale*(sample_vecs ** 2).mean()
+        print("TargFunc loss: %f ; vec l2 loss: %f " % (loss_sum, sample_l2_loss))
         loss_sum = loss_sum + sample_l2_loss
 
         return loss_sum, loss_info_dict
@@ -243,13 +265,13 @@ class TargetFunction():
         # the current prediction.
 
         target_hx = preds.clone().detach().cpu().numpy()
-        print(target_hx[:, self.timesteps, neuron_optimized].sum())
+        print(target_hx[:, self.timesteps, neuron_optimized].mean())
         target_hx[:, self.timesteps, neuron_optimized] += self.increment
         target_hx = torch.tensor(target_hx, device=self.device)
 
         # Calculate the difference between the target and the pred
         diff = torch.abs(target_hx - preds)
-        loss_sum = diff.sum()
+        loss_sum = diff.mean() * self.targ_func_loss_scale
 
         # Calculate the cumulative distribution of the samples' losses and
         # find the top quartile boundary
@@ -259,7 +281,8 @@ class TargetFunction():
 
         # Add l2 loss on size of sample vector to attract the vector toward the
         # origin
-        sample_l2_loss = self.origin_attraction_scale*(sample_vecs ** 2).sum()
+        sample_l2_loss = self.origin_attraction_scale*(sample_vecs ** 2).mean()
+        print("TargFunc loss: %f ; vec l2 loss: %f " % (loss_sum, sample_l2_loss))
         loss_sum = loss_sum + sample_l2_loss
 
         return loss_sum, loss_info_dict
@@ -276,12 +299,13 @@ class TargetFunction():
         # Make a target that is the direction of the target than
         # the current prediction.
         target_hx = preds.clone().detach().cpu().numpy()
+        print(np.inner(target_hx[:, self.timesteps], directions).mean())
         target_hx[:, self.timesteps] += (directions * self.directions_scale)
         target_hx = torch.tensor(target_hx, device=self.device)
 
         # Calculate the difference between the target and the pred
         diff = torch.abs(target_hx - preds)
-        loss_sum = diff.sum()
+        loss_sum = diff.mean() * self.targ_func_loss_scale
 
         # Calculate the cumulative distribution of the samples' losses and
         # find the top quartile boundary
@@ -291,10 +315,21 @@ class TargetFunction():
 
         # Add l2 loss on size of sample vector to attract the vector toward the
         # origin
-        sample_l2_loss = self.origin_attraction_scale*(sample_vecs ** 2).sum()
+        sample_l2_loss = self.origin_attraction_scale*(sample_vecs ** 2).mean()
+        print("TargFunc loss: %f ; vec l2 loss: %f " % (loss_sum, sample_l2_loss))
         loss_sum = loss_sum + sample_l2_loss
 
         return loss_sum, loss_info_dict
+
+
+
+
+
+
+
+
+
+
 
 
 if __name__=='__main__':
@@ -385,6 +420,7 @@ if __name__=='__main__':
         sample_vecs = torch.randn(viz_batch_size, vae_latent_size).to(
             tfe.device)
         sample_vecs = torch.nn.Parameter(sample_vecs)
+        start_sample_vecs = sample_vecs.detach().clone()
         sample_vecs.requires_grad = True
 
         # Set up optimizer for samples
@@ -430,7 +466,11 @@ if __name__=='__main__':
 
             # Get gradient and step the optimizer
             target_func_loss.backward()
+            torch.nn.utils.clip_grad_norm_(sample_vecs, 100., norm_type=2.0)
             targ_func_opt.step()
+            print("Total distance: %f" % \
+                  ((sample_vecs - start_sample_vecs)**2).sum().sqrt())
+            print("Prenorm grad mean mag: %f" % torch.abs(sample_vecs.grad).mean())
 
             # Prepare for the next step
             targ_func_opt.zero_grad()
