@@ -39,7 +39,8 @@ class TargetFunction():
         #  different
         self.lr = 1e-2
         self.min_loss = 1e-3
-        self.num_its = 10000
+        self.num_its = 100000
+        num_its_hx = 20000
         self.num_epochs = 1
         self.time_of_jump = min([15, sim_len//2])
         self.origin_attraction_scale = 0.1#0.01
@@ -52,7 +53,7 @@ class TargetFunction():
         value_lr = 1e-2
         self.grad_norm = 100.
         value_grad_norm = 10.
-        num_its_value = 10000
+        num_its_value = 100000
         self.optimized_quantity = []
 
 
@@ -100,12 +101,14 @@ class TargetFunction():
             self.increment = 1.0
             self.timesteps = (0,)
             self.lr = 1e-0
+            self.num_its = num_its_hx
         elif self.target_function_type == 'decrease_hx_neuron':
             self.loss_func = self.hx_neuron_target_function
             self.num_epochs = 64
             self.increment = 1.0 * -1. # because decrease
             self.timesteps = (0,)
             self.lr = 1e-0
+            self.num_its = num_its_hx
         elif self.target_function_type == 'increase_hx_direction_pca':
             # self.num_its = 400
             self.loss_func = self.hx_direction_target_function
