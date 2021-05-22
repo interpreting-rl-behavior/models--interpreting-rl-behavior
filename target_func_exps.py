@@ -39,7 +39,7 @@ class TargetFunction():
         #  different
         self.lr = 1e-2
         self.min_loss = 1e-3
-        self.num_its = 2000
+        self.num_its = 10000
         self.num_epochs = 1
         self.time_of_jump = min([15, sim_len//2])
         self.origin_attraction_scale = 0.1#0.01
@@ -67,7 +67,6 @@ class TargetFunction():
             # self.num_its = 100
         elif self.target_function_type == 'value_increase':
             self.loss_func = self.value_incr_or_decr_target_function
-            self.decrease = False
             self.increment = 1.0
             self.lr = value_lr
             self.targ_func_loss_scale = 1.
@@ -75,15 +74,13 @@ class TargetFunction():
             self.num_its = num_its_value
         elif self.target_function_type == 'value_decrease':
             self.loss_func = self.value_incr_or_decr_target_function
-            self.decrease = True
-            self.increment = 1.0
+            self.increment = 1.0 * -1. # because decrease
             self.lr = value_lr
             self.targ_func_loss_scale = 1.
             self.grad_norm = value_grad_norm
             self.num_its = num_its_value
         elif self.target_function_type == 'high_value':
             self.loss_func = self.value_high_or_low_target_function
-            self.decrease = False
             self.increment = 1.0
             #self.timesteps = (0,)
             self.lr = value_lr
@@ -92,30 +89,26 @@ class TargetFunction():
             self.num_its = num_its_value
         elif self.target_function_type == 'low_value':
             self.loss_func = self.value_high_or_low_target_function
-            self.decrease = True
-            self.increment = 1.0
+            self.increment = 1.0 * -1. # because decrease
             self.lr = value_lr
             self.targ_func_loss_scale = 1.
             self.grad_norm = value_grad_norm
             self.num_its = num_its_value
         elif self.target_function_type == 'increase_hx_neuron':
             self.loss_func = self.hx_neuron_target_function
-            self.decrease = False
             self.num_epochs = 64
             self.increment = 1.0
             self.timesteps = (0,)
             self.lr = 1e-0
         elif self.target_function_type == 'decrease_hx_neuron':
             self.loss_func = self.hx_neuron_target_function
-            self.decrease = True
             self.num_epochs = 64
-            self.increment = 1.0
+            self.increment = 1.0 * -1. # because decrease
             self.timesteps = (0,)
             self.lr = 1e-0
         elif self.target_function_type == 'increase_hx_direction_pca':
             # self.num_its = 400
             self.loss_func = self.hx_direction_target_function
-            self.decrease = False
             directions = np.load(args.precomputed_analysis_dir + \
                                       '/pcomponents_%i.npy' %
                                       num_episodes_precomputed)
@@ -128,7 +121,6 @@ class TargetFunction():
             self.lr = 1e-1
         elif self.target_function_type == 'decrease_hx_direction_pca':
             self.loss_func = self.hx_direction_target_function
-            self.decrease = True
             directions = np.load(args.precomputed_analysis_dir + \
                                       '/pcomponents_%i.npy' %
                                       num_episodes_precomputed)
@@ -137,12 +129,11 @@ class TargetFunction():
             directions = [directions.copy()
                                for _ in range(len(self.timesteps))]
             self.directions = np.stack(directions, axis=0)
-            self.increment = 1.0
+            self.increment = 1.0 * -1. # because decrease
             self.lr = 1e-1
         elif self.target_function_type == 'increase_hx_direction_nmf':
             self.num_its = 400
             self.loss_func = self.hx_direction_target_function
-            self.decrease = False
             directions = np.load(args.precomputed_analysis_dir + \
                                       '/nmf_components_%i.npy' %
                                       num_episodes_precomputed)
@@ -155,7 +146,6 @@ class TargetFunction():
             self.lr = 1e-1
         elif self.target_function_type == 'decrease_hx_direction_nmf':
             self.loss_func = self.hx_direction_target_function
-            self.decrease = True
             directions = np.load(args.precomputed_analysis_dir + \
                                       '/nmf_components_%i.npy' %
                                       num_episodes_precomputed)
@@ -164,7 +154,7 @@ class TargetFunction():
             directions = [directions.copy()
                                for _ in range(len(self.timesteps))]
             self.directions = np.stack(directions, axis=0)
-            self.increment = 1.0
+            self.increment = 1.0 * -1. # because decrease
             self.lr = 1e-1
 
     def action_target_function(self, preds_dict, epoch):
@@ -176,7 +166,10 @@ class TargetFunction():
         # the current prediction.
         target_action_idx = epoch
         target_log_probs = preds.clone().detach().cpu().numpy()
-        print(target_log_probs[:, self.timesteps, target_action_idx].mean())
+        opt_quant = target_log_probs[:, self.timesteps, target_action_idx].mean() - target_log_probs[:, self.timesteps].mean()
+        self.optimized_quantity.append(opt_quant)
+        print(opt_quant)
+
         target_log_probs[:, self.timesteps, target_action_idx] += \
             self.increment #* 2
         #target_log_probs[:, self.timesteps] -= self.increment
@@ -213,8 +206,6 @@ class TargetFunction():
         opt_quant = target_values[:, self.time_of_jump:].mean() - \
                     target_values[:, :self.time_of_jump].mean()
         self.optimized_quantity.append(opt_quant)
-        if self.decrease:
-            self.increment = self.increment * -1
         base_increments = np.arange(start=-1, stop=1,
                                     step=(2/target_values.shape[1]))
         target_values += base_increments * self.increment
@@ -250,8 +241,6 @@ class TargetFunction():
         target_values = preds.clone().detach().cpu().numpy()
         print(target_values.mean())
         self.optimized_quantity.append(target_values.mean())
-        if self.decrease:
-            self.increment = self.increment * -1
         target_values += self.increment
         target_values = torch.tensor(target_values, device=self.device)
 
