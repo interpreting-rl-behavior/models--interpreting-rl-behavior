@@ -52,6 +52,7 @@ class TargetFunction():
         self.grad_norm = 100.
         value_grad_norm = 10.
         num_its_value = 10000
+        self.optimized_quantity = []
 
 
         # Set settings for specific target functions
@@ -181,7 +182,7 @@ class TargetFunction():
         target_log_probs = torch.tensor(target_log_probs, device=self.device)
 
         # Calculate the difference between the target log probs and the pred
-        diff = (target_log_probs - preds)**2
+        diff = torch.abs(target_log_probs - preds)
         loss_sum = diff.mean() * self.targ_func_loss_scale
 
         # Calculate the cumulative distribution of the samples' losses and
@@ -208,6 +209,9 @@ class TargetFunction():
         target_values = preds.clone().detach().cpu().numpy()
         print(target_values[:, :self.time_of_jump].mean())
         print(target_values[:, self.time_of_jump:].mean())
+        opt_quant = target_values[:, self.time_of_jump:].mean() - \
+                    target_values[:, :self.time_of_jump].mean()
+        self.optimized_quantity.append(opt_quant)
         if self.decrease:
             self.increment = self.increment * -1
         base_increments = np.arange(start=-1, stop=1,
@@ -244,13 +248,14 @@ class TargetFunction():
         # the current prediction.
         target_values = preds.clone().detach().cpu().numpy()
         print(target_values.mean())
+        self.optimized_quantity.append(target_values.mean())
         if self.decrease:
             self.increment = self.increment * -1
         target_values += self.increment
         target_values = torch.tensor(target_values, device=self.device)
 
         # Calculate the difference between the target and the pred
-        diff = (target_values - preds)**2#torch.abs(target_values - preds)
+        diff = torch.abs(target_values - preds)
         loss_sum = diff.mean() * self.targ_func_loss_scale
 
 
@@ -279,6 +284,7 @@ class TargetFunction():
 
         target_hx = preds.clone().detach().cpu().numpy()
         print(target_hx[:, self.timesteps, neuron_optimized].mean())
+        self.optimized_quantity.append(target_hx[:, self.timesteps, neuron_optimized].mean())
         target_hx[:, self.timesteps, neuron_optimized] += self.increment
         target_hx = torch.tensor(target_hx, device=self.device)
 
@@ -312,7 +318,9 @@ class TargetFunction():
         # Make a target that is the direction of the target than
         # the current prediction.
         target_hx = preds.clone().detach().cpu().numpy()
-        print(np.inner(target_hx[:, self.timesteps], directions).mean())
+        opt_quant = np.inner(target_hx[:, self.timesteps], directions).mean()
+        print(opt_quant)
+        self.optimized_quantity.append(opt_quant)
         target_hx[:, self.timesteps] += (directions * self.directions_scale)
         target_hx = torch.tensor(target_hx, device=self.device)
 
@@ -439,7 +447,7 @@ if __name__=='__main__':
         # Set up optimizer for samples
         targ_func_opt = torch.optim.SGD(params=[sample_vecs], momentum=0.3,
                                         lr=target_func.lr,
-                                        nesterov=True)
+                                        nesterov=True) # TODO try alternatives
 
         # Start target func optimization loop
         run_target_func_loop = True
@@ -496,6 +504,12 @@ if __name__=='__main__':
                               '_' + str(epoch) + '.npy'
         np.save(sample_vec_save_str,
                 sample_vecs.clone().detach().cpu().numpy())
+        opt_quant_save_str = sess_dir + '/opt_quants_' + \
+                              args.target_function_type + \
+                              '_' + str(epoch) + '.npy'
+        np.save(opt_quant_save_str,
+                np.array(target_func.optimized_quantity))
+        target_func.optimized_quantity = []
 
         # Visualize the optimized latent vectors
         obs = torch.stack(pred_obs, dim=1).squeeze()
