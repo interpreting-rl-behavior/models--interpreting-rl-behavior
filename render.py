@@ -182,24 +182,59 @@ if __name__=='__main__':
         np.save(logdir + f"/value_{num}", storage.value_batch)
         return
 
+    def write_scalar(scalar, filename):
+        """write scalar to filename"""
+        with open(logdir + "/" + filename, "w") as f:
+            f.write(str(scalar))
+
+
+
 
     num = 0
+    total_done = 0
+    n_steps_since_last_done = 0
+    n_timeouts = 0
+    n_reached_end = 0
     while True:
         agent.policy.eval()
         for _ in range(agent.n_steps):  # = 256
             act, log_prob_act, value, next_hidden_state = agent.predict(obs, hidden_state, done)
             next_obs, rew, done, info = agent.env.step(act)
+            #print(info[0]['coinrun_reached_end'])
+
             agent.storage.store(obs, hidden_state, act, rew, done, info, log_prob_act, value)
             obs = next_obs
             hidden_state = next_hidden_state
 
+
+            if n_steps_since_last_done == 998:
+                n_timeouts += 1
+                print('incrementing timeouts')
+                if env_name == 'coinrun' and info[0]['coinrun_reached_end'] == 1:
+                    print('incrementing reached end')
+                    n_reached_end += 1
+
+            if done:
+                print()
+                print('steps:', n_steps_since_last_done)
+                print('reached end:', info[0]['coinrun_reached_end'])
+                total_done += 1
+                n_steps_since_last_done = 0
+            else:
+                n_steps_since_last_done += 1
+
         _, _, last_val, hidden_state = agent.predict(obs, hidden_state, done)
         agent.storage.store_last(obs, hidden_state, last_val)
+
         if args.save_value:
             save_value_estimates(agent.storage, num)
             num += 1
         agent.storage.compute_estimates(agent.gamma, agent.lmbda, agent.use_gae,
                                        agent.normalize_adv)
+        if total_done > 0:
+            write_scalar(n_timeouts / total_done, "timeout-frequency.txt")
+            write_scalar(n_reached_end / total_done, "reach-end-frequency.txt")
+
 
 
 
