@@ -38,7 +38,7 @@ class TargetFunction():
         #  different
         self.lr = 1e-2
         self.min_loss = 1e-3
-        self.num_its = 800
+        self.num_its = 2000
         self.num_epochs = 1
         self.time_of_jump = min([15, sim_len//2])
         self.origin_attraction_scale = 0.1#0.01
@@ -48,13 +48,18 @@ class TargetFunction():
         self.distance_threshold = 1.3
         self.target_function_type = args.target_function_type
         num_episodes_precomputed = 2000 # hardcoded for dev
+        value_lr = 1e-2
+        self.grad_norm = 100.
+        value_grad_norm = 10.
+        num_its_value = 10000
+
 
         # Set settings for specific target functions
         if self.target_function_type == 'action':
             self.loss_func = self.action_target_function
             self.num_epochs = 15 #len(self.coinrun_actions)
             #self.timesteps = (0,)
-            self.lr = 1e-2
+            self.lr = 1e-1
             self.increment = 10.0
             self.targ_func_loss_scale = 1.
             # self.num_its = 100
@@ -62,27 +67,35 @@ class TargetFunction():
             self.loss_func = self.value_incr_or_decr_target_function
             self.decrease = False
             self.increment = 1.0
-            self.lr = 1e-1
+            self.lr = value_lr
             self.targ_func_loss_scale = 1.
+            self.grad_norm = value_grad_norm
+            self.num_its = num_its_value
         elif self.target_function_type == 'value_decrease':
             self.loss_func = self.value_incr_or_decr_target_function
             self.decrease = True
             self.increment = 1.0
-            self.lr = 1e-1
+            self.lr = value_lr
             self.targ_func_loss_scale = 1.
+            self.grad_norm = value_grad_norm
+            self.num_its = num_its_value
         elif self.target_function_type == 'high_value':
             self.loss_func = self.value_high_or_low_target_function
             self.decrease = False
             self.increment = 1.0
             #self.timesteps = (0,)
-            self.lr = 1e-1
+            self.lr = value_lr
             self.targ_func_loss_scale = 1.
+            self.grad_norm = value_grad_norm
+            self.num_its = num_its_value
         elif self.target_function_type == 'low_value':
             self.loss_func = self.value_high_or_low_target_function
             self.decrease = True
             self.increment = 1.0
-            self.lr = 1e-1
+            self.lr = value_lr
             self.targ_func_loss_scale = 1.
+            self.grad_norm = value_grad_norm
+            self.num_its = num_its_value
         elif self.target_function_type == 'increase_hx_neuron':
             self.loss_func = self.hx_neuron_target_function
             self.decrease = False
@@ -466,7 +479,8 @@ if __name__=='__main__':
 
             # Get gradient and step the optimizer
             target_func_loss.backward()
-            torch.nn.utils.clip_grad_norm_(sample_vecs, 100., norm_type=2.0)
+            torch.nn.utils.clip_grad_norm_(sample_vecs,
+                                           target_func.grad_norm, norm_type=2.0)
             targ_func_opt.step()
             print("Total distance: %f" % \
                   ((sample_vecs - start_sample_vecs)**2).sum().sqrt())
