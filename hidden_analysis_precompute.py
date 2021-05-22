@@ -3,7 +3,7 @@ import numpy as np
 from sklearn.manifold import TSNE
 from sklearn.decomposition import PCA
 from sklearn.decomposition import NMF
-import umap
+#import umap
 from sklearn.preprocessing import StandardScaler
 import argparse
 
