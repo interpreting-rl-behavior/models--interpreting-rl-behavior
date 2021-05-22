@@ -14,6 +14,7 @@ import pandas as pd
 from latent_space_experiment import LatentSpaceExperiment
 from datetime import datetime
 import torchvision.io as tvio
+import matplotlib.pyplot as plt
 
 class TargetFunction():
     def __init__(self, args, sim_len=30, device='cuda'):
@@ -509,7 +510,19 @@ if __name__=='__main__':
                               '_' + str(epoch) + '.npy'
         np.save(opt_quant_save_str,
                 np.array(target_func.optimized_quantity))
+        # plot optimized quantities over time
+        plt.plot(range(len(target_func.optimized_quantity)),
+                 target_func.optimized_quantity)
+        opt_q_plot_str = sess_dir + '/plot_opt_quants_' + \
+                              args.target_function_type + \
+                              '_' + str(epoch) + '.png'
+        plt.xlabel("Optimization iterations")
+        plt.ylabel("Optimized quantity")
+        plt.savefig(opt_q_plot_str)
+        plt.close()
         target_func.optimized_quantity = []
+
+
 
         # Visualize the optimized latent vectors
         obs = torch.stack(pred_obs, dim=1).squeeze()
@@ -552,4 +565,4 @@ if __name__=='__main__':
         tvio.write_video(save_str, grid, fps=14)
 
 
-        # TODO save sample vecs
+
