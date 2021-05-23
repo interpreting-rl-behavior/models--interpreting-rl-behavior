@@ -39,8 +39,8 @@ class TargetFunction():
         #  different
         self.lr = 1e-2
         self.min_loss = 1e-3
-        self.num_its = 100000
-        num_its_hx = 20000
+        self.num_its = 20000
+        num_its_hx = 10000
         self.num_epochs = 1
         self.time_of_jump = min([15, sim_len//2])
         self.origin_attraction_scale = 0.1#0.01
