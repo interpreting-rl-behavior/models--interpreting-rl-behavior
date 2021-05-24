@@ -38,19 +38,20 @@ class TargetFunction():
         # TODO add decaying 'temperature' setting that forces samples to be
         #  different
         self.lr = 1e-2
+        value_lr = 1e-2
         self.min_loss = 1e-3
-        self.num_its = 20000
+        self.num_its = 30000
         num_its_hx = 10000
         self.num_epochs = 1
         self.time_of_jump = min([15, sim_len//2])
-        self.origin_attraction_scale = 0.1#0.01
+        self.origin_attraction_scale = 0.4#0.01
         self.targ_func_loss_scale = 1000.
         self.directions_scale = 0.05
         self.timesteps = list(range(0, sim_len))
         self.distance_threshold = 1.3
         self.target_function_type = args.target_function_type
         num_episodes_precomputed = 2000 # hardcoded for dev
-        value_lr = 1e-2
+
         self.grad_norm = 100.
         value_grad_norm = 10.
         num_its_value = 100000
@@ -61,11 +62,11 @@ class TargetFunction():
         if self.target_function_type == 'action':
             self.loss_func = self.action_target_function
             self.num_epochs = 15 #len(self.coinrun_actions)
-            #self.timesteps = (0,)
+            self.timesteps = (0,1,2)
             self.lr = 1e-1
             self.increment = 10.0
             self.targ_func_loss_scale = 1.
-            # self.num_its = 100
+            self.optimized_quantity_name = 'Logit of action minus logit of action with largest logit'
         elif self.target_function_type == 'value_increase':
             self.loss_func = self.value_incr_or_decr_target_function
             self.increment = 1.0
@@ -73,6 +74,7 @@ class TargetFunction():
             self.targ_func_loss_scale = 1.
             self.grad_norm = value_grad_norm
             self.num_its = num_its_value
+            self.optimized_quantity_name = 'Difference between values in 1st and 2nd half of sequence'
         elif self.target_function_type == 'value_decrease':
             self.loss_func = self.value_incr_or_decr_target_function
             self.increment = 1.0 * -1. # because decrease
@@ -80,6 +82,7 @@ class TargetFunction():
             self.targ_func_loss_scale = 1.
             self.grad_norm = value_grad_norm
             self.num_its = num_its_value
+            self.optimized_quantity_name = 'Difference between values in 1st and 2nd half of sequence'
         elif self.target_function_type == 'high_value':
             self.loss_func = self.value_high_or_low_target_function
             self.increment = 1.0
@@ -88,6 +91,7 @@ class TargetFunction():
             self.targ_func_loss_scale = 1.
             self.grad_norm = value_grad_norm
             self.num_its = num_its_value
+            self.optimized_quantity_name = 'Mean value during sequence'
         elif self.target_function_type == 'low_value':
             self.loss_func = self.value_high_or_low_target_function
             self.increment = 1.0 * -1. # because decrease
@@ -95,6 +99,7 @@ class TargetFunction():
             self.targ_func_loss_scale = 1.
             self.grad_norm = value_grad_norm
             self.num_its = num_its_value
+            self.optimized_quantity_name = 'Mean value during sequence'
         elif self.target_function_type == 'increase_hx_neuron':
             self.loss_func = self.hx_neuron_target_function
             self.num_epochs = 64
@@ -102,6 +107,7 @@ class TargetFunction():
             self.timesteps = (0,)
             self.lr = 1e-0
             self.num_its = num_its_hx
+            self.optimized_quantity_name = 'Neuron activation'
         elif self.target_function_type == 'decrease_hx_neuron':
             self.loss_func = self.hx_neuron_target_function
             self.num_epochs = 64
@@ -109,6 +115,7 @@ class TargetFunction():
             self.timesteps = (0,)
             self.lr = 1e-0
             self.num_its = num_its_hx
+            self.optimized_quantity_name = 'Neuron activation'
         elif self.target_function_type == 'increase_hx_direction_pca':
             # self.num_its = 400
             self.loss_func = self.hx_direction_target_function
@@ -122,6 +129,7 @@ class TargetFunction():
             self.directions = np.stack(directions, axis=0)
             self.increment = 1.0
             self.lr = 1e-1
+            self.optimized_quantity_name = 'Inner product between PC and hidden state'
         elif self.target_function_type == 'decrease_hx_direction_pca':
             self.loss_func = self.hx_direction_target_function
             directions = np.load(args.precomputed_analysis_dir + \
@@ -134,6 +142,7 @@ class TargetFunction():
             self.directions = np.stack(directions, axis=0)
             self.increment = 1.0 * -1. # because decrease
             self.lr = 1e-1
+            self.optimized_quantity_name = 'Inner product between PC and hidden state'
         elif self.target_function_type == 'increase_hx_direction_nmf':
             self.num_its = 400
             self.loss_func = self.hx_direction_target_function
@@ -147,6 +156,7 @@ class TargetFunction():
             self.directions = np.stack(directions, axis=0)
             self.increment = 1.0
             self.lr = 1e-1
+            self.optimized_quantity_name = 'Inner product between NMF factor and hidden state'
         elif self.target_function_type == 'decrease_hx_direction_nmf':
             self.loss_func = self.hx_direction_target_function
             directions = np.load(args.precomputed_analysis_dir + \
@@ -159,6 +169,7 @@ class TargetFunction():
             self.directions = np.stack(directions, axis=0)
             self.increment = 1.0 * -1. # because decrease
             self.lr = 1e-1
+            self.optimized_quantity_name = 'Inner product between NMF factor and hidden state'
 
     def action_target_function(self, preds_dict, epoch):
         preds = preds_dict['act_log_probs']
@@ -169,7 +180,10 @@ class TargetFunction():
         # the current prediction.
         target_action_idx = epoch
         target_log_probs = preds.clone().detach().cpu().numpy()
-        opt_quant = target_log_probs[:, self.timesteps, target_action_idx].mean() - target_log_probs[:, self.timesteps].mean()
+        argmaxes = target_log_probs[:, self.timesteps].argmax(axis=2)
+        opt_quant = \
+            target_log_probs[:, self.timesteps, target_action_idx].mean() - \
+            target_log_probs[:, self.timesteps, argmaxes].mean()
         self.optimized_quantity.append(opt_quant)
         print(opt_quant)
 
@@ -441,6 +455,7 @@ if __name__=='__main__':
         targ_func_opt = torch.optim.SGD(params=[sample_vecs], momentum=0.3,
                                         lr=target_func.lr,
                                         nesterov=True) # TODO try alternatives
+        # targ_func_opt = torch.optim.Adam(params=[sample_vecs], lr=target_func.lr)
 
         # Start target func optimization loop
         run_target_func_loop = True
@@ -480,6 +495,8 @@ if __name__=='__main__':
 
             # Get gradient and step the optimizer
             target_func_loss.backward()
+            print(torch.abs(sample_vecs.grad).max())
+
             torch.nn.utils.clip_grad_norm_(sample_vecs,
                                            target_func.grad_norm, norm_type=2.0)
             targ_func_opt.step()
@@ -509,7 +526,7 @@ if __name__=='__main__':
                               args.target_function_type + \
                               '_' + str(epoch) + '.png'
         plt.xlabel("Optimization iterations")
-        plt.ylabel("Optimized quantity")
+        plt.ylabel(target_func.optimized_quantity_name)
         plt.savefig(opt_q_plot_str)
         plt.close()
         target_func.optimized_quantity = []
