@@ -182,8 +182,8 @@ class TargetFunction():
         target_log_probs = preds.clone().detach().cpu().numpy()
         argmaxes = target_log_probs[:, self.timesteps].argmax(axis=2)
         opt_quant = \
-            target_log_probs[:, self.timesteps, target_action_idx].mean() - \
-            target_log_probs[:, self.timesteps, argmaxes].mean()
+            (target_log_probs[:, self.timesteps, target_action_idx] - 
+             target_log_probs[:, self.timesteps, argmaxes]).mean()
         self.optimized_quantity.append(opt_quant)
         print(opt_quant)
 
