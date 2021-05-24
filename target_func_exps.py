@@ -44,7 +44,7 @@ class TargetFunction():
         num_its_hx = 10000
         self.num_epochs = 1
         self.time_of_jump = min([15, sim_len//2])
-        self.origin_attraction_scale = 0.4#0.01
+        self.origin_attraction_scale = 0.2#0.01
         self.targ_func_loss_scale = 1000.
         self.directions_scale = 0.05
         self.timesteps = list(range(0, sim_len))
@@ -65,7 +65,7 @@ class TargetFunction():
             self.timesteps = (0,1,2)
             self.lr = 1e-1
             self.increment = 10.0
-            self.targ_func_loss_scale = 1.
+            self.targ_func_loss_scale = 10.
             self.optimized_quantity_name = 'Logit of action minus logit of action with largest logit'
         elif self.target_function_type == 'value_increase':
             self.loss_func = self.value_incr_or_decr_target_function
