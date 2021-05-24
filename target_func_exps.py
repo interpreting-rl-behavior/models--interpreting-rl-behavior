@@ -64,7 +64,7 @@ class TargetFunction():
             self.num_epochs = 15 #len(self.coinrun_actions)
             self.timesteps = (0,1,2)
             self.lr = 1e-1
-            self.increment = 10.0
+            self.increment = 1.0
             self.targ_func_loss_scale = 10.
             self.optimized_quantity_name = 'Logit of action minus logit of action with largest logit'
         elif self.target_function_type == 'value_increase':
@@ -182,14 +182,14 @@ class TargetFunction():
         target_log_probs = preds.clone().detach().cpu().numpy()
         argmaxes = target_log_probs[:, self.timesteps].argmax(axis=2)
         opt_quant = \
-            (target_log_probs[:, self.timesteps, target_action_idx] - 
-             target_log_probs[:, self.timesteps, argmaxes]).mean()
+            (target_log_probs[:, self.timesteps, target_action_idx] -
+             target_log_probs[:, self.timesteps, argmaxes].mean()).mean()
         self.optimized_quantity.append(opt_quant)
         print(opt_quant)
 
         target_log_probs[:, self.timesteps, target_action_idx] += \
-            self.increment #* 2
-        #target_log_probs[:, self.timesteps] -= self.increment
+            self.increment * 10
+        target_log_probs[:, self.timesteps] -= self.increment
         target_log_probs = torch.tensor(target_log_probs, device=self.device)
 
         # Calculate the difference between the target log probs and the pred
