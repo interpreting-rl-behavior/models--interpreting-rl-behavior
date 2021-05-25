@@ -50,6 +50,7 @@ class TargetFunction():
         self.time_of_jump = min([15, sim_len//2])
         self.origin_attraction_scale = 0.2#0.01
         origin_attraction_scale_direction = 0.3
+        origin_attraction_scale_value = 0.3
         self.targ_func_loss_scale = 1000.
         self.directions_scale = 0.05
         self.timesteps = list(range(0, sim_len))
@@ -80,6 +81,7 @@ class TargetFunction():
             self.targ_func_loss_scale = 1.
             self.grad_norm = value_grad_norm
             self.num_its = num_its_value
+            self.origin_attraction_scale = origin_attraction_scale_value
             self.optimized_quantity_name = 'Difference between values in 1st and 2nd half of sequence'
         elif self.target_function_type == 'value_decrease':
             self.loss_func = self.value_incr_or_decr_target_function
@@ -88,6 +90,7 @@ class TargetFunction():
             self.targ_func_loss_scale = 1.
             self.grad_norm = value_grad_norm
             self.num_its = num_its_value
+            self.origin_attraction_scale = origin_attraction_scale_value
             self.optimized_quantity_name = 'Difference between values in 1st and 2nd half of sequence'
         elif self.target_function_type == 'high_value':
             self.loss_func = self.value_high_or_low_target_function
@@ -97,6 +100,7 @@ class TargetFunction():
             self.targ_func_loss_scale = 1.
             self.grad_norm = value_grad_norm
             self.num_its = num_its_value
+            self.origin_attraction_scale = origin_attraction_scale_value
             self.optimized_quantity_name = 'Mean value during sequence'
         elif self.target_function_type == 'low_value':
             self.loss_func = self.value_high_or_low_target_function
@@ -105,6 +109,7 @@ class TargetFunction():
             self.targ_func_loss_scale = 1.
             self.grad_norm = value_grad_norm
             self.num_its = num_its_value
+            self.origin_attraction_scale = origin_attraction_scale_value
             self.optimized_quantity_name = 'Mean value during sequence'
         elif self.target_function_type == 'increase_hx_neuron':
             self.loss_func = self.hx_neuron_target_function
