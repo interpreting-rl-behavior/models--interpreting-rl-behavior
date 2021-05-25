@@ -45,6 +45,7 @@ class TargetFunction():
         self.num_its = 30000
         num_its_hx = 10000
         num_its_action = 70000
+        num_its_direction = 20000
         self.num_epochs = 1
         self.time_of_jump = min([15, sim_len//2])
         self.origin_attraction_scale = 0.2#0.01
@@ -133,6 +134,7 @@ class TargetFunction():
             self.directions = np.stack(directions, axis=0)
             self.increment = 1.0
             self.lr = 1e-1
+            self.num_its = num_its_direction
             self.optimized_quantity_name = 'Inner product between PC and hidden state'
         elif self.target_function_type == 'decrease_hx_direction_pca':
             self.loss_func = self.hx_direction_target_function
@@ -144,7 +146,9 @@ class TargetFunction():
             directions = [directions.copy()
                                for _ in range(len(self.timesteps))]
             self.directions = np.stack(directions, axis=0)
-            self.increment = 1.0 * -1. # because decrease
+            # self.increment = 1.0 * -1. # because decrease
+            self.directions_scale = 0.05 * -1  # because decrease
+            self.num_its = num_its_direction
             self.lr = 1e-1
             self.optimized_quantity_name = 'Inner product between PC and hidden state'
         elif self.target_function_type == 'increase_hx_direction_nmf':
@@ -160,6 +164,7 @@ class TargetFunction():
             self.directions = np.stack(directions, axis=0)
             self.increment = 1.0
             self.lr = 1e-1
+            self.num_its = num_its_direction
             self.optimized_quantity_name = 'Inner product between NMF factor and hidden state'
         elif self.target_function_type == 'decrease_hx_direction_nmf':
             self.loss_func = self.hx_direction_target_function
@@ -171,8 +176,10 @@ class TargetFunction():
             directions = [directions.copy()
                                for _ in range(len(self.timesteps))]
             self.directions = np.stack(directions, axis=0)
-            self.increment = 1.0 * -1. # because decrease
+            # self.increment = 1.0 * -1. # because decrease
+            self.directions_scale = 0.05 * -1  # because decrease
             self.lr = 1e-1
+            self.num_its = num_its_direction
             self.optimized_quantity_name = 'Inner product between NMF factor and hidden state'
 
     def action_target_function(self, preds_dict, epoch):
