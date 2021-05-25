@@ -49,6 +49,7 @@ class TargetFunction():
         self.num_epochs = 1
         self.time_of_jump = min([15, sim_len//2])
         self.origin_attraction_scale = 0.2#0.01
+        origin_attraction_scale_direction = 0.3
         self.targ_func_loss_scale = 1000.
         self.directions_scale = 0.05
         self.timesteps = list(range(0, sim_len))
@@ -135,6 +136,7 @@ class TargetFunction():
             self.increment = 1.0
             self.lr = 1e-1
             self.num_its = num_its_direction
+            self.origin_attraction_scale = origin_attraction_scale_direction
             self.optimized_quantity_name = 'Inner product between PC and hidden state'
         elif self.target_function_type == 'decrease_hx_direction_pca':
             self.loss_func = self.hx_direction_target_function
@@ -150,6 +152,7 @@ class TargetFunction():
             self.directions_scale = 0.05 * -1  # because decrease
             self.num_its = num_its_direction
             self.lr = 1e-1
+            self.origin_attraction_scale = origin_attraction_scale_direction
             self.optimized_quantity_name = 'Inner product between PC and hidden state'
         elif self.target_function_type == 'increase_hx_direction_nmf':
             self.num_its = 400
@@ -165,6 +168,7 @@ class TargetFunction():
             self.increment = 1.0
             self.lr = 1e-1
             self.num_its = num_its_direction
+            self.origin_attraction_scale = origin_attraction_scale_direction
             self.optimized_quantity_name = 'Inner product between NMF factor and hidden state'
         elif self.target_function_type == 'decrease_hx_direction_nmf':
             self.loss_func = self.hx_direction_target_function
@@ -180,6 +184,7 @@ class TargetFunction():
             self.directions_scale = 0.05 * -1  # because decrease
             self.lr = 1e-1
             self.num_its = num_its_direction
+            self.origin_attraction_scale = origin_attraction_scale_direction
             self.optimized_quantity_name = 'Inner product between NMF factor and hidden state'
 
     def action_target_function(self, preds_dict, epoch):
