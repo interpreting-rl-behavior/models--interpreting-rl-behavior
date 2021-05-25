@@ -44,6 +44,7 @@ class TargetFunction():
         self.min_loss = 1e-3
         self.num_its = 30000
         num_its_hx = 10000
+        num_its_action = 70000
         self.num_epochs = 1
         self.time_of_jump = min([15, sim_len//2])
         self.origin_attraction_scale = 0.2#0.01
@@ -66,8 +67,9 @@ class TargetFunction():
             self.num_epochs = 15 #len(self.coinrun_actions)
             self.timesteps = (0,1,2)
             self.lr = 1e-1
-            self.increment = 1.0
+            self.increment = 1.5
             self.targ_func_loss_scale = 10.
+            self.num_its = num_its_action
             self.optimized_quantity_name = 'Logit of action minus logit of action with largest logit'
         elif self.target_function_type == 'value_increase':
             self.loss_func = self.value_incr_or_decr_target_function
@@ -183,18 +185,20 @@ class TargetFunction():
         target_action_idx = epoch
         target_log_probs = preds.clone().detach().cpu().numpy()
         argmaxes = target_log_probs[:, self.timesteps].argmax(axis=2)
+        logitmaxes = target_log_probs[:, self.timesteps].max(axis=2)
         total_num_acts = np.product(np.array(argmaxes.shape))
         fraction_correct = (argmaxes == target_action_idx).sum() / total_num_acts
         opt_quant = fraction_correct
-        # opt_quant = \
-        #     (target_log_probs[:, self.timesteps, target_action_idx] -
-        #      target_log_probs[:, self.timesteps, argmaxes].mean()).mean()
+        logitlogitmax = \
+            (target_log_probs[:, self.timesteps, target_action_idx] -
+             logitmaxes).mean()
         self.optimized_quantity.append(opt_quant)
-        print(opt_quant)
+        print("fraction correct: %f" % opt_quant)
+        print("logit-maxlogit: %f" % logitlogitmax)
 
         target_log_probs[:, self.timesteps, target_action_idx] += \
             self.increment * 10
-        target_log_probs[:, self.timesteps] -= self.increment
+        target_log_probs[:, self.timesteps] -= self.increment * 3
         target_log_probs = torch.tensor(target_log_probs, device=self.device)
 
         # Calculate the difference between the target log probs and the pred
