@@ -1,3 +1,5 @@
+import numpy as np
+
 from common.env.procgen_wrappers import *
 from common.logger import Logger
 from common.storage import Storage
@@ -181,9 +183,12 @@ class TargetFunction():
         target_action_idx = epoch
         target_log_probs = preds.clone().detach().cpu().numpy()
         argmaxes = target_log_probs[:, self.timesteps].argmax(axis=2)
-        opt_quant = \
-            (target_log_probs[:, self.timesteps, target_action_idx] -
-             target_log_probs[:, self.timesteps, argmaxes].mean()).mean()
+        total_num_acts = np.product(np.array(argmaxes.shape))
+        fraction_correct = (argmaxes == target_action_idx).sum() / total_num_acts
+        opt_quant = fraction_correct
+        # opt_quant = \
+        #     (target_log_probs[:, self.timesteps, target_action_idx] -
+        #      target_log_probs[:, self.timesteps, argmaxes].mean()).mean()
         self.optimized_quantity.append(opt_quant)
         print(opt_quant)
 
