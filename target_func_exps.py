@@ -45,7 +45,7 @@ class TargetFunction():
         self.num_its = 30000
         num_its_hx = 10000
         num_its_action = 70000
-        num_its_direction = 20000
+        num_its_direction = 7000
         self.num_epochs = 1
         self.time_of_jump = min([15, sim_len//2])
         self.origin_attraction_scale = 0.2#0.01
@@ -55,6 +55,8 @@ class TargetFunction():
         self.directions_scale = 0.05
         self.timesteps = list(range(0, sim_len))
         self.distance_threshold = 1.3
+        hx_timesteps = (13,)
+        directions_timesteps = (13,)  # because FPS is 14 therefore hx happens after 1s
         self.target_function_type = args.target_function_type
         num_episodes_precomputed = 2000 # hardcoded for dev
 
@@ -69,7 +71,7 @@ class TargetFunction():
             self.loss_func = self.action_target_function
             self.num_epochs = 15 #len(self.coinrun_actions)
             self.timesteps = (0,1,2)
-            self.lr = 1e-1
+            self.lr = 1e-2#1e-1
             self.increment = 1.5
             self.targ_func_loss_scale = 10.
             self.num_its = num_its_action
@@ -115,7 +117,7 @@ class TargetFunction():
             self.loss_func = self.hx_neuron_target_function
             self.num_epochs = 64
             self.increment = 1.0
-            self.timesteps = (0,)
+            self.timesteps = hx_timesteps
             self.lr = 1e-0
             self.num_its = num_its_hx
             self.optimized_quantity_name = 'Neuron activation'
@@ -123,7 +125,7 @@ class TargetFunction():
             self.loss_func = self.hx_neuron_target_function
             self.num_epochs = 64
             self.increment = 1.0 * -1. # because decrease
-            self.timesteps = (0,)
+            self.timesteps = hx_timesteps
             self.lr = 1e-0
             self.num_its = num_its_hx
             self.optimized_quantity_name = 'Neuron activation'
@@ -134,7 +136,7 @@ class TargetFunction():
                                       '/pcomponents_%i.npy' %
                                       num_episodes_precomputed)
             self.num_epochs = directions.shape[0]
-            self.timesteps = (0,)
+            self.timesteps = directions_timesteps
             directions = [directions.copy()
                                for _ in range(len(self.timesteps))]
             self.directions = np.stack(directions, axis=0)
@@ -149,7 +151,7 @@ class TargetFunction():
                                       '/pcomponents_%i.npy' %
                                       num_episodes_precomputed)
             self.num_epochs = directions.shape[0]
-            self.timesteps = (0,)
+            self.timesteps = directions_timesteps
             directions = [directions.copy()
                                for _ in range(len(self.timesteps))]
             self.directions = np.stack(directions, axis=0)
@@ -166,7 +168,7 @@ class TargetFunction():
                                       '/nmf_components_%i.npy' %
                                       num_episodes_precomputed)
             self.num_epochs = directions.shape[0]
-            self.timesteps = (0,)
+            self.timesteps = directions_timesteps
             directions = [directions.copy()
                                for _ in range(len(self.timesteps))]
             self.directions = np.stack(directions, axis=0)
@@ -181,7 +183,7 @@ class TargetFunction():
                                       '/nmf_components_%i.npy' %
                                       num_episodes_precomputed)
             self.num_epochs = directions.shape[0]
-            self.timesteps = (0,)
+            self.timesteps = directions_timesteps
             directions = [directions.copy()
                                for _ in range(len(self.timesteps))]
             self.directions = np.stack(directions, axis=0)
