@@ -90,6 +90,7 @@ def run():
     plt.savefig("pca_variance_explained_epis%i.png" % num_episodes)
 
     # k-means clustering
+    print('Starting clustering...')
     pca_for_clust = PCA(n_components=above95explained)
     pca_for_clust = pca_for_clust.fit_transform(hx)
     knn_graph = kneighbors_graph(pca_for_clust, n_clusters, include_self=False)
@@ -98,7 +99,16 @@ def run():
                                     n_clusters=n_clusters)
     agc_model.fit(pca_for_clust)
     clusters = agc_model.labels_
+    cluster_means = []
+    for cluster_id in list(set(clusters)):
+        cluster_mask = clusters == cluster_id
+        cluster_eles = hx[cluster_mask]
+        cluster_mean = cluster_eles.mean(axis=0)
+        cluster_means.append(cluster_mean)
+    cluster_means = np.array(cluster_means)
     np.save(save_path + 'clusters_%i.npy' % num_episodes, clusters)
+    np.save(save_path + 'cluster_means_%i.npy' % num_episodes, cluster_means)
+    print("Clustering finished.")
 
     # tSNE
     print('Starting tSNE...')

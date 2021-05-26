@@ -58,7 +58,7 @@ class TargetFunction():
         hx_timesteps = (13,)
         directions_timesteps = (13,)  # because FPS is 14 therefore hx happens after 1s
         self.target_function_type = args.target_function_type
-        num_episodes_precomputed = 2000 # hardcoded for dev
+        num_episodes_precomputed = 200#0 # hardcoded for dev
 
         self.grad_norm = 100.
         value_grad_norm = 10.
@@ -130,7 +130,6 @@ class TargetFunction():
             self.num_its = num_its_hx
             self.optimized_quantity_name = 'Neuron activation'
         elif self.target_function_type == 'increase_hx_direction_pca':
-            # self.num_its = 400
             self.loss_func = self.hx_direction_target_function
             directions = np.load(args.precomputed_analysis_dir + \
                                       '/pcomponents_%i.npy' %
@@ -162,7 +161,6 @@ class TargetFunction():
             self.origin_attraction_scale = origin_attraction_scale_direction
             self.optimized_quantity_name = 'Inner product between PC and hidden state'
         elif self.target_function_type == 'increase_hx_direction_nmf':
-            self.num_its = 400
             self.loss_func = self.hx_direction_target_function
             directions = np.load(args.precomputed_analysis_dir + \
                                       '/nmf_components_%i.npy' %
@@ -193,6 +191,29 @@ class TargetFunction():
             self.num_its = num_its_direction
             self.origin_attraction_scale = origin_attraction_scale_direction
             self.optimized_quantity_name = 'Inner product between NMF factor and hidden state'
+        elif self.target_function_type == 'hx_location_as_cluster_mean':
+            self.loss_func = self.hx_location_target_function
+            directions = np.load(args.precomputed_analysis_dir + \
+                                      '/cluster_means_%i.npy' %
+                                      num_episodes_precomputed)
+            # clusters_to_viz = (15, )
+            self.num_epochs = directions.shape[0]
+            self.timesteps = directions_timesteps
+            directions = [directions.copy()
+                          for _ in range(len(self.timesteps))]
+            self.directions = np.stack(directions, axis=0)
+            self.increment = 1.0
+            self.lr = 1e-2
+            self.num_its = num_its_direction
+            self.origin_attraction_scale = origin_attraction_scale_direction
+            self.targ_func_loss_scale = 15.
+            self.optimized_quantity_name = 'Inner product between NMF factor and hidden state'
+
+
+
+
+
+
 
     def action_target_function(self, preds_dict, epoch):
         preds = preds_dict['act_log_probs']
@@ -377,8 +398,39 @@ class TargetFunction():
 
         return loss_sum, loss_info_dict
 
+    def hx_location_target_function(self, preds_dict, epoch):
+        preds = preds_dict['hx']
+        sample_vecs = preds_dict['sample_vecs']
+        preds = torch.stack(preds, dim=1).squeeze()
+        directions = self.directions[:, epoch]
+        directions = torch.tensor(directions, device=preds.device)
 
+        # Make a target that is the direction of the target than
+        # the current prediction.
+        # target_hx = preds.clone().detach()#.cpu().numpy()
+        # target_hx[:, self.timesteps] += (directions * self.directions_scale)
+        # target_hx = torch.tensor(target_hx, device=self.device)
 
+        # Calculate the difference between the target and the pred
+        diff = (preds[:, self.timesteps] - directions)**2
+        loss_sum = diff.mean() * self.targ_func_loss_scale
+        opt_quant = loss_sum.item()#.clone().detach()
+        print("Loss: %f" % opt_quant)
+        self.optimized_quantity.append(opt_quant)
+
+        # Calculate the cumulative distribution of the samples' losses and
+        # find the top quartile boundary
+        diff_cum_df = torch.cumsum(diff.sum(dim=[1, 2]), dim=0)
+        top_quart_ind = int(diff_cum_df.shape[0] * 0.75)
+        loss_info_dict = {'top_quartile_loss': diff_cum_df[top_quart_ind]}
+
+        # Add l2 loss on size of sample vector to attract the vector toward the
+        # origin
+        sample_l2_loss = self.origin_attraction_scale * (sample_vecs ** 2).mean()
+        print("TargFunc loss: %f ; vec l2 loss: %f " % (loss_sum, sample_l2_loss))
+        loss_sum = loss_sum + sample_l2_loss
+
+        return loss_sum, loss_info_dict
 
 
 
@@ -523,7 +575,7 @@ if __name__=='__main__':
 
             # Get gradient and step the optimizer
             target_func_loss.backward()
-            print(torch.abs(sample_vecs.grad).max())
+            print("Biggest grad: %f" % torch.abs(sample_vecs.grad).max().item())
 
             torch.nn.utils.clip_grad_norm_(sample_vecs,
                                            target_func.grad_norm, norm_type=2.0)
@@ -531,6 +583,7 @@ if __name__=='__main__':
             print("Total distance: %f" % \
                   ((sample_vecs - start_sample_vecs)**2).sum().sqrt())
             print("Prenorm grad mean mag: %f" % torch.abs(sample_vecs.grad).mean())
+            print("\n")
 
             # Prepare for the next step
             targ_func_opt.zero_grad()
