@@ -3,8 +3,12 @@ import numpy as np
 from sklearn.manifold import TSNE
 from sklearn.decomposition import PCA
 from sklearn.decomposition import NMF
+from sklearn.cluster import AgglomerativeClustering
+from sklearn.neighbors import kneighbors_graph
 #import umap
 from sklearn.preprocessing import StandardScaler
+
+
 import argparse
 
 import matplotlib
@@ -57,7 +61,7 @@ def run():
                                          f'episode{ep}/hx.npy'))
         hx = np.concatenate((hx, hx_to_cat))
 
-    # Plotting
+    # PCA
     print('Starting PCA...')
     hx_prescaling = hx
     scaler = StandardScaler()
@@ -84,6 +88,18 @@ def run():
     plt.ylabel("Variance Explained (%)")
     plt.savefig("pca_variance_explained_epis%i.png" % num_episodes)
 
+    # k-means clustering
+    pca_for_clust = PCA(n_components=above95explained)
+    pca_for_clust = pca_for_clust.fit_transform(hx)
+    knn_graph = kneighbors_graph(pca_for_clust, 30, include_self=False)
+    agc_model = AgglomerativeClustering(linkage='ward',
+                                    connectivity=knn_graph,
+                                    n_clusters=30)
+    agc_model.fit(pca_for_clust)
+    clusters = agc_model.labels_
+    np.save(save_path + 'clusters_%i.npy' % num_episodes, clusters)
+
+    # tSNE
     print('Starting tSNE...')
     pca_for_tsne = PCA(n_components=above95explained)
     pca_for_tsne = pca_for_tsne.fit_transform(hx)
