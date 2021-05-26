@@ -204,10 +204,10 @@ class TargetFunction():
             self.directions = np.stack(directions, axis=0)
             self.increment = 1.0
             self.lr = 1e-2
-            self.num_its = num_its_direction
+            self.num_its = 20000
             self.origin_attraction_scale = origin_attraction_scale_direction
             self.targ_func_loss_scale = 15.
-            self.optimized_quantity_name = 'Inner product between NMF factor and hidden state'
+            self.optimized_quantity_name = 'Distance of hx from target hx'
 
 
 
