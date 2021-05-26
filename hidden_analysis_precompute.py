@@ -45,6 +45,7 @@ def run():
     n_components_pca = 64
     n_components_tsne = 2
     n_components_nmf = 32
+    n_clusters = 30
     path_epis = list(range(num_epi_paths))
 
     seed = 42  # for the tSNE algo
@@ -91,10 +92,10 @@ def run():
     # k-means clustering
     pca_for_clust = PCA(n_components=above95explained)
     pca_for_clust = pca_for_clust.fit_transform(hx)
-    knn_graph = kneighbors_graph(pca_for_clust, 30, include_self=False)
+    knn_graph = kneighbors_graph(pca_for_clust, n_clusters, include_self=False)
     agc_model = AgglomerativeClustering(linkage='ward',
                                     connectivity=knn_graph,
-                                    n_clusters=30)
+                                    n_clusters=n_clusters)
     agc_model.fit(pca_for_clust)
     clusters = agc_model.labels_
     np.save(save_path + 'clusters_%i.npy' % num_episodes, clusters)
@@ -117,7 +118,7 @@ def run():
     print('Starting NMF...')
     hx_nonneg = hx_prescaling - np.min(hx_prescaling)
     model = NMF(n_components=n_components_nmf,
-                init='random', random_state=0, max_iter=1000)
+                init='random', random_state=0, max_iter=3000)
     hx_nmf = model.fit(hx_nonneg)
     np.save(save_path + 'hx_nmf_%i.npy' % num_episodes,
             hx_nmf.transform(hx_nonneg))
