@@ -58,7 +58,7 @@ class TargetFunction():
         hx_timesteps = (13,)
         directions_timesteps = (13,)  # because FPS is 14 therefore hx happens after 1s
         self.target_function_type = args.target_function_type
-        num_episodes_precomputed = 200#0 # hardcoded for dev
+        num_episodes_precomputed = 2000 # hardcoded for dev
 
         self.grad_norm = 100.
         value_grad_norm = 10.
@@ -71,7 +71,7 @@ class TargetFunction():
             self.loss_func = self.action_target_function
             self.num_epochs = 15 #len(self.coinrun_actions)
             self.timesteps = (0,1,2)
-            self.lr = 1e-2#1e-1
+            self.lr = 1e-1
             self.increment = 1.5
             self.targ_func_loss_scale = 10.
             self.num_its = num_its_action
