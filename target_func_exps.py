@@ -204,7 +204,7 @@ class TargetFunction():
             self.directions = np.stack(directions, axis=0)
             self.increment = 1.0
             self.lr = 1e-2
-            self.num_its = 40000
+            self.num_its = 90000
             self.origin_attraction_scale = origin_attraction_scale_direction
             self.targ_func_loss_scale = 15.
             self.optimized_quantity_name = 'Distance of hx from target hx'
@@ -413,9 +413,9 @@ class TargetFunction():
 
         # Calculate the difference between the target and the pred
         diff = (preds[:, self.timesteps] - directions)**2
-        loss_sum = diff.mean() * self.targ_func_loss_scale
+        loss_sum = diff.sum(axis=2).mean() * self.targ_func_loss_scale
         opt_quant = loss_sum.item()#.clone().detach()
-        print("Loss: %f" % opt_quant)
+        print("Loss (distance): %f" % torch.sqrt(loss_sum))
         self.optimized_quantity.append(opt_quant)
 
         # Calculate the cumulative distribution of the samples' losses and
