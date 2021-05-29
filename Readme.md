@@ -1,3 +1,13 @@
+# Training code for Objective Robustness
+
+This code is based on a fork of [link original repo].  It includes code for training RL agents on procgen and producing the figures for the paper Objective Robustness in Deep Reinforcement Learning [add link to paper].
+
+
+
+The original Readme (not our work) is reproduced below.
+
+---
+
 Training Procgen environment with Pytorch
 ===============
 
