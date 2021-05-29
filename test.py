@@ -249,21 +249,6 @@ def run(agent, num_timesteps, logdir, save_value=False):
             incremented_n_reached_end, increments = track_metrics_batched(done, info, incremented_n_reached_end)
             metrics_dict = sum_of_dicts([metrics_dict, increments])
 
-#            if info[0]['coinrun_reached_end'] == 1 and not incremented_n_reached_end:
-#                print('reached end')
-#                incremented_n_reached_end = True
-#                n_reached_end += 1
-#
-#            if done:
-#                total_done += 1
-#                n_steps_since_last_done = 0
-#                if not incremented_n_reached_end and info[0]['prev_level_complete'] == 0:
-#                    print('capability failure')
-#                    n_capability_failures += 1
-#                if info[0]['prev_level_complete'] == 1:
-#                    n_successes += 1
-#                incremented_n_reached_end = False
-
         _, _, last_val, hidden_state = agent.predict(obs, hidden_state, done)
         agent.storage.store_last(obs, hidden_state, last_val)
 

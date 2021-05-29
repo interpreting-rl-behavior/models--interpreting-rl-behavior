@@ -21,7 +21,7 @@ if __name__=='__main__':
 
     parser.add_argument('--num_timesteps',    type=int, default = 10_000)
     parser.add_argument('--exp_name',         type=str, default = 'compute_metrics', help='experiment name')
-    parser.add_argument('--start_level',      type=int, default = int(0), help='start-level for environment')
+    parser.add_argument('--start_level',      type=int, default = np.random.randint(0, 10**9), help='start-level for environment')
     parser.add_argument('--distribution_mode',type=str, default = 'hard', help='distribution mode for environment')
     parser.add_argument('--param_name',       type=str, default = 'hard', help='hyper-parameter ID')
     parser.add_argument('--device',           type=str, default = 'cpu', required = False, help='whether to use gpu')
@@ -68,7 +68,7 @@ if __name__=='__main__':
                                     logdir=args.logdir,
                                     model_file=model_path,
                                     start_level=args.start_level,
-                                    num_levels=0,
+                                    num_levels=0, # this means start_level is meaningless (level seeds are drawn randomly)
                                     distribution_mode=args.distribution_mode,
                                     param_name=args.param_name,
                                     device=args.device,
@@ -144,7 +144,7 @@ if __name__=='__main__':
             print()
 
             # write results to csv
-            if num_levels == 316:
+            if num_levels == 100:
                 with open(results_file, "w") as f:
                     w = csv.DictWriter(f, results.keys())
                     w.writeheader()
