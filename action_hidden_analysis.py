@@ -7,6 +7,7 @@ import argparse
 
 import matplotlib
 import matplotlib.pyplot as plt
+import seaborn as sns
 import os
 import time
 
@@ -36,15 +37,18 @@ def parse_args():
 # EPISODE_STRINGS = {v:str(v) for v in range(3431)}
 def run():
     args = parse_args()
-    num_episodes = 1000  # number of episodes to make plots for. Needs to be
+    num_episodes = 2000#1000  # number of episodes to make plots for. Needs to be
     # the same as the precomputed data you want to use
     num_epi_paths = 9  # Number of episode to plot paths through time for. Arrow plots.
     plot_pca = True
+    plot_clusters = True
+    plot_3d = True
     plot_tsne = True
 
     # Prepare load and save dirs
     save_path = 'analysis/hx_plots'
     os.makedirs(save_path, exist_ok=True)
+
 
     presaved_data_path = args.presaved_data_path
     hx_presaved_filepath = presaved_data_path + "hxs_%i.npy" % num_episodes
@@ -60,7 +64,6 @@ def run():
     data = data.loc[data['episode'] < num_episodes]
     print('data shape', data.shape)
     #level_seed, episode, global_step, episode_step, done, reward, value, action
-
 
 
     # Get hidden states
@@ -149,18 +152,33 @@ def run():
     nmf_max_factor = np.argmax(hx_nmf, axis=1)
     data['nmf_max_factor'] = nmf_max_factor
 
+    # cluster identity
+    hx_cluster = np.load(args.precomputed_analysis_data_path + \
+                     '/clusters_%i.npy' % num_episodes)
+    data['cluster_id'] = hx_cluster
+
     # Prepare for plotting
-    plotting_variables = ['entropy', 'argmax_action_log_prob', 'nmf_max_factor', #'action',
+    plotting_variables = ['entropy', 'argmax_action_log_prob', 'cluster_id', #'nmf_max_factor', #'action',
                           'episode_max_steps', '% through episode',
                           'done',
                           'value', 'episode_rewarded', 'reward']
 
+    action_labels = list(range(15))
+    action_cmap = sns.color_palette("husl", max(action_labels), as_cmap=True)
+
+    nmf_labels = list(range(max(nmf_max_factor)))
+    nmf_cmap = sns.color_palette("Set2", max(nmf_max_factor), as_cmap=True)
+
+    cluster_labels = list(range(max(hx_cluster)))
+    cluster_cmap = sns.color_palette("husl", max(hx_cluster), as_cmap=True)
+
     plot_cmaps = {'entropy':                 'winter',
-                  'argmax_action_log_prob':  'Paired_r',
-                  'action':                  'tab20',
-                  'nmf_max_factor':          'tab20',
-                  'episode_max_steps':       'turbo',
-                  '% through episode':       'brg',
+                  'argmax_action_log_prob':   action_cmap,
+                  'action':                   action_cmap,
+                  'nmf_max_factor':           nmf_cmap,
+                  'cluster_id':               cluster_cmap,
+                  'episode_max_steps':       'turbo', #hsv
+                  '% through episode':       'hsv',#'brg',
                   'done':                    'autumn_r',
                   'value':                   'cool',
                   'episode_rewarded':        'cool',
@@ -172,16 +190,12 @@ def run():
     if plot_pca:
         hx_pca = np.load(args.precomputed_analysis_data_path + \
                          '/hx_pca_%i.npy' % num_episodes)
-        # print('Starting PCA...')
-        # hx = StandardScaler().fit_transform(hx)
-        # pca = PCA(n_components=2)
-        # hx_pca = pca.fit_transform(hx)
-        # print('PCA finished.')
+
         data['pca_X'] = hx_pca[:, 0]
         data['pca_Y'] = hx_pca[:, 1]
 
         # Create grid of plots
-        pca_alpha = 0.2
+        pca_alpha = 0.95
         fig = plt.figure()
         fig.subplots_adjust(hspace=0.8, wspace=0.8)
         fig.set_size_inches(21., 18.)
@@ -199,9 +213,7 @@ def run():
         fig.savefig(f'{save_path}/agent_pca_epsd{num_episodes}_at{time.strftime("%Y%m%d-%H%M%S")}.png')
         plt.close()
 
-
         # Now plot paths of individual episodes, connecting points by arrows
-        paths_per_plot = 1
         groups = [dfg for dfg in
                   data.groupby(by='episode')[['pca_X', 'pca_Y']]]
         fig = plt.figure()
@@ -238,6 +250,40 @@ def run():
         fig.savefig(
             f'{save_path}/agent_pca_epsd{num_episodes}_arrows_at{time.strftime("%Y%m%d-%H%M%S")}.png')
         plt.close()
+
+    if plot_3d:
+        data['pca_Z'] = hx_pca[:, 2]
+        for angle in np.arange(start=0, stop=360, step=10):
+            fig = plt.figure(figsize=(11,11))
+            ax = fig.add_subplot(111, projection='3d')
+            ax.view_init(30, angle)
+            plt.draw()
+            p = ax.scatter(data['pca_X'], data['pca_Y'], data['pca_Z'],
+                           s=0.005, c=data['cluster_id'], cmap='gist_rainbow')
+            # fig.colorbar(p, fraction=0.023, pad=0.04)
+            fig.tight_layout()
+            fig.savefig(
+                f'{save_path}/agent_pca_epsd{num_episodes}_at{time.strftime("%Y%m%d-%H%M%S")}_3D_{angle}.png')
+            plt.close()
+
+    if plot_clusters:
+        cluster_dir_name = \
+            f'{save_path}/cluster_plots{num_episodes}_at{time.strftime("%Y%m%d-%H%M%S")}'
+        os.mkdir(cluster_dir_name)
+        num_clusters = max(hx_cluster)
+        for cluster_id in range(num_clusters):
+            cluster_id_mask = data['cluster_id'] == cluster_id
+            sizes = np.where(cluster_id_mask, 0.05, 0.005)
+            fig = plt.figure()
+            plt.scatter(data['pca_X'],
+                        data['pca_Y'],
+                        c=cluster_id_mask,
+                        cmap='Set1_r',
+                        s=sizes,
+                        alpha=0.75)
+            fig.tight_layout()
+            fig.savefig(f'{cluster_dir_name}/cluster_{cluster_id}.png')
+            plt.close()
 
     if plot_tsne:
         hx_tsne = np.load(args.precomputed_analysis_data_path + \
