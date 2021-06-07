@@ -168,7 +168,8 @@ if __name__=='__main__':
     ##############
 
     obs = agent.env.reset()
-    hidden_state = np.zeros((agent.n_envs, agent.storage.hidden_state_size))
+    hidden_state = np.stack(
+        [agent.policy.init_hx.clone().detach().cpu().numpy()] * agent.n_envs)
     done = np.zeros(agent.n_envs)
 
     all_obs = []
@@ -185,7 +186,8 @@ if __name__=='__main__':
             obs = next_obs
             hidden_state = next_hidden_state
             if np.any(done):
-                hidden_state[done] = np.zeros_like(hidden_state[done])  # New
+                hidden_state[done] = \
+                    agent.policy.init_hx.clone().detach().cpu().numpy()
                 # Save vid of obs
                 all_obs = np.squeeze(np.stack(all_obs, 1))
                 all_obs = all_obs.transpose([0, 2, 3, 1])

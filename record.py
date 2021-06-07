@@ -165,7 +165,9 @@ if __name__=='__main__':
 
     ## Init params for training loop
     obs = agent.env.reset()
-    hidden_state = np.zeros((agent.n_envs, agent.storage.hidden_state_size))
+    # TODO init with hx param
+    hidden_state = np.stack(
+        [agent.policy.init_hx.clone().detach().cpu().numpy()] * agent.n_envs)
     done = np.zeros(agent.n_envs)
 
     global_steps = 0
@@ -253,7 +255,9 @@ if __name__=='__main__':
             hx_list = []
             logprob_list = []
 
-            hidden_state = np.zeros_like(hidden_state)
+            hidden_state = np.stack(
+                [agent.policy.init_hx.clone().detach().cpu().numpy()] * \
+                agent.n_envs)
 
         if (episode_number >= max_episodes) or \
                 ((time.time() - start_time) > (secs_in_24h - 600)):

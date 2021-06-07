@@ -157,11 +157,13 @@ class PPO(BaseAgent):
         save_every = num_timesteps // self.num_checkpoints
         checkpoint_cnt = 0
         obs = self.env.reset()
-        hidden_state = np.zeros((self.n_envs, self.storage.hidden_state_size))
+        hidden_state = np.stack(
+            [self.policy.init_hx.clone().detach().cpu().numpy()] * self.n_envs)
         done = np.zeros(self.n_envs)
 
         obs_v = self.env_valid.reset()
-        hidden_state_v = np.zeros((self.n_envs, self.storage.hidden_state_size))
+        hidden_state_v = np.stack(
+            [self.policy.init_hx.clone().detach().cpu().numpy()] * self.n_envs)
         done_v = np.zeros(self.n_envs)
 
         while self.t < num_timesteps:
@@ -174,7 +176,7 @@ class PPO(BaseAgent):
                 obs = next_obs
                 hidden_state = next_hidden_state
                 if np.any(done):
-                    hidden_state[done] = np.zeros_like(hidden_state[done]) #New
+                    hidden_state[done] = self.policy.init_hx.clone().detach().cpu().numpy()
 
             value_batch = self.storage.value_batch[:self.n_steps]
             _, _, last_val, hidden_state = self.predict(obs, hidden_state, done)
@@ -193,7 +195,8 @@ class PPO(BaseAgent):
                     obs_v = next_obs_v
                     hidden_state_v = next_hidden_state_v
                     if np.any(done):
-                        hidden_state_v[done_v] = np.zeros_like(hidden_state_v[done_v])  # New
+                        hidden_state_v[done_v] = self.policy.init_hx.clone().detach().cpu().numpy()
+                        # hidden_state_v[done_v] = np.zeros_like(hidden_state_v[done_v])  # New
                 _, _, last_val_v, hidden_state_v = self.predict(obs_v, hidden_state_v, done_v)
                 self.storage_valid.store_last(obs_v, hidden_state_v, last_val_v)
                 self.storage_valid.compute_estimates(self.gamma, self.lmbda, self.use_gae, self.normalize_adv)
