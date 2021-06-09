@@ -1,3 +1,16 @@
+"""
+Before running this experiment, two important steps must be undertaken:
+1. record several episodes of an agent using record.py. If you wish to record an agent taking
+a specific action A, then modify the "act" variable inside the while True loop to act=np.array([A])
+after it is first declared. A should be an integer representing a coinrun action (as defined in
+target_func_exps.TargetFunction.COINRUN_ACTIONS)
+2. After recording an agent, modify the "act" variable to
+act=torch.tensor([A]*len(act)).to(self.device) after it is declared in ppo.predict_STE. This will
+ensure that when a ppo instance is loaded in this file to be used in the decoder, the agent will
+always take action A.
+"""
+
+
 from train_gen_model import demo_recon_quality, create_venv
 
 from common.env.procgen_wrappers import *
@@ -188,7 +201,7 @@ def run():
     # with ground truth (the closes thing a VAE gets to validation because
     # there are no labels).
     demo_recon_quality(args, 0, train_loader, optimizer, gen_model,
-                        logger, sess_dir, device, use_true_h0=False, use_true_actions=True)
+                        logger, sess_dir, device, use_true_h0=False, use_true_actions=False)
 
 if __name__ == "__main__":
     run()
