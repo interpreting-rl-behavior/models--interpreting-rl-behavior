@@ -18,6 +18,7 @@ import pandas as pd
 if __name__=='__main__':
     start_time = time.time()
     secs_in_24h = 60*60*24
+    max_time_recording = secs_in_24h * 1.8
 
     parser = argparse.ArgumentParser()
     parser.add_argument('--exp_name',         type=str, default = 'test', help='experiment name')
@@ -174,7 +175,7 @@ if __name__=='__main__':
     episode_steps = 0
     episode_number = 0
 
-    max_episodes = 50
+    max_episodes = 70000
 
 
     ## Make dirs for files #TODO add some unique identifier so you don't end up with a bunch of partial episodes due to overwriting
@@ -191,10 +192,6 @@ if __name__=='__main__':
 
     while True:
         agent.policy.eval()
-
-        # Debugging note from Lee 20210503: I've double checked this script and I'm
-        # confident that data are being recorded appropriately (i.e. timesteps are aligned
-        # for each of the different data types).
 
         # Step agent and environment
         act, log_prob_act, value, next_hidden_state = agent.predict_record(obs, hidden_state, done)
@@ -255,12 +252,13 @@ if __name__=='__main__':
             hx_list = []
             logprob_list = []
 
+            # Reset hidden state
             hidden_state = np.stack(
                 [agent.policy.init_hx.clone().detach().cpu().numpy()] * \
                 agent.n_envs)
 
         if (episode_number >= max_episodes) or \
-                ((time.time() - start_time) > (secs_in_24h - 600)):
+                ((time.time() - start_time) > max_time_recording):
             break
 
     print("Combining datasets")

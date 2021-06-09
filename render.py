@@ -173,7 +173,7 @@ if __name__=='__main__':
     done = np.zeros(agent.n_envs)
 
     all_obs = []
-    num_episodes_to_render = 8
+    num_episodes_to_render = 100
     episode = 0
     for e in range(num_episodes_to_render):
     #while True:
