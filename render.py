@@ -14,6 +14,31 @@ import torch
 
 from gym3 import ViewerWrapper, VideoRecorderWrapper, ToBaselinesVecEnv
 
+
+def create_venv_render(args, hyperparameters, is_valid=False):
+    venv = ProcgenGym3Env(num=n_envs,
+                          env_name=args.env_name,
+                          num_levels=0 if is_valid else args.num_levels,
+                          start_level=0 if is_valid else args.start_level,
+                          distribution_mode=args.distribution_mode,
+                          num_threads=1,
+                          use_backgrounds=False,
+                          render_mode="rgb_array")
+    venv = ViewerWrapper(venv, tps=args.tps, info_key="rgb")
+    if args.vid_dir is not None:
+        venv = VideoRecorderWrapper(venv, directory=args.vid_dir,
+                                    info_key="rgb", fps=args.tps)
+    venv = ToBaselinesVecEnv(venv)
+    venv = VecExtractDictObs(venv, "rgb")
+    normalize_rew = hyperparameters.get('normalize_rew', True)
+    if normalize_rew:
+        venv = VecNormalize(venv, ob=False)  # normalizing returns, but not
+        # the img frames
+    venv = TransposeFrame(venv)
+    venv = ScaledFloatFrame(venv)
+    return venv
+
+
 if __name__=='__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument('--exp_name',         type=str, default = 'test', help='experiment name')
@@ -61,6 +86,10 @@ if __name__=='__main__':
     for key, value in hyperparameters.items():
         print(key, ':', value)
 
+    n_envs = 1
+    n_steps = hyperparameters.get('n_steps', 256)
+    num_episodes_to_render = 100
+
     ############
     ## DEVICE ##
     ############
@@ -74,35 +103,6 @@ if __name__=='__main__':
     ## ENVIRONMENT ##
     #################
     print('INITIALIZAING ENVIRONMENTS...')
-    n_envs = 1
-
-    def create_venv_render(args, hyperparameters, is_valid=False):
-        venv = ProcgenGym3Env(num=n_envs,
-                          env_name=args.env_name,
-                          num_levels=0 if is_valid else args.num_levels,
-                          start_level=0 if is_valid else args.start_level,
-                          distribution_mode=args.distribution_mode,
-                          num_threads=1,
-                          use_backgrounds=False,
-                          render_mode="rgb_array")
-        venv = ViewerWrapper(venv, tps=args.tps, info_key="rgb")
-        if args.vid_dir is not None:
-            venv = VideoRecorderWrapper(venv, directory=args.vid_dir,
-                                        info_key="rgb", fps=args.tps)
-        venv = ToBaselinesVecEnv(venv)
-        venv = VecExtractDictObs(venv, "rgb")
-        normalize_rew = hyperparameters.get('normalize_rew', True)
-        if normalize_rew:
-            venv = VecNormalize(venv, ob=False) # normalizing returns, but not
-            #the img frames
-        venv = TransposeFrame(venv)
-        venv = ScaledFloatFrame(venv)
-
-        return venv
-    n_steps = hyperparameters.get('n_steps', 256)
-
-    #env = create_venv(args, hyperparameters)
-    #env_valid = create_venv(args, hyperparameters, is_valid=True)
     env = create_venv_render(args, hyperparameters, is_valid=True)
 
     ############
@@ -173,7 +173,6 @@ if __name__=='__main__':
     done = np.zeros(agent.n_envs)
 
     all_obs = []
-    num_episodes_to_render = 100
     episode = 0
     for e in range(num_episodes_to_render):
     #while True:

@@ -4,10 +4,10 @@ from common.storage import Storage
 from common.model import NatureModel, ImpalaModel
 from common.policy import CategoricalPolicy
 from common import set_global_seeds, set_global_log_levels
+from train import create_venv
 
 import os, yaml, argparse
 import gym
-from procgen import ProcgenEnv
 import random
 import torch
 from generative.generative_models import VAE
@@ -96,6 +96,9 @@ def run():
     for key, value in hyperparameters.items():
         print(key, ':', value)
 
+    n_steps = 1
+    n_envs = hyperparameters.get('n_envs', 64)
+
     # Device
     os.environ["CUDA_VISIBLE_DEVICES"] = str(gpu_device)
     if args.device == 'gpu':
@@ -105,8 +108,6 @@ def run():
 
     # Set up environment (Only used for initializing agent)
     print('INITIALIZING ENVIRONMENTS...')
-    n_steps = 1#hyperparameters.get('n_steps', 256)
-    n_envs = hyperparameters.get('n_envs', 64)
     env = create_venv(args, hyperparameters)
 
     # Make save dirs
@@ -210,7 +211,7 @@ def run():
               logger, sess_dir, device)
 
         # Save visualized random samples
-        if epoch % 10 == 0:
+        if epoch % 10 == 0 and epoch >= 1:
             with torch.no_grad():
                 viz_batch_size = 20
                 vae_latent_size = 128
@@ -470,20 +471,6 @@ def demo_recon_quality(args, epoch, train_loader, optimizer, gen_model, logger,
 def safe_mean(xs):
     return np.nan if len(xs) == 0 else np.mean(xs)
 
-def create_venv(args, hyperparameters, is_valid=False):
-    venv = ProcgenEnv(num_envs=hyperparameters.get('n_envs', 256),
-                      env_name=args.env_name,
-                      num_levels=0 if is_valid else args.num_levels,
-                      start_level=0 if is_valid else args.start_level,
-                      distribution_mode=args.distribution_mode,
-                      num_threads=args.num_threads)
-    venv = VecExtractDictObs(venv, "rgb")
-    normalize_rew = hyperparameters.get('normalize_rew', True)
-    if normalize_rew:
-        venv = VecNormalize(venv, ob=False)
-    venv = TransposeFrame(venv)
-    venv = ScaledFloatFrame(venv)
-    return venv
 
 if __name__ == "__main__":
     run()

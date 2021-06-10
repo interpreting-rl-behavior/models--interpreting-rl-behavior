@@ -1,6 +1,11 @@
 """Makes a dataset for the generative model."""
-import datetime
+import random
+import torch
+import pandas as pd
+import os, time, yaml, argparse
+import gym
 
+from train import create_venv
 from common.env.procgen_wrappers import *
 from common.logger import Logger
 from common.storage import Storage
@@ -8,17 +13,11 @@ from common.model import NatureModel, ImpalaModel
 from common.policy import CategoricalPolicy
 from common import set_global_seeds, set_global_log_levels
 
-import os, time, yaml, argparse
-import gym
-from procgen import ProcgenEnv
-import random
-import torch
-import pandas as pd
+
 
 if __name__=='__main__':
     start_time = time.time()
-    secs_in_24h = 60*60*24
-    max_time_recording = secs_in_24h * 1.8
+
 
     parser = argparse.ArgumentParser()
     parser.add_argument('--exp_name',         type=str, default = 'test', help='experiment name')
@@ -39,8 +38,8 @@ if __name__=='__main__':
     #render parameters
     parser.add_argument('--model_file', type=str)
     parser.add_argument('--logdir', type=str, default='generative/')
-
     args = parser.parse_args()
+
     exp_name = args.exp_name
     env_name = args.env_name
     start_level = args.start_level
@@ -63,6 +62,16 @@ if __name__=='__main__':
     for key, value in hyperparameters.items():
         print(key, ':', value)
 
+    n_steps = hyperparameters.get('n_steps', 256)
+    n_envs = 1
+    hyperparameters['n_envs'] = n_envs  # overwrite because can only record one
+    # at a time.
+
+    max_episodes = 70000
+    secs_in_24h = 60*60*24
+    max_time_recording = secs_in_24h * 1.8
+
+
     # Device
     os.environ["CUDA_VISIBLE_DEVICES"] = str(gpu_device)
     if args.device == 'gpu':
@@ -72,25 +81,6 @@ if __name__=='__main__':
 
     # Environment
     print('INITIALIZAING ENVIRONMENTS...')
-    def create_venv(args, hyperparameters, is_valid=False):
-        venv = ProcgenEnv(num_envs=1,
-                          env_name=args.env_name,
-                          num_levels=0 if is_valid else args.num_levels,
-                          start_level=0 if is_valid else args.start_level,
-                          distribution_mode=args.distribution_mode,
-                          use_backgrounds=False,
-                          num_threads=1,)
-        venv = VecExtractDictObs(venv, "rgb")
-        normalize_rew = hyperparameters.get('normalize_rew', True)
-        if normalize_rew:
-            venv = VecNormalize(venv, ob=False) # normalizing returns, but not
-            #the img frames
-        venv = TransposeFrame(venv)
-        venv = ScaledFloatFrame(venv)
-        return venv
-
-    n_steps = hyperparameters.get('n_steps', 256)
-    n_envs = 1
     env = create_venv(args, hyperparameters, is_valid=True)
 
     # Logger
@@ -174,9 +164,6 @@ if __name__=='__main__':
     global_steps = 0
     episode_steps = 0
     episode_number = 0
-
-    max_episodes = 70000
-
 
     ## Make dirs for files #TODO add some unique identifier so you don't end up with a bunch of partial episodes due to overwriting
     dir_name = logdir + 'episode' + str(episode_number)

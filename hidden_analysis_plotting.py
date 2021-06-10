@@ -34,12 +34,10 @@ def parse_args():
     return args
 
 
-# EPISODE_STRINGS = {v:str(v) for v in range(3431)}
 def run():
     args = parse_args()
     num_episodes = 2000#1000  # number of episodes to make plots for. Needs to be
     # the same as the precomputed data you want to use
-    num_epi_paths = 9  # Number of episode to plot paths through time for. Arrow plots.
     plot_pca = True
     plot_clusters = True
     plot_3d = True

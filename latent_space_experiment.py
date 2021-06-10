@@ -1,21 +1,14 @@
+import yaml
+import torchvision.io as tvio
+import util.logger as logger
 from common.env.procgen_wrappers import *
-import util.logger as logger  # from common.logger import Logger
 from common.storage import Storage
 from common.model import NatureModel, ImpalaModel
 from common.policy import CategoricalPolicy
 from common import set_global_seeds, set_global_log_levels
-
-import os, yaml, argparse
-import gym
-from procgen import ProcgenEnv
-import random
-import torch
+from train import create_venv
 from generative.generative_models import VAE
 from generative.procgen_dataset import ProcgenDataset
-
-from collections import deque
-import torchvision.io as tvio
-from datetime import datetime
 
 
 class LatentSpaceExperiment():
@@ -86,11 +79,6 @@ class LatentSpaceExperiment():
         resdir = resdir + args.ls_exp_name
         if not (os.path.exists(resdir)):
             os.makedirs(resdir)
-        # session_name = datetime.now().strftime("%Y%m%d_%H%M%S")
-        # current_time = session_name
-        # sess_dir = os.path.join(resdir, session_name)
-        # if not (os.path.exists(sess_dir)):
-        #     os.makedirs(sess_dir)
 
         # Logger
         logger.configure(dir=resdir, format_strs=['csv', 'stdout'])
@@ -153,7 +141,6 @@ class LatentSpaceExperiment():
 
         ## Make or load generative model and optimizer
         gen_model = VAE(agent, device, num_initializing_steps, total_seq_len)
-
         gen_model = gen_model.to(device)
         optimizer = torch.optim.Adam(gen_model.parameters(), lr=args.lr)
 
@@ -224,20 +211,6 @@ class LatentSpaceExperiment():
                         b) + '.mp4'
                     tvio.write_video(save_str, combined_ob, fps=14)
 
-def create_venv(args, hyperparameters, is_valid=False):
-    venv = ProcgenEnv(num_envs=hyperparameters.get('n_envs', 256),
-                      env_name=args.env_name,
-                      num_levels=0 if is_valid else args.num_levels,
-                      start_level=0 if is_valid else args.start_level,
-                      distribution_mode=args.distribution_mode,
-                      num_threads=args.num_threads)
-    venv = VecExtractDictObs(venv, "rgb")
-    normalize_rew = hyperparameters.get('normalize_rew', True)
-    if normalize_rew:
-        venv = VecNormalize(venv, ob=False)
-    venv = TransposeFrame(venv)
-    venv = ScaledFloatFrame(venv)
-    return venv
 
 def safe_mean(xs):
     return np.nan if len(xs) == 0 else np.mean(xs)

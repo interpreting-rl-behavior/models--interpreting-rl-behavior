@@ -9,28 +9,21 @@ act=torch.tensor([A]*len(act)).to(self.device) after it is declared in ppo.predi
 ensure that when a ppo instance is loaded in this file to be used in the decoder, the agent will
 always take action A.
 """
+import os, yaml, argparse
+import gym
+import random
+import torch
+from datetime import datetime
 
-
-from train_gen_model import demo_recon_quality, create_venv
-
-from common.env.procgen_wrappers import *
-import util.logger as logger  # from common.logger import Logger
+from common import set_global_seeds, set_global_log_levels
 from common.storage import Storage
 from common.model import NatureModel, ImpalaModel
 from common.policy import CategoricalPolicy
-from common import set_global_seeds, set_global_log_levels
-
-import os, yaml, argparse
-import gym
-from procgen import ProcgenEnv
-import random
-import torch
-from generative.generative_models import VAE
 from generative.procgen_dataset import ProcgenDataset
-
-from collections import deque
-import torchvision.io as tvio
-from datetime import datetime
+from generative.generative_models import VAE
+from train import create_venv
+from train_gen_model import demo_recon_quality
+import util.logger as logger
 
 
 def run():

@@ -12,6 +12,23 @@ import random
 import torch
 
 
+def create_venv(args, hyperparameters, is_valid=False):
+    venv = ProcgenEnv(num_envs=hyperparameters.get('n_envs', 256),
+                      env_name=args.env_name,
+                      num_levels=0 if is_valid else args.num_levels,
+                      start_level=0 if is_valid else args.start_level,
+                      distribution_mode=args.distribution_mode,
+                      num_threads=args.num_threads)
+    venv = VecExtractDictObs(venv, "rgb")
+    normalize_rew = hyperparameters.get('normalize_rew', True)
+    if normalize_rew:
+        venv = VecNormalize(venv, ob=False)  # normalizing returns, but not
+        # the img frames
+    venv = TransposeFrame(venv)
+    venv = ScaledFloatFrame(venv)
+    return venv
+
+
 if __name__=='__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument('--exp_name',         type=str, default = 'test', help='experiment name')
@@ -26,12 +43,10 @@ if __name__=='__main__':
     parser.add_argument('--seed',             type=int, default = random.randint(0,9999), help='Random generator seed')
     parser.add_argument('--log_level',        type=int, default = int(40), help='[10,20,30,40]')
     parser.add_argument('--num_checkpoints',  type=int, default = int(1), help='number of checkpoints to store')
-    parser.add_argument('--model_file', type=str)
-
-    #multi threading
-    parser.add_argument('--num_threads', type=int, default=8)
-
+    parser.add_argument('--model_file',       type=str)
+    parser.add_argument('--num_threads',      type=int, default=8)
     args = parser.parse_args()
+
     exp_name = args.exp_name
     env_name = args.env_name
     start_level = args.start_level
@@ -57,6 +72,9 @@ if __name__=='__main__':
     for key, value in hyperparameters.items():
         print(key, ':', value)
 
+    n_steps = hyperparameters.get('n_steps', 256)
+    n_envs = hyperparameters.get('n_envs', 64)
+
     ############
     ## DEVICE ##
     ############
@@ -70,24 +88,6 @@ if __name__=='__main__':
     ## ENVIRONMENT ##
     #################
     print('INITIALIZAING ENVIRONMENTS...')
-    def create_venv(args, hyperparameters, is_valid=False):
-        venv = ProcgenEnv(num_envs=hyperparameters.get('n_envs', 256),
-                          env_name=args.env_name,
-                          num_levels=0 if is_valid else args.num_levels,
-                          start_level=0 if is_valid else args.start_level,
-                          distribution_mode=args.distribution_mode,
-                          num_threads=args.num_threads)
-        venv = VecExtractDictObs(venv, "rgb")
-        normalize_rew = hyperparameters.get('normalize_rew', True)
-        if normalize_rew:
-            venv = VecNormalize(venv, ob=False) # normalizing returns, but not
-            #the img frames
-        venv = TransposeFrame(venv)
-        venv = ScaledFloatFrame(venv)
-        return venv
-    n_steps = hyperparameters.get('n_steps', 256)
-    n_envs = hyperparameters.get('n_envs', 64)
-
     env = create_venv(args, hyperparameters)
     env_valid = create_venv(args, hyperparameters, is_valid=True)
 

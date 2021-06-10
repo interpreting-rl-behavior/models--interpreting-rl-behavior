@@ -1,5 +1,4 @@
 import pandas as pd
-import numpy as np
 import matplotlib.pyplot as plt
 import argparse
 
@@ -12,9 +11,11 @@ def parse_args():
     args = parser.parse_args()
     return args
 
-def plot():
+
+def plot_all_variables():
     args = parse_args()
 
+    # Load data
     data = pd.read_csv(args.datapath + "/log.csv")
     cols = list(data.columns)
 
@@ -48,12 +49,15 @@ def plot():
     plt.savefig(args.datapath + "/plot.png")
     plt.close()
 
+
 def simple_plot_for_figure():
     args = parse_args()
+
+    # Load data
     data = pd.read_csv(args.datapath + "/log.csv")
 
     # Plot
-    alpha=0.75
+    alpha = 0.75
     plt.plot(data['timesteps'], data['mean_episode_rewards'],
              label='Training set mean episode rewards',
              alpha=alpha)
@@ -66,6 +70,7 @@ def simple_plot_for_figure():
     plt.savefig(args.datapath + "/plot_for_fig.png")
     plt.close()
 
+
 if __name__ == '__main__':
-    plot()
+    plot_all_variables()
     simple_plot_for_figure()
