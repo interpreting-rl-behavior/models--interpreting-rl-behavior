@@ -85,7 +85,6 @@ class LayeredConvNet(nn.Module):
         for l in self.nets:
             out = l(out)
             outs.append(out)
-        print(out.shape)
         return out, outs
 
 class NLayerPerceptron(nn.Module):
