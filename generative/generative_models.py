@@ -85,6 +85,7 @@ class LayeredConvNet(nn.Module):
         for l in self.nets:
             out = l(out)
             outs.append(out)
+        print(out.shape)
         return out, outs
 
 class NLayerPerceptron(nn.Module):
@@ -503,15 +504,15 @@ class Decoder(nn.Module):
                                       env_conv_top_shape=env_conv_top_shape,
                                       z_g_size=z_g_size,
                                       stride_in=2,
-                                      channels_in=[3, 256, 64, 64],
-                                      kernel_sizes_in=[6, 4, 3],
-                                      padding_hs_in=[1, 1, 1],
-                                      padding_ws_in=[1, 1, 1],
-                                      stride_out=2,
-                                      channels_out=[64, 64, 256, 3],
-                                      kernel_sizes_out=[3, 5, 6],
-                                      padding_hs_out=[1, 1, 1],
-                                      padding_ws_out=[1, 1, 1],
+                                      channels_in=[3, 128, 128, 64],  #[3, 64, 64, 64, 64],  #
+                                      kernel_sizes_in=[3, 4, 3], # [4, 4, 4, 3],  #
+                                      padding_hs_in=[1, 0, 1], #[1, 1, 1, 1],  #
+                                      padding_ws_in=[1, 0, 1], #[1, 1, 1, 1],  #
+                                      stride_out=2,  #2,
+                                      channels_out=[64, 64, 256, 3],  #[64, 64, 256, 3],
+                                      kernel_sizes_out=[4, 4, 2],  #[3, 5, 6],
+                                      padding_hs_out=[1, 1, 0],  #[1, 1, 1],
+                                      padding_ws_out=[1, 1, 0],  #[1, 1, 1],
                                       layer_norm=layer_norm)
 
         # Make agent into an attribute of the decoder class
