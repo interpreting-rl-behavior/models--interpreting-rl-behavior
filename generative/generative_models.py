@@ -503,10 +503,10 @@ class Decoder(nn.Module):
                                       env_conv_top_shape=env_conv_top_shape,
                                       z_g_size=z_g_size,
                                       stride_out=2,  #2,
-                                      channels_out=[128, 256, 256, 3],  #[64, 64, 256, 3],
-                                      kernel_sizes_out=[4, 4, 2],  #[3, 5, 6],
-                                      padding_hs_out=[1, 1, 0],  #[1, 1, 1],
-                                      padding_ws_out=[1, 1, 0],  #[1, 1, 1],
+                                      channels_out=[128, 128, 256, 3],
+                                      kernel_sizes_out=[3, 5, 6],
+                                      padding_hs_out=[1, 1, 1],
+                                      padding_ws_out=[1, 1, 1],
                                       layer_norm=layer_norm)
 
         # Make agent into an attribute of the decoder class
