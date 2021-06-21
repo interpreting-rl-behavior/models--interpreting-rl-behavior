@@ -43,10 +43,24 @@ rollouts in order to train the generative model:
 
 >  bsub -W 47:59 -R "rusage[mem=32768,ngpus_excl_p=1]" -R "select[gpu_model0==GeForceGTX1080Ti]" python record.py --exp_name recording_exp --env_name coinrun --param_name hard-rec --num_levels 1000000 --distribution_mode hard --num_checkpoints 200 --model_file="/cluster/home/sharkeyl/aisc_project/train-procgen-pytorch/logs/procgen/coinrun/rec1M_64dim/seed_498_07-06-2021_23-26-27/model_80412672.pth" --logdir="/cluster/scratch/sharkeyl/"
 
-With this recorded data, we can start to train the generative model of 
+With this recorded data, we can start to train the generative model on 
 agent-environment rollouts:
 
 > bsub -W 71:59 -R "rusage[mem=32768,ngpus_excl_p=1]" -R "select[gpu_model0==GeForceGTX1080Ti]" python train_gen_model.py --agent_file="/cluster/home/sharkeyl/aisc_project/train-procgen-pytorch/logs/procgen/coinrun/trainhx_1Mlvls/seed_498_07-06-2021_23-26-27/model_80412672.pth" --param_name=hard-rec --log_interval=10 --batch_size=28 --num_sim_steps=28 --num_initializing_steps=3 --save_interval=10000 --lr=1e-4 --env_name=coinrun --loss_scale_obs=1000.0 --loss_scale_hx=1.0 --loss_scale_reward=0.01 --loss_scale_done=0.1 --loss_scale_act_log_probs=0.00001 --loss_scale_gen_adv=0. --loss_scale_kl=1.0 --tgm_exp_name=trainable_hx --data_dir=/cluster/scratch/sharkeyl/data/
-> 
+
+That'll take a while to train. In the meantime, before using our generative 
+model to do features visualization on our agent, we'll analyse the agent's 
+hidden state with a few dimensionality reduction methods. 
+
+First we precompute the dimensionality reduction analyses:
+> python hidden_analysis_precompute.py --agent_env_data_dir="data/"
+
+which will save the analysis data in "analysis/hx_analysis_precomp/".
+
+
+Next we'll plot the precomputed analyses:
+> python hidden_analysis_plotting.py --agent_env_data_dir="data/" --precomputed_analysis_data_path="analysis/hx_analysis_precomp" --presaved_data_path="/media/lee/DATA/DDocs/AI_neuro_work/assurance_project_stuff/data/precollected/" 
+
+
 
 
