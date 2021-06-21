@@ -1,7 +1,10 @@
 generative/results/
 generative/data/
-generative/analysis/agent_tsne/
+generative/analysis/agent_tsne
+generative/analysis/
 agents/data/
+/logs
+lsf.*
 
 # Byte-compiled / optimized / DLL files
 __pycache__/
