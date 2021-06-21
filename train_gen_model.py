@@ -50,7 +50,7 @@ def run():
                         help='number of checkpoints to store')
     parser.add_argument('--model_file', type=str)
     parser.add_argument('--agent_file', type=str)
-    parser.add_argument('--data_dir', type=str, default='generative/data/')
+    parser.add_argument('--data_dir', type=str, default='data/')
     parser.add_argument('--save_interval', type=int, default=100)
     parser.add_argument('--log_interval', type=int, default=100)
     parser.add_argument('--lr', type=float, default=5e-4)
@@ -309,12 +309,8 @@ def train(epoch, args, train_loader, optimizer, gen_model, agent, logger, save_d
                     pred_ob = pred_obs[b].permute(0, 2, 3, 1)
                     full_ob = full_obs[b].permute(0, 2, 3, 1)
 
-                    if torch.sum(full_ob) == 0:
-                        print("boop")
-
                     # Make predictions and ground truth into right format for
                     #  video saving
-                    # pred_ob = (pred_ob / 2) + 0.5
                     pred_ob = pred_ob * 255
                     full_ob = full_ob * 255
 
@@ -346,13 +342,15 @@ def loss_function(args, preds, labels, mu_c, logvar_c, mu_g, logvar_g, train_inf
         _that_ is still insufficient, then we'll look into adding a GAN
         discriminator and loss term.
       """
-    # TODO - either here or in record.py, clip the 'reward' always to be either
-    # 0 or 1.
+
     loss_hyperparams = {'obs': args.loss_scale_obs,
                         'hx': args.loss_scale_hx,
                         'reward': args.loss_scale_reward,
                         'done': args.loss_scale_done,
                         'act_log_probs': args.loss_scale_act_log_probs}
+
+    dones = labels['done'][:, -args.num_sim_steps:]
+    before_dones = done_labels_to_mask(dones)
 
     # Reconstruction loss
     losses = []
@@ -360,31 +358,34 @@ def loss_function(args, preds, labels, mu_c, logvar_c, mu_g, logvar_g, train_inf
         if key == 'values': # Not using values for loss
             continue
         pred  = torch.stack(preds[key], dim=1).squeeze()
+
         label = labels[key].to(device).float().squeeze()
         label = label[:, -args.num_sim_steps:]
-        if key == 'obs':
-            # TODO reinstate this masking - we don't really want the network
-            #  to learn the dynamics after 'done' because hx is determined
-            #  by the agent's fixed weights and so can only be affected
-            #  indirectly by observations, and even then it may not be
-            #  sufficient to bring hx to 0 (or keep constant or whatever)
-            #  so is only likely to add noise to the grads for the task we care
-            #  about.
-            # # Calculate a mask to exclude loss on 'zero' observations
-            # mask = torch.ones_like(labels['done']) - labels['done'] # excludes done timesteps
-            # for b, argmin in enumerate(torch.argmax(labels['done'], dim=1)):
-            #     mask[b, argmin] = 1. # unexcludes the first 'done' timestep
-            # mask = mask.unsqueeze(dim=-1).unsqueeze(dim=-1).unsqueeze(dim=-1) # so it can be broadcast to same shape as loss sum
+
+        # Calculate masks for hx & logprobs
+        if key in ['hx', 'act_log_probs']:
+            num_dims = len(label.shape) - 2
+            # subtract 2 is because batch and time dim are already present in the
+            # mask
+
+            unsqz_lastdim = lambda x: x.unsqueeze(dim=-1)
+            mask = before_dones
+            for d in range(num_dims):
+                # Applies unsqueeze enough times to produce a tensor of the same
+                # order as the loss tensor. It can therefore be broadcast to the
+                # same shape as the loss tensor
+                mask = unsqz_lastdim(mask)
 
             # Calculate loss
-            # loss = torch.abs(pred - label)
-            # # loss = loss * mask
-            # loss = torch.mean(loss)  # Mean Absolute Error
-
-            loss = torch.mean((pred - label) ** 2)
-        else:
             # loss = torch.mean(torch.abs(pred - label))  # Mean Absolute Error
-            loss = torch.mean((pred - label) ** 2)  # MSE
+            loss = (pred - label) * mask
+            loss = torch.mean(loss ** 2)
+        else:
+            # Calculate loss
+            # loss = torch.mean(torch.abs(pred - label))  # Mean Absolute Error
+            loss = (pred - label)
+            loss = torch.mean(loss ** 2)
+
 
         #mse = F.mse_loss(pred, label) # TODO test whether MSE or MAbsE is better (I think the VQ-VAE2 paper suggested MAE was better)
         train_info_bufs[key].append(loss.item())
@@ -439,6 +440,7 @@ def demo_recon_quality(args, epoch, train_loader, optimizer, gen_model, logger,
 
         with torch.no_grad():
             pred_obs = torch.stack(preds['obs'], dim=1).squeeze()
+            pred_dones = torch.stack(preds['done'], dim=1).squeeze()
 
             viz_batch_size = 20
             viz_batch_size = min(int(pred_obs.shape[0]), viz_batch_size)
@@ -470,6 +472,22 @@ def demo_recon_quality(args, epoch, train_loader, optimizer, gen_model, logger,
 
 def safe_mean(xs):
     return np.nan if len(xs) == 0 else np.mean(xs)
+
+def done_labels_to_mask(dones, num_unsqueezes=0):
+    argmax_dones = torch.argmax(dones, dim=1)
+    before_dones = torch.ones_like(dones)
+    for batch, argmax_done in enumerate(argmax_dones):
+        if argmax_done > 0:
+            before_dones[batch, argmax_done + 1:] = 0
+
+    # Applies unsqueeze enough times to produce a tensor of the same
+    # order as the masked tensor. It can therefore be broadcast to the
+    # same shape as the masked tensor
+    unsqz_lastdim = lambda x: x.unsqueeze(dim=-1)
+    for _ in range(num_unsqueezes):
+        before_dones = unsqz_lastdim(before_dones)
+
+    return before_dones
 
 
 if __name__ == "__main__":
