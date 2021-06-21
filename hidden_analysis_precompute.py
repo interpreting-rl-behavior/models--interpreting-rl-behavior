@@ -29,10 +29,8 @@ def parse_args():
     parser = argparse.ArgumentParser(
         description='args for plotting')
     parser.add_argument(
-        '--data_dir', type=str,
-        default="generative/data")
-    parser.add_argument(
-        '--presaved_data_path', type=str, default="/media/lee/DATA/DDocs/AI_neuro_work/assurance_project_stuff/data/precollected/")
+        '--agent_env_data_dir', type=str,
+        default="data/")
     args = parser.parse_args()
     return args
 
@@ -51,7 +49,7 @@ def run():
     seed = 42  # for the tSNE algo
 
     # Prepare load and save dirs
-    main_data_path = args.data_dir
+    main_data_path = args.agent_env_data_dir
     save_path = 'analysis/hx_analysis_precomp/'
     os.makedirs(save_path, exist_ok=True)
 
