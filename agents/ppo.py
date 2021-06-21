@@ -194,9 +194,8 @@ class PPO(BaseAgent):
                                              log_prob_act_v, value_v)
                     obs_v = next_obs_v
                     hidden_state_v = next_hidden_state_v
-                    if np.any(done):
+                    if np.any(done_v):
                         hidden_state_v[done_v] = self.policy.init_hx.clone().detach().cpu().numpy()
-                        # hidden_state_v[done_v] = np.zeros_like(hidden_state_v[done_v])  # New
                 _, _, last_val_v, hidden_state_v = self.predict(obs_v, hidden_state_v, done_v)
                 self.storage_valid.store_last(obs_v, hidden_state_v, last_val_v)
                 self.storage_valid.compute_estimates(self.gamma, self.lmbda, self.use_gae, self.normalize_adv)
