@@ -10,6 +10,7 @@ import matplotlib.pyplot as plt
 import seaborn as sns
 import os
 import time
+import imageio
 
 #TODO: think about t-SNE initialization 
 # https://www.nature.com/articles/s41587-020-00809-z 
@@ -24,10 +25,10 @@ def parse_args():
     parser = argparse.ArgumentParser(
         description='args for plotting')
     parser.add_argument(
-        '--data_dir', type=str,
-        default="generative/data")
+        '--agent_env_data_dir', type=str,
+        default="data")
     parser.add_argument(
-        '--precomputed_analysis_data_path', type=str, default="/home/lee/Documents/AI_ML_neur_projects/aisc_project/train-procgen-pytorch/analysis/hx_analysis_precomp")
+        '--precomputed_analysis_data_path', type=str, default="analysis/hx_analysis_precomp")
     parser.add_argument(
         '--presaved_data_path', type=str, default="/media/lee/DATA/DDocs/AI_neuro_work/assurance_project_stuff/data/precollected/")
     args = parser.parse_args()
@@ -36,11 +37,12 @@ def parse_args():
 
 def run():
     args = parse_args()
-    num_episodes = 2000#1000  # number of episodes to make plots for. Needs to be
+    num_episodes = 100#2000  # number of episodes to make plots for. Needs to be
     # the same as the precomputed data you want to use
     plot_pca = True
+    plot_3d_pca_all = True
     plot_clusters = True
-    plot_3d = True
+    plot_3d_pca = True
     plot_tsne = True
 
     # Prepare load and save dirs
@@ -53,7 +55,7 @@ def run():
     lp_presaved_filepath = presaved_data_path + "lp_%i.npy" % num_episodes
 
     # Load the non vector outputs
-    main_data_path = args.data_dir
+    main_data_path = args.agent_env_data_dir
     data = pd.read_csv(os.path.join(main_data_path, 'data_gen_model_0.csv'))
     for ep in range(1, num_episodes):
         data_epi = pd.read_csv(os.path.join(main_data_path,
@@ -249,20 +251,43 @@ def run():
             f'{save_path}/agent_pca_epsd{num_episodes}_arrows_at{time.strftime("%Y%m%d-%H%M%S")}.png')
         plt.close()
 
-    if plot_3d:
+    if plot_3d_pca_all:
         data['pca_Z'] = hx_pca[:, 2]
-        for angle in np.arange(start=0, stop=360, step=10):
-            fig = plt.figure(figsize=(11,11))
-            ax = fig.add_subplot(111, projection='3d')
-            ax.view_init(30, angle)
-            plt.draw()
-            p = ax.scatter(data['pca_X'], data['pca_Y'], data['pca_Z'],
-                           s=0.005, c=data['cluster_id'], cmap='gist_rainbow')
-            # fig.colorbar(p, fraction=0.023, pad=0.04)
-            fig.tight_layout()
-            fig.savefig(
-                f'{save_path}/agent_pca_epsd{num_episodes}_at{time.strftime("%Y%m%d-%H%M%S")}_3D_{angle}.png')
-            plt.close()
+        now = time.strftime('%Y%m%d-%H%M%S')
+        dir_name_3d = f"gifs_agent_pca_epsd{num_episodes}_at{now}"
+        dir_name_3d = os.path.join(save_path, dir_name_3d)
+        if not (os.path.exists(dir_name_3d)):
+            os.makedirs(dir_name_3d)
+
+
+        for plot_var in plotting_variables:
+            image_names = []
+
+            for angle in np.arange(start=0, stop=360, step=10):
+                fig = plt.figure(figsize=(11,11))
+                ax = fig.add_subplot(111, projection='3d')
+                ax.view_init(30, angle)
+                plt.draw()
+                p = ax.scatter(data['pca_X'], data['pca_Y'], data['pca_Z'],
+                               s=0.005, c=data[plot_var],
+                               cmap=plot_cmaps[plot_var])
+                # fig.colorbar(p, fraction=0.023, pad=0.04)
+                fig.tight_layout()
+                image_name = f"{plot_var}_{angle}.png"
+                image_name = f'{dir_name_3d}/{image_name}'
+                image_names.append(image_name)
+                fig.savefig(image_name)
+                plt.close()
+
+            gif_name = f"{plot_var}.gif"
+            gif_name = os.path.join(dir_name_3d, gif_name)
+            with imageio.get_writer(gif_name, mode='I', fps=4) as writer:
+                for filename in image_names:
+                    image = imageio.imread(filename)
+                    writer.append_data(image)
+            # Remove files
+            for filename in set(image_names):
+                os.remove(filename)
 
     if plot_clusters:
         cluster_dir_name = \
