@@ -18,6 +18,7 @@ def create_venv(args, hyperparameters, is_valid=False):
                       num_levels=0 if is_valid else args.num_levels,
                       start_level=0 if is_valid else args.start_level,
                       distribution_mode=args.distribution_mode,
+                      use_backgrounds=False,
                       num_threads=args.num_threads)
     venv = VecExtractDictObs(venv, "rgb")
     normalize_rew = hyperparameters.get('normalize_rew', True)
