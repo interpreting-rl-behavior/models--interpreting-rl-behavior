@@ -1,3 +1,6 @@
+"""Make sure you've run hidden_analysis_precompute.py before running this
+because it generates data that this script uses."""
+
 import pandas as pd
 import numpy as np
 from sklearn.manifold import TSNE
@@ -38,9 +41,11 @@ def parse_args():
 def run():
     args = parse_args()
     num_episodes = 100#2000  # number of episodes to make plots for. Needs to be
+    num_generated_samples = 100
     # the same as the precomputed data you want to use
     plot_pca = True
     plot_3d_pca_all = True
+    plot_gen_hx_pca = True
     plot_clusters = True
     plot_3d_pca = True
     plot_tsne = True
@@ -79,6 +84,11 @@ def run():
             hx = np.concatenate((hx, hx_to_cat))
         # TODO save
 
+    if plot_gen_hx_pca:
+        gen_hx_pca = np.load(args.precomputed_analysis_data_path + \
+                             '/gen_hx_projected_real%i_gen%i.npy' % (num_episodes,
+                                                                num_generated_samples))
+
     # Get log probs for actions
     if os.path.isfile(lp_presaved_filepath):
         # Load if already done before
@@ -93,7 +103,6 @@ def run():
     entropy = -1 * np.sum(np.exp(lp)*lp, axis=1)
     del lp
     # TODO consider adding UMAP
-    # TODO clusters of hx
 
     # Add extra columns for further analyses variables
     # -  % way through episode
@@ -206,9 +215,17 @@ def run():
                                 c=data[col].loc[data['episode_step']!=0],
                                 cmap=plot_cmaps[col],
                                 s=0.005, alpha=pca_alpha)
+            if plot_gen_hx_pca:
+                splot = plt.scatter(
+                    gen_hx_pca[:, 0],
+                    gen_hx_pca[:, 1],
+                    c='black',
+                    s=0.05, alpha=0.9)
             fig.colorbar(splot, fraction=0.023, pad=0.04)
             ax.legend(title=col, bbox_to_anchor=(1.01, 1),borderaxespad=0)
             ax.set_frame_on(False)
+
+
         fig.tight_layout()
         fig.savefig(f'{save_path}/agent_pca_epsd{num_episodes}_at{time.strftime("%Y%m%d-%H%M%S")}.png')
         plt.close()
