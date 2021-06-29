@@ -165,6 +165,7 @@ class VAE(nn.Module):
             initializer_rnn_hidden_size=512,
             global_context_sample_dim=64,
             global_context_encoder_rnn_hidden_size=512,
+            #Decoder
             agent_hidden_size=64,
             action_space_dim=agent.env.action_space.n,
             env_stepper_rnn_hidden_size=1024,
@@ -208,7 +209,7 @@ class VAE(nn.Module):
 
         # Feed sample(s) to decoder
         pred_obs, pred_rews, pred_dones, pred_agent_hs, pred_agent_logprobs, \
-        pred_agent_values = self.decoder(z_c=sample_c,
+        pred_agent_values, pred_env_hs = self.decoder(z_c=sample_c,
                                          z_g=sample_g,
                                          true_h0=true_h0,
                                          true_actions=true_acts)
@@ -221,6 +222,7 @@ class VAE(nn.Module):
                  'hx': pred_agent_hs,
                  'act_log_probs': pred_agent_logprobs,
                  'values': pred_agent_values,
+                 'env_hx': pred_env_hs,
                  }
 
         return mu_c, logvar_c, mu_g, logvar_g, preds
@@ -362,7 +364,7 @@ class InitializerEncoder(nn.Module):
         # Flatten conv outputs to size HxWxCH to get rnn input vecs
         x = x.view(batches, ts, -1)
 
-        # Pass seq of vecs to global context RNN
+        # Pass seq of vecs to initializer RNN
         x, _ = self.rnn(x)
 
         # Concat RNN output to agent h0 and then pass to Converter nets
@@ -503,10 +505,10 @@ class Decoder(nn.Module):
                                       env_conv_top_shape=env_conv_top_shape,
                                       z_g_size=z_g_size,
                                       stride_out=2,  #2,
-                                      channels_out=[128, 256, 256, 3],  #[64, 64, 256, 3],
-                                      kernel_sizes_out=[4, 4, 2],  #[3, 5, 6],
-                                      padding_hs_out=[1, 1, 0],  #[1, 1, 1],
-                                      padding_ws_out=[1, 1, 0],  #[1, 1, 1],
+                                      channels_out=[128, 128, 256, 3],  #[64, 64, 256, 3],
+                                      kernel_sizes_out=[3, 5, 6],
+                                      padding_hs_out=[1, 1, 1],
+                                      padding_ws_out=[1, 1, 1],
                                       layer_norm=layer_norm)
 
         # Make agent into an attribute of the decoder class
@@ -530,7 +532,7 @@ class Decoder(nn.Module):
         pred_agent_h0, _ = self.agent_initializer(z_c)
         pred_agent_hs.append(pred_agent_h0)
 
-        # if we want to feed the correct h0 instead of the
+        # if we want to feed the correct h0 (the 0th hx) instead of the
         # guessed h0 (for purposes of being able to train the
         # agent and the generative model on different agents), then
         # we need to swap in the true h0 here, but we'll still store
@@ -576,7 +578,7 @@ class Decoder(nn.Module):
 
 
         return pred_obs, pred_rews, pred_dones, pred_agent_hs, \
-               pred_agent_logprobs, pred_agent_values
+               pred_agent_logprobs, pred_agent_values, pred_env_hs
 
 
 class EnvStepperStateInitializer(nn.Module):
