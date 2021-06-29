@@ -26,7 +26,7 @@ class LayeredConvNet(nn.Module):
         attr2 (:obj:`int`, optional): Description of `attr2`.
 
     """
-    def __init__(self, stride=2,
+    def __init__(self, stride=[2, 2, 2],
                  channels=[3, 64, 32, 32],
                  kernel_sizes=[6, 6, 6],
                  padding_hs=[1, 1, 1],
@@ -39,7 +39,8 @@ class LayeredConvNet(nn.Module):
         # Check all inps have right len
         if not len(channels)-1 == len(kernel_sizes) or \
            not len(kernel_sizes) == len(padding_hs) or \
-           not len(padding_hs) == len(padding_ws):
+           not len(padding_hs) == len(padding_ws) or \
+           not len(padding_ws) == len(stride):
             raise ValueError("One of your conv lists has the wrong length.")
 
         self.input_hw = input_hw
@@ -48,25 +49,26 @@ class LayeredConvNet(nn.Module):
         self.deconv = deconv
         ch_in = channels[0]
         self.lns = [] # for debugging only
-        for i, (ch_out, k, p_h, p_w) in enumerate(zip(channels[1:],
+        for i, (ch_out, k, p_h, p_w, strd) in enumerate(zip(channels[1:],
                                                  kernel_sizes,
                                                  padding_hs,
-                                                 padding_ws)):
+                                                 padding_ws,
+                                                 stride)):
             if deconv:
                 net = nn.ConvTranspose2d(ch_in, ch_out,
                                          kernel_size=(k,k),
-                                         stride=(stride,stride),
+                                         stride=(strd,strd),
                                          padding=(p_h,p_w))
             else:
                 net = nn.Conv2d(ch_in, ch_out,
                                 kernel_size=(k,k),
-                                stride=(stride,stride),
+                                stride=(strd,strd),
                                 padding=(p_h,p_w))
             self.nets.append(net)
             if i < len(kernel_sizes) - 1: # Doesn't add actv or LN on last layer
                 if layer_norm:
                     layer_in_hw = conv_output_size(layer_in_hw,
-                                                   stride=stride,
+                                                   stride=strd,
                                                    padding=p_h,
                                                    kernel_size=k,
                                                    transposed=deconv)
@@ -254,7 +256,7 @@ class Encoder(nn.Module):
             InitializerEncoder(rnn_hidden_size=hyperparams.initializer_rnn_hidden_size,
                                agent_hidden_size=hyperparams.agent_hidden_size,
                                sample_dim=hyperparams.initializer_sample_dim,
-                               stride=2,
+                               stride=[2,2,2],
                                channels=[3,64,32,32],
                                kernel_sizes=[6,4,3],
                                padding_hs=[1,1,1],
@@ -264,7 +266,7 @@ class Encoder(nn.Module):
         self.global_context_encoder = \
             GlobalContextEncoder(rnn_hidden_size=hyperparams.global_context_encoder_rnn_hidden_size,
                                  sample_dim=hyperparams.global_context_sample_dim,
-                                 stride=2,
+                                 stride=[2,2,2],
                                  channels=[3, 32, 16, 16],
                                  kernel_sizes=[6, 4, 3],
                                  padding_hs=[1, 1, 1],
@@ -504,11 +506,11 @@ class Decoder(nn.Module):
         self.env_stepper = EnvStepper(env_hidden_size=env_h_size,
                                       env_conv_top_shape=env_conv_top_shape,
                                       z_g_size=z_g_size,
-                                      stride_out=2,  #2,
-                                      channels_out=[128, 128, 256, 3],  #[64, 64, 256, 3],
-                                      kernel_sizes_out=[3, 5, 6],
-                                      padding_hs_out=[1, 1, 1],
-                                      padding_ws_out=[1, 1, 1],
+                                      stride_out=[2, 2, 2, 1],  #2,
+                                      channels_out=[128, 128, 128, 128, 3],  #[64, 64, 256, 3],
+                                      kernel_sizes_out=[2, 4, 2, 3], #[3, 5, 6],
+                                      padding_hs_out=[0, 1, 0, 1], # [1, 1, 1],
+                                      padding_ws_out=[0, 1, 0, 1], # [1, 1, 1],
                                       layer_norm=layer_norm)
 
         # Make agent into an attribute of the decoder class
