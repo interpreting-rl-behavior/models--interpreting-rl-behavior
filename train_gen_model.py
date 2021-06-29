@@ -296,7 +296,7 @@ def train(epoch, args, train_loader, optimizer, gen_model, agent, logger, save_d
             logger.info('Generative model saved to {}'.format(model_path))
 
         # Visualize the predictions compared with the ground truth
-        if batch_idx % 2000 == 0 or (epoch < 1 and batch_idx % 1000 == 0):
+        if batch_idx % 10000 == 0 or (epoch < 1 and batch_idx % 5000 == 0):
 
             with torch.no_grad():
                 pred_obs = torch.stack(preds['obs'], dim=1).squeeze()
@@ -355,7 +355,7 @@ def loss_function(args, preds, labels, mu_c, logvar_c, mu_g, logvar_g, train_inf
     # Reconstruction loss
     losses = []
     for key in preds.keys():
-        if key == 'values': # Not using values for loss
+        if key == 'values' or key == 'env_hx': # Not using values for loss
             continue
         pred  = torch.stack(preds[key], dim=1).squeeze()
 
@@ -408,10 +408,6 @@ def loss_function(args, preds, labels, mu_c, logvar_c, mu_g, logvar_g, train_inf
     kl_divergence *= args.loss_scale_kl
 
     return loss + kl_divergence, train_info_bufs
-
-#DONE fioverwriting of samples every epoch (something to do with names): Decided that it's better to keep it the way it is and just get rid of it for online publication. It's also nice to be able to see which runs I'd left running based on num files in dir. # TODO remove this comment when you're happy with the decision.
-
-# TODO check ur iin the right train/test mode
 
 def demo_recon_quality(args, epoch, train_loader, optimizer, gen_model, logger,
           save_dir, device, use_true_h0=False, use_true_actions=True):
