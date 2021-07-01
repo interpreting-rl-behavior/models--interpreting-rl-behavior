@@ -786,7 +786,7 @@ class ActionConditionedLayerNormConvLSTMCell(nn.Module):
         # instead of a weight.
 
 
-        ln = LayerNorm
+        ln = nn.LayerNorm
         self.layernorm_ih = ln((4 * hidden_dim, height, width))
         self.layernorm_c = ln((hidden_dim, height, width))
         self.layernorm_v = ln((fusion_dim, height, width))
@@ -797,16 +797,19 @@ class ActionConditionedLayerNormConvLSTMCell(nn.Module):
 
         # Broadcast action-fusion vector to same shape as hidden state
         act_fus_vec = torch.mm(action_vec, self.fusion_weight_a)
-        act_fus_vec_block = torch.stack([act_fus_vec]*h_cur.shape[2]*h_cur.shape[3], dim=2)
+        act_fus_vec_block = torch.stack([act_fus_vec]*h_cur.shape[1]*h_cur.shape[2], dim=2)
         act_fus_vec_block = act_fus_vec_block.view(act_fus_vec_block.shape[0],
-                                                   act_fus_vec_block.shape[-1],
-                                                   h_cur.shape[2],
-                                                   h_cur.shape[3])
+                                                   act_fus_vec_block.shape[1],
+                                                   h_cur.shape[1],
+                                                   h_cur.shape[2])
         fusion_block = h_cur * act_fus_vec_block  # elementwise mult
         fusion_block = self.layernorm_v(fusion_block)
 
         # Gate update
-        combined = torch.cat([input_tensor, fusion_block], dim=1)  # concatenate along channel axis
+        if input_tensor is None:
+            combined = fusion_block
+        else:
+            combined = torch.cat([input_tensor, fusion_block], dim=1)  # concatenate along channel axis
 
         combined_conv = self.gate_conv(combined)
         combined_conv = self.layernorm_ih(combined_conv)
@@ -899,7 +902,7 @@ class ActionConditionedLayerNormConvLSTM(nn.Module):
 
         self.cell_list = nn.ModuleList(cell_list)
 
-    def forward(self, input_tensor, hidden_state=None, action_vec=None):
+    def forward(self, input_tensor, hidden_state=None, action_vec=None, seq_len=1):
         """
 
         Parameters
@@ -913,47 +916,79 @@ class ActionConditionedLayerNormConvLSTM(nn.Module):
         -------
         last_state_list, layer_output
         """
-        if not self.batch_first:
-            # (t, b, c, h, w) -> (b, t, c, h, w)
-            input_tensor = input_tensor.permute(1, 0, 2, 3, 4)
+        if input_tensor is None:
 
-        b, _, _, h, w = input_tensor.size()
 
-        # Implement stateful ConvLSTM
-        if hidden_state is not None:
-            raise NotImplementedError()
+            b, _, h, w = hidden_state[0].size()
+
+            layer_output_list = []
+            last_state_list = []
+
+            for layer_idx in range(self.num_layers):
+
+                h, c = hidden_state[layer_idx]
+                output_inner = []
+                for t in range(seq_len): #TODO clean this function
+                    h, c = self.cell_list[layer_idx](
+                        input_tensor=None,
+                        cur_state=[h, c],
+                        action_vec=action_vec)
+                    output_inner.append(
+                        h)  # TODO also output stacked cell states
+
+                layer_output = torch.stack(output_inner, dim=1)
+                cur_layer_input = layer_output
+
+                layer_output_list.append(layer_output)
+                last_state_list.append([h, c])
+
+            if not self.return_all_layers:
+                layer_output_list = layer_output_list[-1:]
+                last_state_list = last_state_list[-1:]
+
+            return layer_output_list, [h, c]
         else:
-            # Since the init is done in forward. Can send image size here
-            hidden_state = self._init_hidden(batch_size=b,
-                                             image_size=(h, w))
+            if not self.batch_first:
+                # (t, b, c, h, w) -> (b, t, c, h, w)
+                input_tensor = input_tensor.permute(1, 0, 2, 3, 4)
 
-        layer_output_list = []
-        last_state_list = []
+            b, _, _, h, w = input_tensor.size()
 
-        seq_len = input_tensor.size(1)
-        cur_layer_input = input_tensor
+            # Implement stateful ConvLSTM
+            if hidden_state is not None:
+                raise NotImplementedError()
+            else:
+                # Since the init is done in forward. Can send image size here
+                hidden_state = self._init_hidden(batch_size=b,
+                                                 image_size=(h, w))
 
-        for layer_idx in range(self.num_layers):
+            layer_output_list = []
+            last_state_list = []
 
-            h, c = hidden_state[layer_idx]
-            output_inner = []
-            for t in range(seq_len):
-                h, c = self.cell_list[layer_idx](input_tensor=cur_layer_input[:, t, :, :, :],
-                                                 cur_state=[h, c],
-                                                 action_vec=action_vec)
-                output_inner.append(h) # TODO also output stacked cell states
+            seq_len = input_tensor.size(1)
+            cur_layer_input = input_tensor
 
-            layer_output = torch.stack(output_inner, dim=1)
-            cur_layer_input = layer_output
+            for layer_idx in range(self.num_layers):
 
-            layer_output_list.append(layer_output)
-            last_state_list.append([h, c])
+                h, c = hidden_state[layer_idx]
+                output_inner = []
+                for t in range(seq_len):
+                    h, c = self.cell_list[layer_idx](input_tensor=cur_layer_input[:, t, :, :, :],
+                                                     cur_state=[h, c],
+                                                     action_vec=action_vec)
+                    output_inner.append(h) # TODO also output stacked cell states
 
-        if not self.return_all_layers:
-            layer_output_list = layer_output_list[-1:]
-            last_state_list = last_state_list[-1:]
+                layer_output = torch.stack(output_inner, dim=1)
+                cur_layer_input = layer_output
 
-        return layer_output_list, last_state_list
+                layer_output_list.append(layer_output)
+                last_state_list.append([h, c])
+
+            if not self.return_all_layers:
+                layer_output_list = layer_output_list[-1:]
+                last_state_list = last_state_list[-1:]
+
+            return layer_output_list, last_state_list
 
     def _init_hidden(self, batch_size, image_size):
         init_states = []

@@ -7,7 +7,9 @@ import numpy as np
 from torch.nn import init
 import torch.optim as optim
 from torch.nn import Parameter as P
-from .action_cond_lstm import ActionCondLSTMLayer, LSTMCell, ActionCondLSTMCell, ActionCondLayerNormLSTMCell, LSTMState
+from .action_cond_lstm import ActionCondLSTMLayer, LSTMCell, \
+    ActionCondLSTMCell, ActionCondLayerNormLSTMCell, LSTMState, \
+    ActionConditionedLayerNormConvLSTM
 
 class LayeredConvNet(nn.Module):
     """Template class
@@ -26,7 +28,7 @@ class LayeredConvNet(nn.Module):
         attr2 (:obj:`int`, optional): Description of `attr2`.
 
     """
-    def __init__(self, stride=2,
+    def __init__(self, strides=[2, 2, 2],
                  channels=[3, 64, 32, 32],
                  kernel_sizes=[6, 6, 6],
                  padding_hs=[1, 1, 1],
@@ -48,10 +50,11 @@ class LayeredConvNet(nn.Module):
         self.deconv = deconv
         ch_in = channels[0]
         self.lns = [] # for debugging only
-        for i, (ch_out, k, p_h, p_w) in enumerate(zip(channels[1:],
+        for i, (ch_out, k, p_h, p_w, stride) in enumerate(zip(channels[1:],
                                                  kernel_sizes,
                                                  padding_hs,
-                                                 padding_ws)):
+                                                 padding_ws,
+                                                 strides)):
             if deconv:
                 net = nn.ConvTranspose2d(ch_in, ch_out,
                                          kernel_size=(k,k),
@@ -254,7 +257,7 @@ class Encoder(nn.Module):
             InitializerEncoder(rnn_hidden_size=hyperparams.initializer_rnn_hidden_size,
                                agent_hidden_size=hyperparams.agent_hidden_size,
                                sample_dim=hyperparams.initializer_sample_dim,
-                               stride=2,
+                               strides=[2,2,2],
                                channels=[3,64,32,32],
                                kernel_sizes=[6,4,3],
                                padding_hs=[1,1,1],
@@ -264,7 +267,7 @@ class Encoder(nn.Module):
         self.global_context_encoder = \
             GlobalContextEncoder(rnn_hidden_size=hyperparams.global_context_encoder_rnn_hidden_size,
                                  sample_dim=hyperparams.global_context_sample_dim,
-                                 stride=2,
+                                 strides=[2,2,2],
                                  channels=[3, 32, 16, 16],
                                  kernel_sizes=[6, 4, 3],
                                  padding_hs=[1, 1, 1],
@@ -316,10 +319,10 @@ class InitializerEncoder(nn.Module):
 
     """
     def __init__(self, rnn_hidden_size, agent_hidden_size,
-                 sample_dim, stride, channels,
+                 sample_dim, strides, channels,
                  kernel_sizes, padding_hs, padding_ws, layer_norm):
         super(InitializerEncoder, self).__init__()
-        self.conv_input = LayeredConvNet(stride=stride,
+        self.conv_input = LayeredConvNet(strides=strides,
                                          channels=channels,
                                          kernel_sizes=kernel_sizes,
                                          padding_hs=padding_hs,
@@ -396,10 +399,10 @@ class GlobalContextEncoder(nn.Module):
         attr2 (:obj:`int`, optional): Description of `attr2`.
 
     """
-    def __init__(self, rnn_hidden_size, sample_dim, stride, channels,
+    def __init__(self, rnn_hidden_size, sample_dim, strides, channels,
                  kernel_sizes, padding_hs, padding_ws, layer_norm):
         super(GlobalContextEncoder, self).__init__()
-        self.conv_input = LayeredConvNet(stride=stride,
+        self.conv_input = LayeredConvNet(strides=strides,
                                          channels=channels,
                                          kernel_sizes=kernel_sizes,
                                          padding_hs=padding_hs,
@@ -489,6 +492,7 @@ class Decoder(nn.Module):
         self.num_sim_steps = hyperparams.num_sim_steps
 
         env_conv_top_shape = [128, 8, 8]
+        env_h_shape = [128, 32, 32]
 
         # Make agent initializer network
         self.agent_initializer = NLayerPerceptron([z_c_size,
@@ -498,15 +502,14 @@ class Decoder(nn.Module):
 
         # Make EnvStepperInitializerNetwork
         self.env_stepper_initializer = \
-            EnvStepperStateInitializer(z_c_size, z_g_size, env_h_size, layer_norm=layer_norm)
+            EnvStepperStateInitializer(z_c_size, z_g_size, env_h_shape, layer_norm=layer_norm)
 
         # Make EnvStepper
-        self.env_stepper = EnvStepper(env_hidden_size=env_h_size,
-                                      env_conv_top_shape=env_conv_top_shape,
+        self.env_stepper = EnvStepper(env_h_shape=env_h_shape,
                                       z_g_size=z_g_size,
-                                      stride_out=2,  #2,
+                                      stride_out=[1,2,1],  #2,
                                       channels_out=[128, 128, 256, 3],  #[64, 64, 256, 3],
-                                      kernel_sizes_out=[3, 5, 6],
+                                      kernel_sizes_out=[3, 4, 3],
                                       padding_hs_out=[1, 1, 1],
                                       padding_ws_out=[1, 1, 1],
                                       layer_norm=layer_norm)
@@ -598,23 +601,52 @@ class EnvStepperStateInitializer(nn.Module):
         attr2 (:obj:`int`, optional): Description of `attr2`.
 
     """
-    def __init__(self, z_c_size, z_g_size, env_h_size, layer_norm):
+    def __init__(self, z_c_size, z_g_size, env_h_shape, layer_norm):
         super(EnvStepperStateInitializer, self).__init__()
+        env_h_size = torch.prod(torch.tensor(env_h_shape))
+        self.base_h_w = 8
+        self.base_ch = 64
         self.base = NLayerPerceptron([z_c_size + z_g_size,
-                                      env_h_size,
-                                      env_h_size * 2], layer_norm=layer_norm)
-        self.cell_net = nn.Sequential(nn.ReLU(),
-            nn.Linear(env_h_size * 2, env_h_size),
-                                      nn.Sigmoid())
-        self.hx_net = nn.Sequential(nn.ReLU(),
-            nn.Linear(env_h_size * 2, env_h_size),
-                                    nn.Tanh())
+                                      z_c_size + z_g_size,
+                                      self.base_ch*(self.base_h_w**2)],
+                                     layer_norm=layer_norm)
+
+        if env_h_shape[-1] == 32:
+            strides = [2, 1, 2]
+            channels = [64, 64, 64, env_h_shape[0]]
+            kernel_sizes = [2, 3, 2]
+            padding_hs = [0, 1, 0]
+            padding_ws = [0, 1, 0]
+        elif env_h_shape[-1] == 16:
+            raise NotImplementedError
+        elif env_h_shape[-1] == 8:
+            raise NotImplementedError
+        elif env_h_shape[-1] == 1:
+            raise NotImplementedError
+
+        self.cell_net = LayeredConvNet(strides=strides,
+                                      channels=channels,
+                                      kernel_sizes=kernel_sizes,
+                                      padding_hs=padding_hs,
+                                      padding_ws=padding_ws,
+                                      deconv=True,
+                                      layer_norm=layer_norm,
+                                      input_hw=self.base_h_w)
+        self.hx_net = LayeredConvNet(strides=strides,
+                                      channels=channels,
+                                      kernel_sizes=kernel_sizes,
+                                      padding_hs=padding_hs,
+                                      padding_ws=padding_ws,
+                                      deconv=True,
+                                      layer_norm=layer_norm,
+                                      input_hw=self.base_h_w)
 
     def forward(self, z_c, z_g):
         z = torch.cat([z_c, z_g], dim=1)
         x, _ = self.base(z)
-        cell_state = self.cell_net(x)
-        hx_state = self.hx_net(x)
+        x = x.view(-1, self.base_ch, self.base_h_w, self.base_h_w)
+        cell_state = self.cell_net(x)[0]
+        hx_state = self.hx_net(x)[0]
         return (hx_state, cell_state)
 
 class EnvStepper(nn.Module):
@@ -634,72 +666,100 @@ class EnvStepper(nn.Module):
         attr2 (:obj:`int`, optional): Description of `attr2`.
 
     """
-    def __init__(self, env_hidden_size, env_conv_top_shape, z_g_size,
+    def __init__(self, env_h_shape, z_g_size,
                  stride_out, channels_out, kernel_sizes_out, padding_hs_out,
                  padding_ws_out, layer_norm):
         super(EnvStepper, self).__init__()
 
-        self.env_h_size = env_hidden_size
-        self.ob_conv_top_shape = env_conv_top_shape
-        self.shp = self.ob_conv_top_shape  # legibility
-        self.ob_conv_top_size = np.prod(self.ob_conv_top_shape)
+        self.env_h_ch = env_h_shape[0]
+        self.env_h_hw = env_h_shape[1]
+        #
         self.z_g_size = z_g_size
 
         # Networks in output step
-        self.ob_decoder_fc = NLayerPerceptron([self.env_h_size,
-                                               self.ob_conv_top_size])
-        self.ob_decoder_conv = LayeredConvNet(stride=stride_out,
+        self.ob_decoder_conv = LayeredConvNet(strides=stride_out,
                                               channels=channels_out,
                                               kernel_sizes=kernel_sizes_out,
                                               padding_hs=padding_hs_out,
                                               padding_ws=padding_ws_out,
                                               deconv=True,
                                               layer_norm=layer_norm,
-                                              input_hw=self.ob_conv_top_shape[1])
-        self.done_decoder = NLayerPerceptron([env_hidden_size, 64, 1],
-                                             layer_norm=layer_norm)
-        self.reward_decoder = NLayerPerceptron([env_hidden_size, 64, 1],
-                                               layer_norm=layer_norm)
+                                              input_hw=self.env_h_hw)
+
+
+
+
+        # Reward and done decoder conv network
+        if self.env_h_hw == 32:
+            reward_done_decoder_strides = [2, 3]
+            reward_done_decoder_channels = [128, 32, 4]
+            reward_done_decoder_kernel_sizes = [4, 3]
+            reward_done_decoder_padding_hs = [0, 0]
+            reward_done_decoder_padding_ws = [0, 0]
+        elif self.env_h_hw == 16:
+            raise NotImplementedError
+        elif self.env_h_hw == 8:
+            raise NotImplementedError
+        elif self.env_h_hw == 1:
+            raise NotImplementedError
+        self.reward_done_decoder_conv = LayeredConvNet(strides=reward_done_decoder_strides,
+                                              channels=reward_done_decoder_channels,
+                                              kernel_sizes=reward_done_decoder_kernel_sizes,
+                                              padding_hs=reward_done_decoder_padding_hs,
+                                              padding_ws=reward_done_decoder_padding_ws,
+                                              deconv=False,
+                                              layer_norm=layer_norm,
+                                              input_hw=self.env_h_hw)
+
+        # Reward and done decoder fc networks that branch off the conv
+        dummy_tensor = torch.randn([2, self.env_h_ch,
+                                    self.env_h_hw, self.env_h_hw])
+        with torch.no_grad():
+            dummy_output = \
+                self.reward_done_decoder_conv(dummy_tensor)[0].shape[-3:]
+            reward_done_decoder_outsize = \
+                int(torch.prod(torch.tensor(dummy_output)))
+        self.done_decoder_fc = \
+            NLayerPerceptron([reward_done_decoder_outsize,
+                              reward_done_decoder_outsize//2, 1],
+                             layer_norm=layer_norm)
+        self.reward_decoder_fc = \
+            NLayerPerceptron([reward_done_decoder_outsize,
+                              reward_done_decoder_outsize//2, 1],
+                             layer_norm=layer_norm)
+
 
         # Networks in forward step
-        if layer_norm:
-            cell = ActionCondLayerNormLSTMCell
-        else:
-            cell = ActionCondLSTMCell
-        self.env_rnn = ActionCondLSTMLayer(cell,
-                                 self.z_g_size,  # input size + self.env_h_size + self.z_g_size,
-                                 self.env_h_size,  # hx size
-                                 self.env_h_size*2,  # fusion size
-                                 15,  # action space dim
-                                 )
+        self.env_rnn = ActionConditionedLayerNormConvLSTM(
+            input_dim=0,
+            hidden_dim=self.env_h_ch,
+            fusion_dim=self.env_h_ch,
+            kernel_size=(3,3),
+            action_dim=15+self.z_g_size,
+            num_layers=1,
+            height=self.env_h_hw,
+            width=self.env_h_hw)
 
     def encode_and_step(self, act, rnn_state, z_g):
 
-        rnn_state = LSTMState(rnn_state[0],rnn_state[1])
-
-        # Unsqueeze to create unitary time dimension
-        act = torch.unsqueeze(act, dim=1)
-        z_g = torch.unsqueeze(z_g, dim=1)
+        action_vec = torch.cat([act, z_g], dim=1)
 
         # Step RNN (Time increments here)
-        in_vec = z_g
-        out, out_state = self.env_rnn(in_vec, act, rnn_state)
+        out, out_state = self.env_rnn(None, rnn_state, action_vec)
 
         return out_state
 
     def decode_hx(self, hx):
 
         # Convert hidden state to image prediction
-        x, _ = self.ob_decoder_fc(hx)
-        x = x.view(x.shape[0], self.shp[0], self.shp[1], self.shp[2])
-        ob, _ = self.ob_decoder_conv(x)
+        ob, _ = self.ob_decoder_conv(hx)
         ob = torch.sigmoid(ob)
 
-        # Convert hidden state to reward prediction
-        rew, _ = self.reward_decoder(hx)
-
-        # Conver hidden state to done prediction
-        done, _ = self.done_decoder(hx)
+        # Convert hidden state to reward and done prediction
+        rew_done_x, _ = self.reward_done_decoder_conv(hx)
+        rew_done_x = rew_done_x.view(rew_done_x.shape[0], -1)
+        rew, _ = self.reward_decoder_fc(rew_done_x)
+        done, _ = self.done_decoder_fc(rew_done_x)
         done = torch.sigmoid(done)
 
         return ob, rew, done
