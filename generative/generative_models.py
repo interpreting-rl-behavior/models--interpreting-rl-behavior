@@ -547,6 +547,7 @@ class Decoder(nn.Module):
         # Make agent initializer network
         self.agent_initializer = NLayerPerceptron([z_c_size,
                                                    256,
+                                                   256,
                                                    agent_h0_size],
                                                   layer_norm=layer_norm)
 
@@ -558,7 +559,7 @@ class Decoder(nn.Module):
         self.env_stepper = EnvStepper(env_hidden_size=env_h_size,
                                       env_conv_top_shape=env_conv_top_shape,
                                       z_g_size=z_g_size,
-                                      channels=[128, 128, 128, 3],  #[64, 64, 256, 3],
+                                      channels=[128, 256, 256, 3],  #[64, 64, 256, 3],
                                       layer_norm=layer_norm)
 
         # Make agent into an attribute of the decoder class
