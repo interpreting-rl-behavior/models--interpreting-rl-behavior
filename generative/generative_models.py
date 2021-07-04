@@ -131,6 +131,58 @@ class NLayerPerceptron(nn.Module):
         return out, outs
 
 
+class ResBlockUp(nn.Module):
+    """A Residual Block with optional upsampling.
+
+    Adapted from [BigGAN](https://github.com/ajbrock/BigGAN-PyTorch/blob/98459431a5d618d644d54cd1e9fceb1e5045648d/layers.py ) (Brock et al. 2018)
+
+    """
+
+    def __init__(self, in_channels, out_channels, hw,
+                 which_conv=nn.Conv2d, which_norm=nn.LayerNorm,
+                 activation=nn.LeakyReLU(),
+                 upsample=nn.UpsamplingNearest2d(scale_factor=2)):
+        super(ResBlockUp, self).__init__()
+
+        self.in_channels, self.out_channels = in_channels, out_channels
+        self.which_conv, self.which_norm = which_conv, which_norm
+        self.activation = activation
+        self.upsample = upsample
+        kern = 3
+        stride = 1
+
+        # Conv layers
+        self.conv1 = self.which_conv(self.in_channels, self.out_channels,
+                                     kernel_size=kern, stride=stride,
+                                     padding=1)
+        self.conv2 = self.which_conv(self.out_channels, self.out_channels,
+                                     kernel_size=kern, stride=stride,
+                                     padding=1)
+
+        self.learnable_sc = in_channels != out_channels or upsample
+        if self.learnable_sc:  # learnable shortcut connection
+            self.conv_sc = self.which_conv(in_channels, out_channels,
+                                           kernel_size=1, padding=0)
+        # Normalization layers
+        self.normalize1 = self.which_norm([self.in_channels, hw, hw])
+        self.normalize2 = self.which_norm([self.out_channels, hw * 2, hw * 2])
+
+        # upsample layers
+        self.upsample = upsample
+
+    def forward(self, x):
+        h = self.activation(self.normalize1(x))
+        if self.upsample:
+            h = self.upsample(h)
+            x = self.upsample(x)
+        h = self.conv1(h)
+        h = self.activation(self.normalize2(h))
+        h = self.conv2(h)
+        if self.learnable_sc:
+            x = self.conv_sc(x)
+        return h + x
+
+
 class VAE(nn.Module):
     """The Variational Autoencoder that generates agent-environment sequences.
 
@@ -506,11 +558,7 @@ class Decoder(nn.Module):
         self.env_stepper = EnvStepper(env_hidden_size=env_h_size,
                                       env_conv_top_shape=env_conv_top_shape,
                                       z_g_size=z_g_size,
-                                      stride_out=[2, 2, 2, 1],  #2,
-                                      channels_out=[128, 128, 128, 128, 3],  #[64, 64, 256, 3],
-                                      kernel_sizes_out=[2, 4, 2, 3], #[3, 5, 6],
-                                      padding_hs_out=[0, 1, 0, 1], # [1, 1, 1],
-                                      padding_ws_out=[0, 1, 0, 1], # [1, 1, 1],
+                                      channels=[128, 128, 128, 3],  #[64, 64, 256, 3],
                                       layer_norm=layer_norm)
 
         # Make agent into an attribute of the decoder class
@@ -604,13 +652,24 @@ class EnvStepperStateInitializer(nn.Module):
         super(EnvStepperStateInitializer, self).__init__()
         self.base = NLayerPerceptron([z_c_size + z_g_size,
                                       env_h_size,
-                                      env_h_size * 2], layer_norm=layer_norm)
-        self.cell_net = nn.Sequential(nn.ReLU(),
+                                      env_h_size], layer_norm=layer_norm)
+        actv = nn.LeakyReLU
+        self.cell_net = nn.Sequential(
+            nn.LayerNorm(env_h_size),
+            actv(),
+            nn.Linear(env_h_size, env_h_size * 2),
+            nn.LayerNorm(env_h_size * 2),
+            actv(),
             nn.Linear(env_h_size * 2, env_h_size),
-                                      nn.Sigmoid())
-        self.hx_net = nn.Sequential(nn.ReLU(),
+            nn.Sigmoid())
+        self.hx_net = nn.Sequential(
+            nn.LayerNorm(env_h_size),
+            actv(),
+            nn.Linear(env_h_size, env_h_size * 2),
+            nn.LayerNorm(env_h_size * 2),
+            actv(),
             nn.Linear(env_h_size * 2, env_h_size),
-                                    nn.Tanh())
+            nn.Tanh())
 
     def forward(self, z_c, z_g):
         z = torch.cat([z_c, z_g], dim=1)
@@ -637,8 +696,7 @@ class EnvStepper(nn.Module):
 
     """
     def __init__(self, env_hidden_size, env_conv_top_shape, z_g_size,
-                 stride_out, channels_out, kernel_sizes_out, padding_hs_out,
-                 padding_ws_out, layer_norm):
+                 channels, layer_norm):
         super(EnvStepper, self).__init__()
 
         self.env_h_size = env_hidden_size
@@ -650,14 +708,33 @@ class EnvStepper(nn.Module):
         # Networks in output step
         self.ob_decoder_fc = NLayerPerceptron([self.env_h_size,
                                                self.ob_conv_top_size])
-        self.ob_decoder_conv = LayeredConvNet(stride=stride_out,
-                                              channels=channels_out,
-                                              kernel_sizes=kernel_sizes_out,
-                                              padding_hs=padding_hs_out,
-                                              padding_ws=padding_ws_out,
-                                              deconv=True,
-                                              layer_norm=layer_norm,
-                                              input_hw=self.ob_conv_top_shape[1])
+        # self.ob_decoder_conv = LayeredConvNet(stride=stride_out,
+        #                                       channels=channels_out,
+        #                                       kernel_sizes=kernel_sizes_out,
+        #                                       padding_hs=padding_hs_out,
+        #                                       padding_ws=padding_ws_out,
+        #                                       deconv=True,
+        #                                       layer_norm=layer_norm,
+        #                                       input_hw=self.ob_conv_top_shape[1])
+        self.ob_decoder_conv = nn.ModuleList([])
+        image_out_size = 64
+        doubles = 1
+        while True:
+            if image_out_size // (self.shp[-1] * 2**doubles ) == 1:
+                break
+            else:
+                doubles += 1
+
+        num_layers = doubles
+        hw = self.shp[-1]
+        for l in range(num_layers):
+            in_ch = channels[l]
+            out_ch = channels[l+1]
+            net = ResBlockUp(in_channels=in_ch,
+                             out_channels=out_ch,
+                             hw=hw)
+            hw *= 2
+            self.ob_decoder_conv.append(net)
         self.done_decoder = NLayerPerceptron([env_hidden_size, 64, 1],
                                              layer_norm=layer_norm)
         self.reward_decoder = NLayerPerceptron([env_hidden_size, 64, 1],
@@ -694,8 +771,9 @@ class EnvStepper(nn.Module):
         # Convert hidden state to image prediction
         x, _ = self.ob_decoder_fc(hx)
         x = x.view(x.shape[0], self.shp[0], self.shp[1], self.shp[2])
-        ob, _ = self.ob_decoder_conv(x)
-        ob = torch.sigmoid(ob)
+        for resup in self.ob_decoder_conv:
+            x = resup(x)
+        ob = torch.sigmoid(x)
 
         # Convert hidden state to reward prediction
         rew, _ = self.reward_decoder(hx)
