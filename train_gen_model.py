@@ -354,9 +354,7 @@ def loss_function(args, preds, labels, mu_c, logvar_c, mu_g, logvar_g, train_inf
 
     # Reconstruction loss
     losses = []
-    for key in preds.keys():
-        if key == 'values' or key == 'env_hx': # Not using values for loss
-            continue
+    for key in loss_hyperparams.keys():
         pred  = torch.stack(preds[key], dim=1).squeeze()
 
         label = labels[key].to(device).float().squeeze()
