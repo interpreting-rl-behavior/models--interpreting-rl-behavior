@@ -604,24 +604,13 @@ class EnvStepperStateInitializer(nn.Module):
         super(EnvStepperStateInitializer, self).__init__()
         self.base = NLayerPerceptron([z_c_size + z_g_size,
                                       env_h_size,
-                                      env_h_size], layer_norm=layer_norm)
-        actv = nn.LeakyReLU
-        self.cell_net = nn.Sequential(
-            nn.LayerNorm(env_h_size),
-            actv(),
-            nn.Linear(env_h_size, env_h_size),
-            nn.LayerNorm(env_h_size),
-            actv(),
-            nn.Linear(env_h_size, env_h_size),
-            nn.Sigmoid())
-        self.hx_net = nn.Sequential(
-            nn.LayerNorm(env_h_size),
-            actv(),
-            nn.Linear(env_h_size, env_h_size),
-            nn.LayerNorm(env_h_size ),
-            actv(),
-            nn.Linear(env_h_size, env_h_size),
-            nn.Tanh())
+                                      env_h_size * 2], layer_norm=layer_norm)
+        self.cell_net = nn.Sequential(nn.ReLU(),
+            nn.Linear(env_h_size * 2, env_h_size),
+                                      nn.Sigmoid())
+        self.hx_net = nn.Sequential(nn.ReLU(),
+            nn.Linear(env_h_size * 2, env_h_size),
+                                    nn.Tanh())
 
     def forward(self, z_c, z_g):
         z = torch.cat([z_c, z_g], dim=1)
