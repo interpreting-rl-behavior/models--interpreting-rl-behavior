@@ -64,7 +64,7 @@ def run():
                         help='number of checkpoints to store')
     parser.add_argument('--model_file', type=str)
     parser.add_argument('--agent_file', type=str)
-    parser.add_argument('--data_save_dir', type=str, default='generative/recorded_gen_samples')
+    parser.add_argument('--data_save_dir', type=str, default='generative/recorded_random_gen_samples')
     parser.add_argument('--save_interval', type=int, default=100)
     parser.add_argument('--log_interval', type=int, default=100)
     parser.add_argument('--lr', type=float, default=5e-4)

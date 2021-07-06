@@ -3,10 +3,28 @@ When the generative model is training, the data are logged to a CSV file. This
 script plots the relevant variables.
 """
 # TODO fix these plots
+import os
+
 import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
 import argparse
+
+def run():
+    # Get CLI args
+    args = parse_args()
+    if args.datapath == 'all':
+        # get all experiment dirs
+        dirs = next(os.walk('results'))[1]
+
+        # for loop that plots all exps
+        for dir in dirs:
+            path = './results/' + dir
+            sub_dirs = next(os.walk(path))[1]
+            for sub_dir in sub_dirs:
+                print(path + '/' + sub_dir)
+                plot(os.path.join(path, sub_dir))
+
 
 
 def parse_args():
@@ -17,15 +35,13 @@ def parse_args():
     args = parser.parse_args()
     return args
 
-def plot():
+def plot(data_path):
     """
     Gets the csv and plots the desired data.
 
     The result is the generative model training curve.
     """
-    # Get CLI args
-    args = parse_args()
-    data = pd.read_csv(args.datapath + "/progress.csv")
+    data = pd.read_csv(data_path + "/progress.csv")
 
     # Get rid of columns we don't want to plot
     cols = list(data.columns)
@@ -56,10 +72,10 @@ def plot():
 
     plt.xlabel('# batches')
     plt.legend()
-    plt.savefig(args.datapath + "/plot_gen_model_training.png")
-    data_name = args.datapath[-15:]
-    parent_dir = args.datapath[:100]
-    plt.savefig(parent_dir + f"plot_gen_model_training_{data_name}.png")
+    plt.savefig(data_path + "/plot_gen_model_training.png")
+    exp_name, data_date = data_path.split('/')[2:4]
+    parent_dir = data_path[:10]
+    plt.savefig(parent_dir + f"plot_gen_model_training_{exp_name + data_date}.png")
 
 if __name__ == '__main__':
-    plot()
+    run()
