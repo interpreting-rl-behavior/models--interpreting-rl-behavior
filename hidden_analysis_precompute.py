@@ -83,6 +83,8 @@ def run():
     scaler = StandardScaler()
     scaler = scaler.fit(hx_prescaling)
     hx = scaler.transform(hx_prescaling)
+    gen_hx_prescaling = gen_hx
+    gen_hx = scaler.transform(gen_hx) # TODO does this need its own scaler?
     mean_hx = scaler.mean_
     var_hx = scaler.var_
     pca = PCA(n_components=n_components_pca)
