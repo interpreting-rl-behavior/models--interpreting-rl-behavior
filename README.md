@@ -40,6 +40,8 @@ like:
 Assuming your agent is behaviour as you'd like it to, now we can start 
 interpreting it. 
 
+# Making recordings and training the generative model 
+
 To begin interpretation, we need to record a bunch of agent-environment 
 rollouts in order to train the generative model:
 
@@ -53,15 +55,16 @@ agent-environment rollouts:
 That'll take a while to train. Once it's trained, we'll record some agent-
 environment rollouts from the model. This will enable us to compare the 
 simulations to the true rollouts and will help us understand our generative 
-model (which includes the agent that we want to interpret) better. 
-
-First, we record samples from the generative model:
+model (which includes the agent that we want to interpret) better. This is how
+we record samples from the generative model:
 
 > python record_informinit_gen_samples.py --agent_file="./logs/procgen/coinrun/trainhx_1Mlvls/seed_498_07-06-2021_23-26-27/model_80412672.pth" --param_name=hard-local-dev-rec --log_interval=10 --batch_size=40 --num_sim_steps=7 --num_initializing_steps=3 --save_interval=10000 --lr=1e-4 --env_name=coinrun --model_file="/home/lee/Documents/AI_ML_neur_projects/aisc_project/train-procgen-pytorch/generative/results/coinrun_largekerns_rvrt_bigtop_nobackgr/20210627_192555/model_epoch0_batch190000.pt"
 
 > python record_random_gen_samples.py --agent_file="./logs/procgen/coinrun/trainhx_1Mlvls/seed_498_07-06-2021_23-26-27/model_80412672.pth" --param_name=hard-local-dev-rec --log_interval=10 --batch_size=40 --num_sim_steps=7 --num_initializing_steps=3 --save_interval=10000 --lr=1e-4 --env_name=coinrun --model_file="/home/lee/Documents/AI_ML_neur_projects/aisc_project/train-procgen-pytorch/generative/results/coinrun_largekerns_rvrt_bigtop_nobackgr/20210627_192555/model_epoch0_batch190000.pt"
 
 Now we're ready to start some analysis. 
+
+# Analysis
 
 We'll first analyse the agent's hidden state with a few dimensionality reduction
 methods. First we precompute the dimensionality reduction analyses:
