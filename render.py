@@ -60,6 +60,7 @@ if __name__=='__main__':
     parser.add_argument('--tps', type=int, default=15, help="env fps")
     parser.add_argument('--vid_dir', type=str, default=None)
     parser.add_argument('--model_file', type=str)
+    parser.add_argument('--num_eps',  type=int, default = int(100), help='number of episodes to render')
 
     args = parser.parse_args()
     exp_name = args.exp_name
@@ -88,7 +89,6 @@ if __name__=='__main__':
 
     n_envs = 1
     n_steps = hyperparameters.get('n_steps', 256)
-    num_episodes_to_render = 100
 
     ############
     ## DEVICE ##
@@ -173,9 +173,7 @@ if __name__=='__main__':
     done = np.zeros(agent.n_envs)
 
     all_obs = []
-    episode = 0
-    for e in range(num_episodes_to_render):
-    #while True:
+    for episode in range(args.num_eps):
         agent.policy.eval()
         for _ in range(agent.n_steps):
             all_obs.append(obs)
@@ -199,7 +197,8 @@ if __name__=='__main__':
                                      os.path.isfile(os.path.join('logs/', f))]
                 tvio.write_video(save_str, all_obs, fps=14)
                 all_obs = []
-                episode += 1
+                break
+
         _, _, last_val, hidden_state = agent.predict(obs, hidden_state, done)
         agent.storage.store_last(obs, hidden_state, last_val)
         agent.storage.compute_estimates(agent.gamma, agent.lmbda, agent.use_gae,
