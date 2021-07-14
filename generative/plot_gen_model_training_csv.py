@@ -63,7 +63,7 @@ def plot(data_path):
 
     # Plot
     plt.subplots(figsize=[11, 11])
-    max_y = data['loss/obs'][100:].max().max()  # largest value in any column
+    max_y = data['loss/hx'][100:].max().max()  # largest value in any column
     plt.yticks(np.arange(0, max_y, max_y/50))
 
     for name in cols:
