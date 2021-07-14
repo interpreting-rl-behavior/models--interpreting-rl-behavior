@@ -13,6 +13,7 @@ from common.model import NatureModel, ImpalaModel
 from common.policy import CategoricalPolicy
 from common import set_global_seeds, set_global_log_levels
 
+import torchvision.io as tvio
 
 
 if __name__=='__main__':
@@ -37,7 +38,7 @@ if __name__=='__main__':
 
     #render parameters
     parser.add_argument('--model_file', type=str)
-    parser.add_argument('--logdir', type=str, default='generative/')
+    parser.add_argument('--logdir', type=str, default='.') #todo does this work?
     args = parser.parse_args()
 
     exp_name = args.exp_name
@@ -67,7 +68,7 @@ if __name__=='__main__':
     hyperparameters['n_envs'] = n_envs  # overwrite because can only record one
     # at a time.
 
-    max_episodes = 70000
+    max_episodes = 1000#70000
     secs_in_24h = 60*60*24
     max_time_recording = secs_in_24h * 1.8
 
@@ -228,6 +229,15 @@ if __name__=='__main__':
             np.save(obs_name, np.array(obs_array * 255, dtype=np.uint8))
             np.save(hx_name, hx_array)
             np.save(lp_name, lp_array)
+
+            # Save vid
+            ob = torch.tensor(obs_array * 255)
+            ob = ob.permute(0, 2, 3, 1)
+            ob = ob.clone().detach().type(torch.uint8)
+            ob = ob.cpu().numpy()
+            save_str = logdir + '/sample_' + f'{episode_number:05d}.mp4'
+
+            tvio.write_video(save_str, ob, fps=14)
 
             # Reset things for the beginning of the next episode
             data = pd.DataFrame(columns=column_names)
