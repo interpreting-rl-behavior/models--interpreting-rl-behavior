@@ -277,6 +277,7 @@ class VAE(nn.Module):
                  'act_log_probs': pred_agent_logprobs,
                  'values': pred_agent_values,
                  'env_hx': pred_env_hs,
+                 'latent_vecs_c_and_g': [sample_c, sample_g]
                  }
 
         return mu_c, logvar_c, mu_g, logvar_g, preds
