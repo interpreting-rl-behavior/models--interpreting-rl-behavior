@@ -40,15 +40,18 @@ def parse_args():
 
 def run():
     args = parse_args()
-    num_episodes = 100#2000  # number of episodes to make plots for. Needs to be
-    num_generated_samples = 100
+    num_episodes = 1000#2000  # number of episodes to make plots for. Needs to be
+    num_generated_samples = 998
     # the same as the precomputed data you want to use
     plot_pca = True
     plot_3d_pca_all = True
-    plot_gen_hx_pca = True
+    plot_gen_hx_pca = False
     plot_clusters = True
     plot_3d_pca = True
     plot_tsne = True
+
+    first_PC_ind = 0
+    second_PC_ind = 1
 
     # Prepare load and save dirs
     save_path = 'analysis/hx_plots'
@@ -197,11 +200,12 @@ def run():
 
     # Plotting
     if plot_pca:
+        print("Plotting PCAs")
         hx_pca = np.load(args.precomputed_analysis_data_path + \
                          '/hx_pca_%i.npy' % num_episodes)
 
-        data['pca_X'] = hx_pca[:, 0]
-        data['pca_Y'] = hx_pca[:, 1]
+        data['pca_X'] = hx_pca[:, first_PC_ind]
+        data['pca_Y'] = hx_pca[:, second_PC_ind]
 
         # Create grid of plots
         pca_alpha = 0.95
@@ -209,6 +213,7 @@ def run():
         fig.subplots_adjust(hspace=0.8, wspace=0.8)
         fig.set_size_inches(21., 18.)
         for plot_idx, col in enumerate(plotting_variables, start=1):
+            print(col)
             ax = fig.add_subplot(3, 3, plot_idx)
             splot = plt.scatter(data['pca_X'].loc[data['episode_step']!=0],
                                 data['pca_Y'].loc[data['episode_step']!=0],
@@ -217,8 +222,8 @@ def run():
                                 s=0.005, alpha=pca_alpha)
             if plot_gen_hx_pca:
                 splot = plt.scatter(
-                    gen_hx_pca[:, 0],
-                    gen_hx_pca[:, 1],
+                    gen_hx_pca[:, first_PC_ind],
+                    gen_hx_pca[:, second_PC_ind],
                     c='black',
                     s=0.05, alpha=0.9)
             fig.colorbar(splot, fraction=0.023, pad=0.04)
