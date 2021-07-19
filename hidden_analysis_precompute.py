@@ -1,6 +1,3 @@
-"""To run this script, make sure you've already run record.py and
-generative/record_gen_samples.py because they generate data that is used
-here. """
 import pandas as pd
 import numpy as np
 from sklearn.manifold import TSNE

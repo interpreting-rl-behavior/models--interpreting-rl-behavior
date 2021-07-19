@@ -50,8 +50,9 @@ def run():
     plot_3d_pca = True
     plot_tsne = True
 
-    first_PC_ind = 0
-    second_PC_ind = 1
+    first_PC_ind = 1
+    second_PC_ind = 2
+    third_PC_ind = 3
 
     # Prepare load and save dirs
     save_path = 'analysis/hx_plots'
@@ -170,16 +171,16 @@ def run():
     data['cluster_id'] = hx_cluster
 
     # Prepare for plotting
-    plotting_variables = ['entropy', 'argmax_action_log_prob', 'cluster_id', #'nmf_max_factor', #'action',
-                          'episode_max_steps', '% through episode',
-                          'done',
-                          'value', 'episode_rewarded', 'reward']
+    plotting_variables = ['entropy', 'argmax_action_log_prob',  'action',
+                          'cluster_id', 'nmf_max_factor', 'neg_log_value_delta',
+                          'episode_max_steps', '% through episode', 'done',
+                          'value', 'episode_rewarded', 'reward',]
 
     action_labels = list(range(15))
     action_cmap = sns.color_palette("husl", max(action_labels), as_cmap=True)
 
     nmf_labels = list(range(max(nmf_max_factor)))
-    nmf_cmap = sns.color_palette("Set2", max(nmf_max_factor), as_cmap=True)
+    nmf_cmap = sns.color_palette("Paired", max(nmf_max_factor), as_cmap=True)
 
     cluster_labels = list(range(max(hx_cluster)))
     cluster_cmap = sns.color_palette("husl", max(hx_cluster), as_cmap=True)
@@ -187,16 +188,15 @@ def run():
     plot_cmaps = {'entropy':                 'winter',
                   'argmax_action_log_prob':   action_cmap,
                   'action':                   action_cmap,
-                  'nmf_max_factor':           nmf_cmap,
+                  'nmf_max_factor':           'hsv',
                   'cluster_id':               cluster_cmap,
                   'episode_max_steps':       'turbo', #hsv
                   '% through episode':       'hsv',#'brg',
                   'done':                    'autumn_r',
                   'value':                   'cool',
+                  'neg_log_value_delta':     'cool',
                   'episode_rewarded':        'cool',
                   'reward':                  'cool',}
-
-    # data = pd.read_csv(presaved_data_path + 'data_w_tsne_pca.csv')
 
     # Plotting
     if plot_pca:
@@ -211,10 +211,10 @@ def run():
         pca_alpha = 0.95
         fig = plt.figure()
         fig.subplots_adjust(hspace=0.8, wspace=0.8)
-        fig.set_size_inches(21., 18.)
+        fig.set_size_inches(25., 18.)
         for plot_idx, col in enumerate(plotting_variables, start=1):
             print(col)
-            ax = fig.add_subplot(3, 3, plot_idx)
+            ax = fig.add_subplot(3, 4, plot_idx)
             splot = plt.scatter(data['pca_X'].loc[data['episode_step']!=0],
                                 data['pca_Y'].loc[data['episode_step']!=0],
                                 c=data[col].loc[data['episode_step']!=0],
@@ -232,7 +232,7 @@ def run():
 
 
         fig.tight_layout()
-        fig.savefig(f'{save_path}/agent_pca_epsd{num_episodes}_at{time.strftime("%Y%m%d-%H%M%S")}.png')
+        fig.savefig(f'{save_path}/agent_pca_PC{first_PC_ind}vsPC{second_PC_ind}_epsd{num_episodes}_at{time.strftime("%Y%m%d-%H%M%S")}.png')
         plt.close()
 
         # Now plot paths of individual episodes, connecting points by arrows
@@ -270,11 +270,11 @@ def run():
                 fig.colorbar(splot, fraction=0.023, pad=0.04)
         fig.tight_layout()
         fig.savefig(
-            f'{save_path}/agent_pca_epsd{num_episodes}_arrows_at{time.strftime("%Y%m%d-%H%M%S")}.png')
+            f'{save_path}/agent_pca_arrows_PC{first_PC_ind}vsPC{second_PC_ind}_epsd{num_episodes}_at{time.strftime("%Y%m%d-%H%M%S")}.png')
         plt.close()
 
     if plot_3d_pca_all:
-        data['pca_Z'] = hx_pca[:, 2]
+        data['pca_Z'] = hx_pca[:, third_PC_ind]
         now = time.strftime('%Y%m%d-%H%M%S')
         dir_name_3d = f"gifs_agent_pca_epsd{num_episodes}_at{now}"
         dir_name_3d = os.path.join(save_path, dir_name_3d)
@@ -295,7 +295,7 @@ def run():
                                cmap=plot_cmaps[plot_var])
                 # fig.colorbar(p, fraction=0.023, pad=0.04)
                 fig.tight_layout()
-                image_name = f"{plot_var}_{angle}.png"
+                image_name = f"{plot_var}_{angle}_PC{first_PC_ind}vsPC{second_PC_ind}vs{third_PC_ind}.png"
                 image_name = f'{dir_name_3d}/{image_name}'
                 image_names.append(image_name)
                 fig.savefig(image_name)
@@ -327,7 +327,7 @@ def run():
                         s=sizes,
                         alpha=0.75)
             fig.tight_layout()
-            fig.savefig(f'{cluster_dir_name}/cluster_{cluster_id}.png')
+            fig.savefig(f'{cluster_dir_name}/cluster_{cluster_id}_PC{first_PC_ind}vsPC{second_PC_ind}.png')
             plt.close()
 
     if plot_tsne:
