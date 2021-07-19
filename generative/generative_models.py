@@ -571,7 +571,8 @@ class Decoder(nn.Module):
         pred_obs = []
         pred_rews = []
         pred_dones = []
-        pred_env_hs = []
+        pred_env_hxs = []
+        pred_env_cls = []
         pred_agent_hs = []
         pred_acts = []
         pred_agent_logprobs = []
@@ -580,9 +581,11 @@ class Decoder(nn.Module):
         # Initialize env@t=0 and agent_h@t=0
         env_rnn_state = self.env_stepper_initializer(z_c, z_g)
         env_h, env_cell_state = env_rnn_state
+        pred_env_hxs.append(env_h)  # env@t=0
+        pred_env_cls.append(env_cell_state)
 
         pred_agent_h0, _ = self.agent_initializer(z_c)
-        pred_agent_hs.append(pred_agent_h0)
+        pred_agent_hs.append(pred_agent_h0) # agent_h@t=0
 
         # if we want to feed the correct h0 (the 0th hx) instead of the
         # guessed h0 (for purposes of being able to train the
@@ -594,8 +597,9 @@ class Decoder(nn.Module):
 
         for i in range(self.num_sim_steps):
             # The first part of the for-loop happens only within t
-            pred_env_hs.append(env_rnn_state)  # env@t
             if i > 0:
+                pred_env_hxs.append(env_h)          # env@t
+                pred_env_cls.append(env_cell_state) # env@t
                 pred_agent_hs.append(agent_h)  # agent_h@t
 
             ## Decode env_h@t to get ob/rew/done@t
@@ -628,6 +632,7 @@ class Decoder(nn.Module):
             ## Get ready for new step
             self.agent.train_prev_recurrent_states = None
 
+        pred_env_hs = (pred_env_hxs, pred_env_cls)
 
         return pred_obs, pred_rews, pred_dones, pred_agent_hs, \
                pred_agent_logprobs, pred_agent_values, pred_env_hs
