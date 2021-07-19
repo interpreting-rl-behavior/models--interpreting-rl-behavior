@@ -66,7 +66,27 @@ Now we're ready to start some analysis.
 
 # Analysis
 
-We'll first analyse the agent's hidden state with a few dimensionality reduction
+The generative model is a VAE, and therefore consists of an encoder and decoder.
+The decoder is the part we want to interpret because it simulates agent-
+environment rollouts. It will be informative, therefore, to get a picture of
+what's going on inside the latent vector of the VAE, since this is the input
+to the decoder. 
+
+## Analysis of latent vector of VAE
+
+In theory, the distribution of the VAE latent vector space is trained to be as close
+as possible to a standard multivariate gaussian distribution (i.e. it is trained
+to have a hyperspherical density function). In practice, however, the KL 
+divergence never reaches zero so the distribution of the latent vector never
+becomes a perfect hypersphere. We produce PCA and and tSNE plots of the VAE
+latent vectors to observe the structure of the distribution. 
+
+> python latent_vec_analysis_precompute.py
+> 
+> python latent_vec_analysis_plotting.py
+
+## Analysis of agent's hidden state
+We'll next analyse the agent's hidden state with a few dimensionality reduction
 methods. First we precompute the dimensionality reduction analyses:
 > python hidden_analysis_precompute.py --agent_env_data_dir="data/"
 
@@ -79,15 +99,6 @@ states:
 These depict what the agent is 'thinking' during many episodes, visualised
 using several different dimensionality reduction and clustering methods. 
 
+## Analysis of environment hidden states
 
 # Leftover text that might be used later
-
-In theory, the distribution of these latent vectors is trained to be as close
-as possible to a standard multivariate gaussian distribution (i.e. it is trained
-to have a hyperspherical density function). In practice, however, the KL 
-divergence never reaches zero so the distribution of the latent vector never
-becomes a perfect hypersphere. In other words, it has structure. We can study 
-that structure in order to discern whether there are identifiable features
-encoded by the latent vector. To do this, we perform many of the same 
-dimensionality reduction and clustering techniques to a recorded set of latent
-vectors as we did to the agent hidden states. 

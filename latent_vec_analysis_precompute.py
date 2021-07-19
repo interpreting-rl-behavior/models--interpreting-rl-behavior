@@ -97,11 +97,11 @@ def run():
 
         # Load then add aux data to df
         aux_data_rew = np.load(os.path.join(generated_data_path_inf,
-                                            'sample_00000/rews.npy')).max()
+                                            f'sample_{ep:05d}/rews.npy')).max()
         aux_data_done = np.load(os.path.join(generated_data_path_inf,
-                                             'sample_00000/dones.npy')).max()
+                                             f'sample_{ep:05d}/dones.npy')).max()
         aux_data_val = np.load(os.path.join(generated_data_path_inf,
-                                            'sample_00000/agent_values.npy'))[-1]
+                                            f'sample_{ep:05d}/agent_values.npy'))[-1]
         aux_data.at[ep, 'sample_reward_sum'] = aux_data_rew
         aux_data.at[ep, 'sample_has_done'] = aux_data_done
         aux_data.at[ep, 'sample_avg_value'] = aux_data_val
