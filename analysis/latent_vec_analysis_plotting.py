@@ -25,7 +25,7 @@ def parse_args():
         '--agent_env_data_dir', type=str,
         default="data")
     parser.add_argument(
-        '--precomputed_analysis_data_path', type=str, default="analysis/latent_vec_analysis_precomp/")
+        '--precomputed_analysis_data_path', type=str, default="latent_vec_analysis_precomp/")
     parser.add_argument(
         '--presaved_data_path', type=str, default="/media/lee/DATA/DDocs/AI_neuro_work/assurance_project_stuff/data/precollected/")
     args = parser.parse_args()
@@ -34,7 +34,7 @@ def parse_args():
 def run():
     args = parse_args()
     # number of episodes to make plots for. Needs to be
-    num_generated_samples = 4000
+    num_generated_samples = 200
     # the same as the precomputed data you want to use
     plot_pca = True
     plot_3d_pca_all = True
@@ -45,15 +45,15 @@ def run():
 
     # Set up saving and loading dirs
     precomp_data_path = args.precomputed_analysis_data_path
-    save_path = 'analysis/latent_vec_plots'
+    save_path = 'latent_vec_plots'
     if not os.path.exists(save_path):
         os.makedirs(save_path, exist_ok=True)
 
     # Load lv data
     lv_inf_pca = np.load(os.path.join(precomp_data_path,
-                         f'lv_inf_pca_{num_generated_samples}.npy'))
+                         f'pca_data_lv_inf_{num_generated_samples}.npy'))
     lv_rand_pca_proj = np.load(os.path.join(precomp_data_path,
-                               f'lv_rand_pca_projected_{num_generated_samples}.npy'))
+                               f'pca_data_lv_rand_projected_{num_generated_samples}.npy'))
     aux_data = pd.read_csv(os.path.join(precomp_data_path,
                            f'lv_inf_aux_data_{num_generated_samples}.csv'))
 
@@ -106,7 +106,7 @@ def run():
 
     if plot_tsne:
         lv_inf_tsne = np.load(args.precomputed_analysis_data_path + \
-                          'lv_inf_tsne_%i.npy' % num_generated_samples)
+                          'tsne_lv_inf_%i.npy' % num_generated_samples)
         print('Starting tSNE...')
 
         lv_inf_tsne_x = lv_inf_tsne[:, 0]

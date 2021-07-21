@@ -15,8 +15,8 @@ import os
 import time
 import imageio
 
-#TODO: think about t-SNE initialization 
-# https://www.nature.com/articles/s41587-020-00809-z 
+#TODO: think about t-SNE initialization
+# https://www.nature.com/articles/s41587-020-00809-z
 # https://jlmelville.github.io/smallvis/init.html
 
 pd.options.mode.chained_assignment = None  # default='warn'
@@ -31,7 +31,10 @@ def parse_args():
         '--agent_env_data_dir', type=str,
         default="data")
     parser.add_argument(
-        '--precomputed_analysis_data_path', type=str, default="analysis/hx_analysis_precomp")
+        '--precomputed_analysis_data_path', type=str, default="sml_analysis_precomp")
+    parser.add_argument(
+        '--generated_data_dir', type=str,
+        default='../generative/recorded_informinit_gen_samples')
     parser.add_argument(
         '--presaved_data_path', type=str, default="/media/lee/DATA/DDocs/AI_neuro_work/assurance_project_stuff/data/precollected/")
     args = parser.parse_args()
@@ -40,73 +43,83 @@ def parse_args():
 
 def run():
     args = parse_args()
-    num_episodes = 1000#2000  # number of episodes to make plots for. Needs to be
-    num_generated_samples = 998
+    num_samples = 100#2000  # number of episodes to make plots for. Needs to be
     # the same as the precomputed data you want to use
-    plot_pca = True
-    plot_3d_pca_all = True
-    plot_gen_hx_pca = False
-    plot_clusters = True
-    plot_3d_pca = True
+    plot_pca = False
+    plot_3d_pca_all = False
+    plot_clusters = False
     plot_tsne = True
 
-    first_PC_ind = 1
-    second_PC_ind = 2
-    third_PC_ind = 3
+    first_PC_ind = 0
+    second_PC_ind = 1
+    third_pc_ind = 2
+
+    data = {}
 
     # Prepare load and save dirs
-    save_path = 'analysis/hx_plots'
+    generated_data_path = args.generated_data_dir
+    save_path = 'sml_plots'
     os.makedirs(save_path, exist_ok=True)
 
-
-    presaved_data_path = args.presaved_data_path
-    hx_presaved_filepath = presaved_data_path + "hxs_%i.npy" % num_episodes
-    lp_presaved_filepath = presaved_data_path + "lp_%i.npy" % num_episodes
-
     # Load the non vector outputs
-    main_data_path = args.agent_env_data_dir
-    data = pd.read_csv(os.path.join(main_data_path, 'data_gen_model_0.csv'))
-    for ep in range(1, num_episodes):
-        data_epi = pd.read_csv(os.path.join(main_data_path,
-                                             f'data_gen_model_{ep}.csv'))
-        data = data.append(data_epi)
-    data = data.loc[data['episode'] < num_episodes]
-    print('data shape', data.shape)
-    #level_seed, episode, global_step, episode_step, done, reward, value, action
 
+    ## Get rewards at each timestep and max rews for sample
+    rews = np.load(os.path.join(generated_data_path, 'sample_00000/rews.npy'))[:-1]
+    max_rews = np.load(os.path.join(generated_data_path, 'sample_00000/rews.npy'))[:-1]
+    max_rews[:] = max_rews.max()
+    for ep in range(1, num_samples):
+        rews_to_cat = np.load(os.path.join(generated_data_path,
+                                         f'sample_{ep:05d}/rews.npy'))[:-1]
+        rews = np.concatenate((rews, rews_to_cat))
 
-    # Get hidden states
-    if os.path.isfile(hx_presaved_filepath):
-        # Load if already done before
-        hx = np.load(hx_presaved_filepath)
-    else:
-        # Collect them one by one
-        hx = np.load(os.path.join(main_data_path, 'episode0/hx.npy'))
-        for ep in range(1, num_episodes):
-            hx_to_cat = np.load(os.path.join(main_data_path,
-                                             f'episode{ep}/hx.npy'))
-            hx = np.concatenate((hx, hx_to_cat))
-        # TODO save
+        rews_to_cat[:] = rews_to_cat.max()
+        max_rews = np.concatenate((max_rews, rews_to_cat))
+    data['reward'] = rews.squeeze()
+    data['max_sample_reward'] = max_rews.squeeze()
 
-    if plot_gen_hx_pca:
-        gen_hx_pca = np.load(args.precomputed_analysis_data_path + \
-                             '/gen_hx_projected_real%i_gen%i.npy' % (num_episodes,
-                                                                num_generated_samples))
+    ## Get 'done' at each timestep and 'ever dones' (whether the sample has any dones)
+    dones = np.load(os.path.join(generated_data_path, 'sample_00000/dones.npy'))[:-1]
 
-    # Get log probs for actions
-    if os.path.isfile(lp_presaved_filepath):
-        # Load if already done before
-        lp = np.load(lp_presaved_filepath)
-    else:
-        # Collect them one by one
-        lp = np.load(os.path.join(main_data_path, 'episode0/lp.npy'))
-        for ep in range(1,num_episodes):
-            lp_to_cat = np.load(os.path.join(main_data_path,f'episode{ep}/lp.npy'))
-            lp = np.concatenate((lp, lp_to_cat))
+    ever_dones =  np.load(os.path.join(generated_data_path, 'sample_00000/dones.npy'))[:-1]
+    ever_dones[:] = ever_dones.max()
+    for ep in range(1, num_samples):
+        dones_to_cat = np.load(os.path.join(generated_data_path,
+                                         f'sample_{ep:05d}/dones.npy'))[:-1]
+        dones = np.concatenate((dones, dones_to_cat))
+
+        dones_to_cat[:] = dones_to_cat.max()
+        ever_dones = np.concatenate((ever_dones, dones_to_cat))
+    data['done'] = dones.squeeze()
+    data['ever_done'] = ever_dones.squeeze()
+
+    ## Get value output at each timestep
+    agent_values = np.load(os.path.join(generated_data_path, 'sample_00000/agent_values.npy'))[:-1]
+    for ep in range(1, num_samples):
+        agent_values_to_cat = np.load(os.path.join(generated_data_path,
+                                         f'sample_{ep:05d}/agent_values.npy'))[:-1]
+        agent_values = np.concatenate((agent_values, agent_values_to_cat))
+    data['value'] = agent_values.squeeze()
+
+    ## Assign an index vec to each sample that has the same length as the sample
+    sample_length = np.load(os.path.join(generated_data_path, 'sample_00000/agent_values.npy')).shape[0]
+    idx_vec = np.array([0] * sample_length)[:-1]
+    for ep in range(1, num_samples):
+        idx_vec_to_cat = np.array([ep] * sample_length)[:-1]
+        idx_vec = np.concatenate((idx_vec, idx_vec_to_cat))
+    data['sample_idx'] = idx_vec.squeeze()
+
+    # Get log probs for actions produced by the generative model
+    lp = np.load(os.path.join(generated_data_path, 'sample_00000/agent_logprobs.npy'))[:-1]
+    for ep in range(1, num_samples):
+        lp_to_cat = np.load(os.path.join(generated_data_path,
+                                         f'sample_{ep:05d}/agent_logprobs.npy'))[:-1]
+        lp = np.concatenate((lp, lp_to_cat))
     lp_max = np.argmax(lp, axis=1)
+    data['argmax_action_log_prob'] = lp_max.squeeze()
+
     entropy = -1 * np.sum(np.exp(lp)*lp, axis=1)
+    data['entropy'] = entropy.squeeze()
     del lp
-    # TODO consider adding UMAP
 
     # Add extra columns for further analyses variables
     # -  % way through episode
@@ -115,66 +128,27 @@ def run():
     # -  entropy
     # -  value delta (not plotted currently)
 
-    ## % way through episode
-    episode_step_groups = [dfg for dfg in
-                           data.groupby(by='episode')['episode_step']]
-    max_steps_per_epi = [np.max(np.array(group)[1]) for group in episode_step_groups]
-    max_steps_per_epi_list = [[x] * (x+1) for x in max_steps_per_epi]
-    max_steps_per_epi_list = [item for sublist in max_steps_per_epi_list for item in sublist] # flattens
-    data['episode_max_steps'] = max_steps_per_epi_list
-    data['% through episode'] = data['episode_step'] / data['episode_max_steps']
-
-    ## episode rewarded?
-    episode_rew_groups = [dfg for dfg in
-                          data.groupby(by='episode')['reward']]
-    epi_rewarded = []
-    for i, gr in enumerate(episode_rew_groups):
-        if np.any(gr[1]):
-            rew_bool_list = [1] * (max_steps_per_epi[i] + 1)
-        else:
-            rew_bool_list = [0] * (max_steps_per_epi[i] + 1)
-        epi_rewarded.extend(rew_bool_list)
-    data['episode_rewarded'] = epi_rewarded
-
-    ## max logprob
-    data['argmax_action_log_prob'] = lp_max
-
-    ## entropy
-    data['entropy'] = entropy
-
-    ## value delta
-    episode_val_groups = [dfg for dfg in
-                           data.groupby(by='episode')['value']]
-
-
-    value_deltas = []
-    for i, gr in enumerate(episode_val_groups):
-        summand1, summand2 = gr[1].to_numpy(), gr[1].to_numpy()
-        summand2 = np.roll(summand2, shift=1)
-        delta = summand1 - summand2
-        mask = delta != delta[np.argmax(np.abs(delta))] # removes largest, which is outlier
-        delta = delta * mask
-        delta = - np.log(delta)
-        delta = list(delta)
-        value_deltas.extend(delta)
-    data['neg_log_value_delta'] = value_deltas
-
     # nmf max factor
-    hx_nmf = np.load(args.precomputed_analysis_data_path + \
-                     '/hx_nmf_%i.npy' % num_episodes)
-    nmf_max_factor = np.argmax(hx_nmf, axis=1)
-    data['nmf_max_factor'] = nmf_max_factor
+    sml_nmf = np.load(args.precomputed_analysis_data_path + \
+                     '/nmf_sml_raw_%i.npy' % num_samples)
+    nmf_max_factor = np.argmax(sml_nmf, axis=1)
+    data['nmf_max_factor'] = nmf_max_factor.squeeze()
 
     # cluster identity
-    hx_cluster = np.load(args.precomputed_analysis_data_path + \
-                     '/clusters_%i.npy' % num_episodes)
-    data['cluster_id'] = hx_cluster
+    sml_cluster_raw = np.load(args.precomputed_analysis_data_path + \
+                     '/clusters_sml_raw_%i.npy' % num_samples)
+    data['cluster_id_raw'] = sml_cluster_raw
+    sml_cluster_dyn = np.load(args.precomputed_analysis_data_path + \
+                     '/clusters_sml_dyn_%i.npy' % num_samples)
+    data['cluster_id_dyn'] = sml_cluster_dyn
+
+    data = pd.DataFrame.from_dict(data)
+
 
     # Prepare for plotting
-    plotting_variables = ['entropy', 'argmax_action_log_prob',  'action',
-                          'cluster_id', 'nmf_max_factor', 'neg_log_value_delta',
-                          'episode_max_steps', '% through episode', 'done',
-                          'value', 'episode_rewarded', 'reward',]
+    plotting_variables = ['entropy', 'argmax_action_log_prob',
+                          'cluster_id_raw', 'cluster_id_dyn', 'nmf_max_factor', 'ever_done',
+                          'value', 'max_sample_reward', 'reward',]
 
     action_labels = list(range(15))
     action_cmap = sns.color_palette("husl", max(action_labels), as_cmap=True)
@@ -182,30 +156,29 @@ def run():
     nmf_labels = list(range(max(nmf_max_factor)))
     nmf_cmap = sns.color_palette("Paired", max(nmf_max_factor), as_cmap=True)
 
-    cluster_labels = list(range(max(hx_cluster)))
-    cluster_cmap = sns.color_palette("husl", max(hx_cluster), as_cmap=True)
+    num_clusters = max([max(sml_cluster_raw), max(sml_cluster_dyn)])
+    cluster_labels = list(range(num_clusters))
+    cluster_cmap = sns.color_palette("husl", num_clusters, as_cmap=True)
 
     plot_cmaps = {'entropy':                 'winter',
                   'argmax_action_log_prob':   action_cmap,
-                  'action':                   action_cmap,
-                  'nmf_max_factor':           'hsv',
-                  'cluster_id':               cluster_cmap,
-                  'episode_max_steps':       'turbo', #hsv
-                  '% through episode':       'hsv',#'brg',
+                  'cluster_id_raw':           cluster_cmap,
+                  'cluster_id_dyn':           cluster_cmap,
+                  'nmf_max_factor':           nmf_cmap,
                   'done':                    'autumn_r',
+                  'ever_done':               'autumn_r',
                   'value':                   'cool',
-                  'neg_log_value_delta':     'cool',
-                  'episode_rewarded':        'cool',
+                  'max_sample_reward':       'cool',
                   'reward':                  'cool',}
 
     # Plotting
     if plot_pca:
         print("Plotting PCAs")
-        hx_pca = np.load(args.precomputed_analysis_data_path + \
-                         '/hx_pca_%i.npy' % num_episodes)
+        sml_pca = np.load(args.precomputed_analysis_data_path + \
+                         '/pca_data_sml_raw_%i.npy' % num_samples)
 
-        data['pca_X'] = hx_pca[:, first_PC_ind]
-        data['pca_Y'] = hx_pca[:, second_PC_ind]
+        data['pca_X'] = sml_pca[:, first_PC_ind]
+        data['pca_Y'] = sml_pca[:, second_PC_ind]
 
         # Create grid of plots
         pca_alpha = 0.95
@@ -214,41 +187,35 @@ def run():
         fig.set_size_inches(25., 18.)
         for plot_idx, col in enumerate(plotting_variables, start=1):
             print(col)
-            ax = fig.add_subplot(3, 4, plot_idx)
-            splot = plt.scatter(data['pca_X'].loc[data['episode_step']!=0],
-                                data['pca_Y'].loc[data['episode_step']!=0],
-                                c=data[col].loc[data['episode_step']!=0],
+            ax = fig.add_subplot(3, 3, plot_idx)
+            splot = plt.scatter(data['pca_X'],
+                                data['pca_Y'],
+                                c=data[col],
                                 cmap=plot_cmaps[col],
-                                s=0.005, alpha=pca_alpha)
-            if plot_gen_hx_pca:
-                splot = plt.scatter(
-                    gen_hx_pca[:, first_PC_ind],
-                    gen_hx_pca[:, second_PC_ind],
-                    c='black',
-                    s=0.05, alpha=0.9)
+                                s=0.05, alpha=pca_alpha)
             fig.colorbar(splot, fraction=0.023, pad=0.04)
             ax.legend(title=col, bbox_to_anchor=(1.01, 1),borderaxespad=0)
             ax.set_frame_on(False)
 
 
         fig.tight_layout()
-        fig.savefig(f'{save_path}/agent_pca_PC{first_PC_ind}vsPC{second_PC_ind}_epsd{num_episodes}_at{time.strftime("%Y%m%d-%H%M%S")}.png')
+        fig.savefig(f'{save_path}/sml_pca_PC{first_PC_ind}vsPC{second_PC_ind}_epsd{num_samples}_at{time.strftime("%Y%m%d-%H%M%S")}.png')
         plt.close()
 
-        # Now plot paths of individual episodes, connecting points by arrows
+        # Now plot paths of individual samples, connecting points by arrows
         groups = [dfg for dfg in
-                  data.groupby(by='episode')[['pca_X', 'pca_Y']]]
+                  data.groupby(by='sample_idx')[['pca_X', 'pca_Y']]]
         fig = plt.figure()
         fig.subplots_adjust(hspace=0.8, wspace=0.8)
         fig.set_size_inches(21., 18.)
         for plot_idx in range(1, 13):
             ax = fig.add_subplot(3, 4, plot_idx)
             splot = plt.scatter(
-                data['pca_X'].loc[data['episode_step']!=0],
-                data['pca_Y'].loc[data['episode_step']!=0],
-                c=data['% through episode'].loc[data['episode_step']!=0],
-                cmap=plot_cmaps['% through episode'],
-                s=0.005, alpha=pca_alpha)
+                data['pca_X'],
+                data['pca_Y'],
+                c=data['cluster_id_dyn'],
+                cmap=plot_cmaps['cluster_id_dyn'],
+                s=0.05, alpha=pca_alpha)
             # for epi in path_epis:
             epi_data = groups[plot_idx-1][1]
             for i in range(len(epi_data) - 1):
@@ -270,32 +237,31 @@ def run():
                 fig.colorbar(splot, fraction=0.023, pad=0.04)
         fig.tight_layout()
         fig.savefig(
-            f'{save_path}/agent_pca_arrows_PC{first_PC_ind}vsPC{second_PC_ind}_epsd{num_episodes}_at{time.strftime("%Y%m%d-%H%M%S")}.png')
+            f'{save_path}/sml_pca_epsd{num_samples}_arrows_at{time.strftime("%Y%m%d-%H%M%S")}.png')
         plt.close()
 
     if plot_3d_pca_all:
-        data['pca_Z'] = hx_pca[:, third_PC_ind]
+        print("Plotting PCs in 3D")
+        data['pca_Z'] = sml_pca[:, third_pc_ind]
         now = time.strftime('%Y%m%d-%H%M%S')
-        dir_name_3d = f"gifs_agent_pca_epsd{num_episodes}_at{now}"
+        dir_name_3d = f"gifs_sml_pca_epsd{num_samples}_at{now}"
         dir_name_3d = os.path.join(save_path, dir_name_3d)
         if not (os.path.exists(dir_name_3d)):
             os.makedirs(dir_name_3d)
 
-
         for plot_var in plotting_variables:
             image_names = []
-
             for angle in np.arange(start=0, stop=360, step=10):
                 fig = plt.figure(figsize=(11,11))
                 ax = fig.add_subplot(111, projection='3d')
                 ax.view_init(30, angle)
                 plt.draw()
                 p = ax.scatter(data['pca_X'], data['pca_Y'], data['pca_Z'],
-                               s=0.005, c=data[plot_var],
+                               s=0.05, c=data[plot_var],
                                cmap=plot_cmaps[plot_var])
                 # fig.colorbar(p, fraction=0.023, pad=0.04)
                 fig.tight_layout()
-                image_name = f"{plot_var}_{angle}_PC{first_PC_ind}vsPC{second_PC_ind}vs{third_PC_ind}.png"
+                image_name = f"{plot_var}_{angle}.png"
                 image_name = f'{dir_name_3d}/{image_name}'
                 image_names.append(image_name)
                 fig.savefig(image_name)
@@ -312,13 +278,15 @@ def run():
                 os.remove(filename)
 
     if plot_clusters:
+        print("Plotting plots where cluster alone is highlighted")
+        print("raw")
         cluster_dir_name = \
-            f'{save_path}/cluster_plots{num_episodes}_at{time.strftime("%Y%m%d-%H%M%S")}'
+            f'{save_path}/cluster_raw_plots{num_samples}_at{time.strftime("%Y%m%d-%H%M%S")}'
         os.mkdir(cluster_dir_name)
-        num_clusters = max(hx_cluster)
+        num_clusters = max(data['cluster_id_raw'])
         for cluster_id in range(num_clusters):
-            cluster_id_mask = data['cluster_id'] == cluster_id
-            sizes = np.where(cluster_id_mask, 0.05, 0.005)
+            cluster_id_mask = data['cluster_id_raw'] == cluster_id
+            sizes = np.where(cluster_id_mask, 0.1, 0.05)
             fig = plt.figure()
             plt.scatter(data['pca_X'],
                         data['pca_Y'],
@@ -327,18 +295,37 @@ def run():
                         s=sizes,
                         alpha=0.75)
             fig.tight_layout()
-            fig.savefig(f'{cluster_dir_name}/cluster_{cluster_id}_PC{first_PC_ind}vsPC{second_PC_ind}.png')
+            fig.savefig(f'{cluster_dir_name}/cluster_raw_{cluster_id}.png')
+            plt.close()
+
+        print("Dyn clusters")
+        cluster_dir_name = \
+            f'{save_path}/cluster_dyn_plots{num_samples}_at{time.strftime("%Y%m%d-%H%M%S")}'
+        os.mkdir(cluster_dir_name)
+        num_clusters = max(data['cluster_id_dyn'])
+        for cluster_id in range(num_clusters):
+            cluster_id_mask = data['cluster_id_dyn'] == cluster_id
+            sizes = np.where(cluster_id_mask, 0.1, 0.05)
+            fig = plt.figure()
+            plt.scatter(data['pca_X'],
+                        data['pca_Y'],
+                        c=cluster_id_mask,
+                        cmap='Set1_r',
+                        s=sizes,
+                        alpha=0.75)
+            fig.tight_layout()
+            fig.savefig(f'{cluster_dir_name}/cluster_dyn_{cluster_id}.png')
             plt.close()
 
     if plot_tsne:
-        hx_tsne = np.load(args.precomputed_analysis_data_path + \
-                         '/hx_tsne_%i.npy' % num_episodes)
+        sml_tsne = np.load(args.precomputed_analysis_data_path + \
+                         '/tsne_sml_raw_%i.npy' % num_samples)
         print('Starting tSNE...')
         # _pca_for_tsne = PCA(n_components=64)
         # hx_tsne = TSNE(n_components=2, random_state=seed).fit_transform(hx)
         # print("tSNE finished.")
-        data['tsne_X'] = hx_tsne[:, 0]
-        data['tsne_Y'] = hx_tsne[:, 1]
+        data['tsne_X'] = sml_tsne[:, 0]
+        data['tsne_Y'] = sml_tsne[:, 1]
 
         # Create grid of plots
         fig = plt.figure()
@@ -346,9 +333,9 @@ def run():
         fig.set_size_inches(21., 18.)
         for plot_idx, col in enumerate(plotting_variables, start=1):
             ax = fig.add_subplot(3, 3, plot_idx)
-            splot = plt.scatter(data['tsne_X'].loc[data['episode_step']!=0],
-                                data['tsne_Y'].loc[data['episode_step']!=0],
-                                c=data[col].loc[data['episode_step']!=0],
+            splot = plt.scatter(data['tsne_X'],
+                                data['tsne_Y'],
+                                c=data[col],
                                 cmap=plot_cmaps[col],
                                 s=0.05, alpha=0.99)
             fig.colorbar(splot, fraction=0.023, pad=0.04)
@@ -356,25 +343,25 @@ def run():
             ax.set_frame_on(False)
         fig.tight_layout()
         fig.savefig(
-            f'{save_path}/agent_tsne_epsd{num_episodes}_at{time.strftime("%Y%m%d-%H%M%S")}.png')
+            f'{save_path}/sml_tsne_epsd{num_samples}_at{time.strftime("%Y%m%d-%H%M%S")}.png')
 
         plt.close()
 
         # Now plot paths of individual episodes, connecting points by arrows
         paths_per_plot = 1
         groups = [dfg for dfg in
-                  data.groupby(by='episode')[['tsne_X', 'tsne_Y']]]
+                  data.groupby(by='sample_idx')[['tsne_X', 'tsne_Y']]]
         fig = plt.figure()
         fig.subplots_adjust(hspace=0.8, wspace=0.8)
         fig.set_size_inches(21., 15.)
         for plot_idx in range(1, 13):
             ax = fig.add_subplot(3, 4, plot_idx)
             splot = plt.scatter(
-                data['tsne_X'].loc[data['episode_step']!=0],
-                data['tsne_Y'].loc[data['episode_step']!=0],
-                c=data['% through episode'].loc[data['episode_step']!=0],
-                cmap=plot_cmaps['% through episode'],
-                s=0.005, alpha=1.)
+                data['tsne_X'],
+                data['tsne_Y'],
+                c=data['cluster_id_dyn'],
+                cmap=plot_cmaps['cluster_id_dyn'],
+                s=0.05, alpha=1.)
             epi_data = groups[plot_idx-1][1]
             for i in range(len(epi_data) - 1):
                 x1, y1 = epi_data.iloc[i][['tsne_X', 'tsne_Y']]
@@ -397,7 +384,7 @@ def run():
                 fig.colorbar(splot, fraction=0.023, pad=0.04)
         fig.tight_layout()
         fig.savefig(
-            f'{save_path}/agent_tsne_epsd{num_episodes}_arrows_at{time.strftime("%Y%m%d-%H%M%S")}.png')
+            f'{save_path}/sml_tsne_epsd{num_samples}_arrows_at{time.strftime("%Y%m%d-%H%M%S")}.png')
         plt.close()
 
 # fig = plt.figure(figsize=(11,11))

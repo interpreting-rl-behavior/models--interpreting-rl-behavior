@@ -31,10 +31,10 @@ def parse_args():
         '--agent_env_data_dir', type=str,
         default="data")
     parser.add_argument(
-        '--precomputed_analysis_data_path', type=str, default="analysis/env_analysis_precomp")
+        '--precomputed_analysis_data_path', type=str, default="env_analysis_precomp")
     parser.add_argument(
         '--generated_data_dir', type=str,
-        default='generative/recorded_informinit_gen_samples')
+        default='../generative/recorded_informinit_gen_samples')
     parser.add_argument(
         '--presaved_data_path', type=str, default="/media/lee/DATA/DDocs/AI_neuro_work/assurance_project_stuff/data/precollected/")
     args = parser.parse_args()
@@ -43,10 +43,10 @@ def parse_args():
 
 def run():
     args = parse_args()
-    num_samples = 3999#2000  # number of episodes to make plots for. Needs to be
+    num_samples = 100#2000  # number of episodes to make plots for. Needs to be
     # the same as the precomputed data you want to use
     plot_pca = True
-    plot_3d_pca_all = True
+    plot_3d_pca_all = False
     plot_gen_hx_pca = False
     plot_clusters = True
     plot_3d_pca = True
@@ -60,7 +60,7 @@ def run():
 
     # Prepare load and save dirs
     generated_data_path = args.generated_data_dir
-    save_path = 'analysis/env_plots'
+    save_path = 'env_plots'
     os.makedirs(save_path, exist_ok=True)
 
     # Load the non vector outputs
@@ -134,13 +134,13 @@ def run():
 
     # nmf max factor
     env_h_nmf = np.load(args.precomputed_analysis_data_path + \
-                     '/env_h_nmf_%i.npy' % num_samples)
+                     '/nmf_env_%i.npy' % num_samples)
     nmf_max_factor = np.argmax(env_h_nmf, axis=1)
     data['nmf_max_factor'] = nmf_max_factor.squeeze()
 
     # cluster identity
     env_h_cluster = np.load(args.precomputed_analysis_data_path + \
-                     '/clusters_%i.npy' % num_samples)
+                     '/clusters_env_%i.npy' % num_samples)
     data['cluster_id'] = env_h_cluster
 
     data = pd.DataFrame.from_dict(data)
@@ -174,7 +174,7 @@ def run():
     if plot_pca:
         print("Plotting PCAs")
         env_h_pca = np.load(args.precomputed_analysis_data_path + \
-                         '/env_h_pca_%i.npy' % num_samples)
+                         '/pca_data_env_%i.npy' % num_samples)
 
         data['pca_X'] = env_h_pca[:, first_PC_ind]
         data['pca_Y'] = env_h_pca[:, second_PC_ind]
@@ -236,14 +236,14 @@ def run():
                 fig.colorbar(splot, fraction=0.023, pad=0.04)
         fig.tight_layout()
         fig.savefig(
-            f'{save_path}/agent_pca_epsd{num_samples}_arrows_at{time.strftime("%Y%m%d-%H%M%S")}.png')
+            f'{save_path}/env_pca_epsd{num_samples}_arrows_at{time.strftime("%Y%m%d-%H%M%S")}.png')
         plt.close()
 
     if plot_3d_pca_all:
         print("Plotting PCs in 3D")
         data['pca_Z'] = env_h_pca[:, third_pc_ind]
         now = time.strftime('%Y%m%d-%H%M%S')
-        dir_name_3d = f"gifs_agent_pca_epsd{num_samples}_at{now}"
+        dir_name_3d = f"gifs_env_pca_epsd{num_samples}_at{now}"
         dir_name_3d = os.path.join(save_path, dir_name_3d)
         if not (os.path.exists(dir_name_3d)):
             os.makedirs(dir_name_3d)
@@ -298,7 +298,7 @@ def run():
 
     if plot_tsne:
         env_h_tsne = np.load(args.precomputed_analysis_data_path + \
-                         '/env_h_tsne_%i.npy' % num_samples)
+                         '/tsne_env_%i.npy' % num_samples)
         print('Starting tSNE...')
         # _pca_for_tsne = PCA(n_components=64)
         # hx_tsne = TSNE(n_components=2, random_state=seed).fit_transform(hx)
@@ -322,7 +322,7 @@ def run():
             ax.set_frame_on(False)
         fig.tight_layout()
         fig.savefig(
-            f'{save_path}/agent_tsne_epsd{num_samples}_at{time.strftime("%Y%m%d-%H%M%S")}.png')
+            f'{save_path}/env_tsne_epsd{num_samples}_at{time.strftime("%Y%m%d-%H%M%S")}.png')
 
         plt.close()
 
@@ -363,7 +363,7 @@ def run():
                 fig.colorbar(splot, fraction=0.023, pad=0.04)
         fig.tight_layout()
         fig.savefig(
-            f'{save_path}/agent_tsne_epsd{num_samples}_arrows_at{time.strftime("%Y%m%d-%H%M%S")}.png')
+            f'{save_path}/env_tsne_epsd{num_samples}_arrows_at{time.strftime("%Y%m%d-%H%M%S")}.png')
         plt.close()
 
 # fig = plt.figure(figsize=(11,11))
