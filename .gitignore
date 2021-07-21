@@ -2,8 +2,11 @@ generative/results/
 generative/data/
 generative/analysis/agent_tsne
 generative/analysis/
+generative/*samples/
 agents/data/
 /logs
+analysis/*plots/
+analysis/*precomp/
 lsf.*
 
 # Byte-compiled / optimized / DLL files
