@@ -4,6 +4,7 @@ generative/analysis/agent_tsne
 generative/analysis/
 generative/*samples/
 agents/data/
+/data
 /logs
 analysis/*plots/
 analysis/*precomp/
