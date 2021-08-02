@@ -81,14 +81,20 @@ divergence never reaches zero so the distribution of the latent vector never
 becomes a perfect hypersphere. We produce PCA and and tSNE plots of the VAE
 latent vectors to observe the structure of the distribution. 
 
-> python latent_vec_analysis_precompute.py
+> bsub -W 23:59 -R "rusage[mem=32768]" python latent_vec_analysis_precompute.py --agent_env_data_dir=/cluster/scratch/sharkeyl/postaisc_coinrun_data/ --generated_data_dir_inf=/cluster/scratch/sharkeyl/recorded_informinit_gen_samples --generated_data_dir_rand=/cluster/scratch/sharkeyl/recorded_random_gen_samples
 > 
-> python latent_vec_analysis_plotting.py
+> bsub -W 23:59 -R "rusage[mem=32768]" python latent_vec_analysis_plotting.py --agent_env_data_dir=/cluster/scratch/sharkeyl/postaisc_coinrun_data/ --precomputed_analysis_data_path=latent_vec_analysis_precomp/
 
 ## Analysis of agent's hidden state
 We'll next analyse the agent's hidden state with a few dimensionality reduction
 methods. First we precompute the dimensionality reduction analyses:
 > python hidden_analysis_precompute.py --agent_env_data_dir="data/"
+
+or on the cluster
+
+> bsub -W 23:59 -R "rusage[mem=65536]" python hidden_analysis_precompute.py --agent_env_data_dir=/cluster/scratch/sharkeyl/postaisc_coinrun_data/ --generated_data_dir=/cluster/scratch/sharkeyl/recorded_informinit_gen_samples
+
+with 10'000 episodes (not samples). Increase request for memory and compute time to cope with more episodes.  
 
 which will save the analysis data in "analysis/hx_analysis_precomp/".
 
@@ -100,5 +106,18 @@ These depict what the agent is 'thinking' during many episodes, visualised
 using several different dimensionality reduction and clustering methods. 
 
 ## Analysis of environment hidden states
+
+> bsub -W 23:59 -R "rusage[mem=65536]" python env_h_analysis_precompute.py --agent_env_data_dir=/cluster/scratch/sharkeyl/postaisc_coinrun_data/ --generated_data_dir=/cluster/scratch/sharkeyl/recorded_informinit_gen_samples
+
+with 20'000 samples of len 24.  Increase request for memory and compute time to cope with more samples.  
+
+then
+
+> bsub -W 23:59 -R "rusage[mem=32768]" python env_h_analysis_plotting.py --agent_env_data_dir=/cluster/scratch/sharkeyl/postaisc_coinrun_data/ --precomputed_analysis_data_path=analysis/env_analysis_precomp --generated_data_dir=/cluster/scratch/sharkeyl/recorded_informinit_gen_samples/
+
+
+## Analysis of SensoriMotorLoop space
+
+> bsub -W 23:59 -R "rusage[mem=65536]" python sml_analysis_precompute.py --agent_env_data_dir=/cluster/scratch/sharkeyl/postaisc_coinrun_data/ --generated_data_dir=/cluster/scratch/sharkeyl/recorded_informinit_gen_samples
 
 # Leftover text that might be used later
