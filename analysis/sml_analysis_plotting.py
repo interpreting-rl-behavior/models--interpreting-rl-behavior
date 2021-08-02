@@ -1,23 +1,12 @@
-"""Make sure you've run hidden_analysis_precompute.py before running this
-because it generates data that this script uses."""
-
 import pandas as pd
 import numpy as np
-from sklearn.manifold import TSNE
-from sklearn.decomposition import PCA
-from sklearn.preprocessing import StandardScaler
 import argparse
-
 import matplotlib
 import matplotlib.pyplot as plt
 import seaborn as sns
 import os
 import time
 import imageio
-
-#TODO: think about t-SNE initialization
-# https://www.nature.com/articles/s41587-020-00809-z
-# https://jlmelville.github.io/smallvis/init.html
 
 pd.options.mode.chained_assignment = None  # default='warn'
 
@@ -128,10 +117,10 @@ def run():
     # -  value delta (not plotted currently)
 
     # nmf max factor
-    #sml_nmf = np.load(args.precomputed_analysis_data_path + \
-    #                 '/nmf_sml_raw_%i.npy' % num_samples)
-    #nmf_max_factor = np.argmax(sml_nmf, axis=1)
-    #data['nmf_max_factor'] = nmf_max_factor.squeeze()
+    sml_nmf = np.load(args.precomputed_analysis_data_path + \
+                    '/nmf_sml_raw_%i.npy' % num_samples)
+    nmf_max_factor = np.argmax(sml_nmf, axis=1)
+    data['nmf_max_factor'] = nmf_max_factor.squeeze()
 
     # cluster identity
     sml_cluster_raw = np.load(args.precomputed_analysis_data_path + \
@@ -146,15 +135,15 @@ def run():
 
     # Prepare for plotting
     plotting_variables = ['entropy', 'argmax_action_log_prob',
-                          'cluster_id_raw', 'cluster_id_dyn', #'nmf_max_factor',
+                          'cluster_id_raw', 'cluster_id_dyn', 'nmf_max_factor',
                           'ever_done',
                           'value', 'max_sample_reward', 'reward',]
 
     action_labels = list(range(15))
     action_cmap = sns.color_palette("husl", max(action_labels), as_cmap=True)
 
-    #nmf_labels = list(range(max(nmf_max_factor)))
-    #nmf_cmap = sns.color_palette("Paired", max(nmf_max_factor), as_cmap=True)
+    nmf_labels = list(range(max(nmf_max_factor)))
+    nmf_cmap = sns.color_palette("Paired", max(nmf_max_factor), as_cmap=True)
 
     num_clusters = max([max(sml_cluster_raw), max(sml_cluster_dyn)])
     cluster_labels = list(range(num_clusters))
@@ -164,7 +153,7 @@ def run():
                   'argmax_action_log_prob':   action_cmap,
                   'cluster_id_raw':           cluster_cmap,
                   'cluster_id_dyn':           cluster_cmap,
-                  #'nmf_max_factor':           nmf_cmap,
+                  'nmf_max_factor':           nmf_cmap,
                   'done':                    'autumn_r',
                   'ever_done':               'autumn_r',
                   'value':                   'cool',

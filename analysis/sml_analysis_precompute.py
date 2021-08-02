@@ -1,26 +1,8 @@
-
 import pandas as pd
 import numpy as np
-from sklearn.manifold import TSNE
-from sklearn.decomposition import PCA
-from sklearn.decomposition import NMF
-from sklearn.cluster import AgglomerativeClustering
-from sklearn.neighbors import kneighbors_graph
-#import umap
-from sklearn.preprocessing import StandardScaler
-
 from precomput_analysis_funcs import scale_then_pca_then_save, plot_variance_expl_plot, clustering_after_pca, tsne_after_pca, nmf_then_save
-
 import argparse
-
-import matplotlib
-import matplotlib.pyplot as plt
 import os
-import time
-
-#TODO: think about t-SNE initialization
-# https://www.nature.com/articles/s41587-020-00809-z 
-# https://jlmelville.github.io/smallvis/init.html
 
 pd.options.mode.chained_assignment = None  # default='warn'
 
@@ -43,12 +25,12 @@ def parse_args():
 # EPISODE_STRINGS = {v:str(v) for v in range(3431)}
 def run():
     args = parse_args()
-    num_samples = 20000 # number of generated samples to use
+    num_samples = 500 # number of generated samples to use
     num_epi_paths = 9  # Number of episode to plot paths through time for. Arrow plots.
     n_components_pca = 215
     n_components_tsne = 2
     n_components_nmf = 32
-    n_clusters = 70
+    n_clusters = 200
     path_epis = list(range(num_epi_paths))
 
     seed = 42  # for the tSNE algo
@@ -125,15 +107,15 @@ def run():
     # PCA
     print('Starting PCA on raw sml data...')
     sml_vecs_raw_pcaed, sml_vecs_raw_scaled, pca_obj_raw, scaler_raw = \
-        scale_then_pca_then_save(sml_vecs,n_components_pca,save_path, "sml_raw",
+        scale_then_pca_then_save(sml_vecs, n_components_pca, save_path, "sml_raw",
                                  num_samples)
     print('PCA on raw sml data finished.')
 
     print('Starting PCA on sml+dyn data...')
     sml_vecs_dyn_pcaed, sml_vecs_dyn_scaled, pca_obj_dyn, scaler_dyn = \
-        scale_then_pca_then_save(sml_vecs_dyn,n_components_pca,save_path, "sml_raw",
+        scale_then_pca_then_save(sml_vecs_dyn, n_components_pca, save_path, "sml_dyn",
                                  num_samples)
-    print('PCA on raw sml data finished.')
+    print('PCA on sml+dyn data finished.')
 
     print("Saving variance exlained plots")
     above95explained_raw = \
@@ -151,7 +133,7 @@ def run():
     print("Clustering of raw sml space finished.")
 
     print('Starting clustering of SML vectors + dynamics...')
-    clustering_after_pca(sml_vecs, above95explained_dyn, n_clusters, save_path,
+    clustering_after_pca(sml_vecs_dyn, above95explained_dyn, n_clusters, save_path,
                      "sml_dyn", num_samples)
     print("Clustering finished.")
 

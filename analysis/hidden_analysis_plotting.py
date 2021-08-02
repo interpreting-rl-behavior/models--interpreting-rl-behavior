@@ -3,21 +3,13 @@ because it generates data that this script uses."""
 
 import pandas as pd
 import numpy as np
-from sklearn.manifold import TSNE
-from sklearn.decomposition import PCA
-from sklearn.preprocessing import StandardScaler
 import argparse
-
 import matplotlib
 import matplotlib.pyplot as plt
 import seaborn as sns
 import os
 import time
 import imageio
-
-#TODO: think about t-SNE initialization 
-# https://www.nature.com/articles/s41587-020-00809-z 
-# https://jlmelville.github.io/smallvis/init.html
 
 pd.options.mode.chained_assignment = None  # default='warn'
 

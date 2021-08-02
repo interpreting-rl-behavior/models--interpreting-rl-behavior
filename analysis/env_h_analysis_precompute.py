@@ -1,28 +1,8 @@
-
 import pandas as pd
 import numpy as np
-from sklearn.manifold import TSNE
-from sklearn.decomposition import PCA
-from sklearn.decomposition import NMF
-from sklearn.cluster import AgglomerativeClustering
-from sklearn.neighbors import kneighbors_graph
-#import umap
-from sklearn.preprocessing import StandardScaler
-
 from precomput_analysis_funcs import scale_then_pca_then_save, plot_variance_expl_plot, clustering_after_pca, tsne_after_pca, nmf_then_save
-
-
-
 import argparse
-
-import matplotlib
-import matplotlib.pyplot as plt
 import os
-import time
-
-#TODO: think about t-SNE initialization
-# https://www.nature.com/articles/s41587-020-00809-z 
-# https://jlmelville.github.io/smallvis/init.html
 
 pd.options.mode.chained_assignment = None  # default='warn'
 
