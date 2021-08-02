@@ -120,4 +120,10 @@ then
 
 > bsub -W 23:59 -R "rusage[mem=65536]" python sml_analysis_precompute.py --agent_env_data_dir=/cluster/scratch/sharkeyl/postaisc_coinrun_data/ --generated_data_dir=/cluster/scratch/sharkeyl/recorded_informinit_gen_samples
 
-# Leftover text that might be used later
+## Analysis of the prediction quality over time
+We measure the mean squared error of each component of the generative model's loss, and see how it changes with the
+number of simulation steps the generative model produces. To run this experiment and output a json file with the results, run:
+> python loss_over_time_exp.py --exp_name demo2 --epochs 1 --batch_size 200 --agent_file=[your pth file] --device cpu --param_name hard-local-dev-rec --model_file=[your pt file]
+
+Note that you may need to add arguments for the scaling factors of each loss component (e.g. --loss_scale_obs=1000.0 --loss_scale_hx=1.0). To create a line plot using the data from the above experiment, run:
+> python analysis/plot_loss_over_time.py --presaved_data_path=generative/analysis/loss_over_time/[json output file above]"
