@@ -43,7 +43,7 @@ def parse_args():
 # EPISODE_STRINGS = {v:str(v) for v in range(3431)}
 def run():
     args = parse_args()
-    num_samples = 100 # number of generated samples to use
+    num_samples = 20000 # number of generated samples to use
     num_epi_paths = 9  # Number of episode to plot paths through time for. Arrow plots.
     n_components_pca = 215
     n_components_tsne = 2
@@ -72,10 +72,14 @@ def run():
     env_c = np.load(os.path.join(generated_data_path, 'sample_00000/env_cell_states.npy'))
     agnt_hx = np.load(os.path.join(generated_data_path, 'sample_00000/agent_hxs.npy'))
     agnt_lp = np.load(os.path.join(generated_data_path, 'sample_00000/agent_logprobs.npy'))
+    z_g = np.load(os.path.join(generated_data_path, 'sample_00000/latent_vec.npy'))
+    z_g = [z_g[z_g.shape[0]//2:]] * env_c.shape[0]
+    z_g = np.stack(z_g)
     sml_vecs = np.concatenate((env_hx,
                                env_c,
                                agnt_hx,
-                               agnt_lp), axis=1)
+                               agnt_lp,
+                               z_g), axis=1)
 
     sml_tplus1 = sml_vecs[1:]  # there is no diff vec for the last ts
     sml_t = sml_vecs[:-1]  # therefore we cut off the last ts for consistency
@@ -91,10 +95,15 @@ def run():
                                      f'sample_{ep:05d}/agent_hxs.npy'))
         agnt_lp = np.load(os.path.join(generated_data_path,
                                      f'sample_{ep:05d}/agent_logprobs.npy'))
+        z_g = np.load(os.path.join(generated_data_path,
+                                   f'sample_{ep:05d}/latent_vec.npy'))
+        z_g = [z_g[z_g.shape[0] // 2:]] * env_c.shape[0]
+        z_g = np.stack(z_g)
         sml_vec_to_cat = np.concatenate((env_hx,
                                          env_c,
                                          agnt_hx,
-                                         agnt_lp), axis=1)
+                                         agnt_lp,
+                                         z_g), axis=1)
 
         sml_vec_to_cat_tplus1 = sml_vec_to_cat[1:]  # there is no diff vec for the last ts
         sml_vec_to_cat_t = sml_vec_to_cat[:-1] # therefore we cut off the last ts for consistency

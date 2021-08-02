@@ -43,7 +43,7 @@ def parse_args():
 
 def run():
     args = parse_args()
-    num_samples = 100#2000  # number of episodes to make plots for. Needs to be
+    num_samples = 20000  # number of episodes to make plots for. Needs to be
     # the same as the precomputed data you want to use
     plot_pca = True
     plot_3d_pca_all = False
@@ -60,8 +60,7 @@ def run():
 
     # Prepare load and save dirs
     generated_data_path = args.generated_data_dir
-    save_path = 'env_plots'
-    os.makedirs(save_path, exist_ok=True)
+    save_path = 'analysis/env_plots'
 
     # Load the non vector outputs
 
