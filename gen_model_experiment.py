@@ -11,7 +11,7 @@ from generative.generative_models import VAE
 from generative.procgen_dataset import ProcgenDataset
 
 
-class LatentSpaceExperiment():
+class GenerativeModelExperiment():
     def __init__(self, args):
         """
         A class for experiments that involve sampling from a VAE latent space.
@@ -31,7 +31,7 @@ class LatentSpaceExperiment():
           - Instantiating the agent that will be used in the decoder
           - Any infrastructure for loading any of the above
         """
-        super(LatentSpaceExperiment, self).__init__()
+        super(GenerativeModelExperiment, self).__init__()
 
         param_name = args.param_name
         device = args.device
