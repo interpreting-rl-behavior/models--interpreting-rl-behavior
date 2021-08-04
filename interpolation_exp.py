@@ -21,7 +21,7 @@ import os, argparse #time, yaml,
 import random
 import torch
 #import pandas as pd
-from latent_space_experiment import LatentSpaceExperiment
+from gen_model_experiment import LatentSpaceExperiment
 from datetime import datetime
 import torchvision.io as tvio
 
