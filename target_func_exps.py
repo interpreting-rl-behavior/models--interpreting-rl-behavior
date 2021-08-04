@@ -1,19 +1,8 @@
-import numpy as np
-
 from common.env.procgen_wrappers import *
-from common.logger import Logger
-from common.storage import Storage
-from common.model import NatureModel, ImpalaModel
-from common.policy import CategoricalPolicy
-from common import set_global_seeds, set_global_log_levels
-
-import os, time, yaml, argparse
-import gym
-from procgen import ProcgenEnv
+import os, argparse
 import random
 import torch
-import pandas as pd
-from latent_space_experiment import LatentSpaceExperiment
+from gen_model_experiment import GenerativeModelExperiment
 from datetime import datetime
 import torchvision.io as tvio
 import matplotlib.pyplot as plt
@@ -490,7 +479,7 @@ if __name__=='__main__':
 
     # Set up args and exp
     args = parser.parse_args()
-    tfe = LatentSpaceExperiment(args)  # for 'Target Function Experiment'
+    tfe = GenerativeModelExperiment(args)  # for 'Target Function Experiment'
 
     # Device
     if args.device == 'gpu':
