@@ -25,7 +25,7 @@ def parse_args():
 # EPISODE_STRINGS = {v:str(v) for v in range(3431)}
 def run():
     args = parse_args()
-    num_samples = 500 # number of generated samples to use
+    num_samples = 20000 # number of generated samples to use
     num_epi_paths = 9  # Number of episode to plot paths through time for. Arrow plots.
     n_components_pca = 215
     n_components_tsne = 2
@@ -44,12 +44,12 @@ def run():
     os.makedirs(save_path, exist_ok=True)
     os.makedirs(plot_save_path, exist_ok=True)
 
-    # env_space_w = 1024/128
-    # agent_hx_space_w = 1.0
-    # action_space_w = 0.25 # This is a guess
+    # env_space_w = 64./(2048.+64.)
+    # agent_hx_space_w = 64./64.
+    # action_space_w = 64./15.
 
     # Get vecs that were produced by the generative model
-    print("Collecting env data together...")
+    print("Collecting SML data together...")
     env_hx = np.load(os.path.join(generated_data_path, 'sample_00000/env_hid_states.npy'))
     env_c = np.load(os.path.join(generated_data_path, 'sample_00000/env_cell_states.npy'))
     agnt_hx = np.load(os.path.join(generated_data_path, 'sample_00000/agent_hxs.npy'))
@@ -82,10 +82,10 @@ def run():
         z_g = [z_g[z_g.shape[0] // 2:]] * env_c.shape[0]
         z_g = np.stack(z_g)
         sml_vec_to_cat = np.concatenate((env_hx,
-                                         env_c,
-                                         agnt_hx,
-                                         agnt_lp,
-                                         z_g), axis=1)
+                                        env_c,
+                                        agnt_hx,
+                                        agnt_lp,
+                                        z_g), axis=1)
 
         sml_vec_to_cat_tplus1 = sml_vec_to_cat[1:]  # there is no diff vec for the last ts
         sml_vec_to_cat_t = sml_vec_to_cat[:-1] # therefore we cut off the last ts for consistency
