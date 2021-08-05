@@ -26,7 +26,6 @@ def run():
                 plot(os.path.join(path, sub_dir))
 
 
-
 def parse_args():
     parser = argparse.ArgumentParser(
         description='args for plotting')
