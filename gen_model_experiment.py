@@ -76,7 +76,7 @@ class GenerativeModelExperiment():
         resdir = logdir_base + 'results/'
         if not (os.path.exists(resdir)):
             os.makedirs(resdir)
-        resdir = resdir + args.ls_exp_name
+        resdir = resdir + args.gen_mod_exp_type
         if not (os.path.exists(resdir)):
             os.makedirs(resdir)
 

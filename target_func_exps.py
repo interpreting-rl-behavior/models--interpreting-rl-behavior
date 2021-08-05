@@ -433,7 +433,7 @@ if __name__=='__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument('--target_function_type', type=str)
     parser.add_argument('--directions_path', type=str)
-    parser.add_argument('--ls_exp_name', type=str, default='target_func_exp',
+    parser.add_argument('--gen_mod_exp_type', type=str, default='target_func_exp',
                         help='type of latent space experiment')
     parser.add_argument('--exp_name', type=str, default='test',
                         help='experiment name')
