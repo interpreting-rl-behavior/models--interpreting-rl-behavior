@@ -40,10 +40,10 @@ def parse_args():
 
 def run():
     args = parse_args()
-    num_episodes = 100#2000  # number of episodes to make plots for. Needs to be
-    num_generated_samples = 99
+    num_episodes = 10000#2000  # number of episodes to make plots for. Needs to be
+    num_generated_samples = 1000
     # the same as the precomputed data you want to use
-    plot_pca = False
+    plot_pca = True
     plot_3d_pca_all = True
     plot_gen_hx_pca = True
     plot_clusters = True
@@ -218,7 +218,7 @@ def run():
                                 data['pca_Y'].loc[data['episode_step']!=0],
                                 c=data[col].loc[data['episode_step']!=0],
                                 cmap=plot_cmaps[col],
-                                s=0.005, alpha=pca_alpha)
+                                s=0.0005, alpha=pca_alpha)
             if plot_gen_hx_pca:
                 splot = plt.scatter(
                     gen_hx_pca[:, first_PC_ind],
@@ -247,7 +247,7 @@ def run():
                 data['pca_Y'].loc[data['episode_step']!=0],
                 c=data['% through episode'].loc[data['episode_step']!=0],
                 cmap=plot_cmaps['% through episode'],
-                s=0.005, alpha=pca_alpha)
+                s=0.0005, alpha=pca_alpha)
             # for epi in path_epis:
             epi_data = groups[plot_idx-1][1]
             for i in range(len(epi_data) - 1):
@@ -349,7 +349,7 @@ def run():
                                 data['tsne_Y'].loc[data['episode_step']!=0],
                                 c=data[col].loc[data['episode_step']!=0],
                                 cmap=plot_cmaps[col],
-                                s=0.05, alpha=0.99)
+                                s=0.005, alpha=0.99)
             fig.colorbar(splot, fraction=0.023, pad=0.04)
             ax.legend(title=col, bbox_to_anchor=(1.01, 1), borderaxespad=0)
             ax.set_frame_on(False)
