@@ -20,10 +20,10 @@ def parse_args():
         '--agent_env_data_dir', type=str,
         default="data")
     parser.add_argument(
-        '--precomputed_analysis_data_path', type=str, default="sml_analysis_precomp")
+        '--precomputed_analysis_data_path', type=str, default="analysis/sml_analysis_precomp")
     parser.add_argument(
         '--generated_data_dir', type=str,
-        default='../generative/recorded_informinit_gen_samples')
+        default='generative/recorded_informinit_gen_samples')
     parser.add_argument(
         '--presaved_data_path', type=str, default="/media/lee/DATA/DDocs/AI_neuro_work/assurance_project_stuff/data/precollected/")
     args = parser.parse_args()
@@ -34,9 +34,9 @@ def run():
     args = parse_args()
     num_samples = 20000  # number of episodes to make plots for. Needs to be
     # the same as the precomputed data you want to use
-    plot_pca = False
+    plot_pca = True
     plot_3d_pca_all = False
-    plot_clusters = False
+    plot_clusters = True
     plot_tsne = True
 
     first_PC_ind = 0
