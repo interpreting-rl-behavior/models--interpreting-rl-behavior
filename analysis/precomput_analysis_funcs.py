@@ -91,13 +91,13 @@ def tsne_after_pca(data, num_pcs, num_tsne_components, save_path, aux_name1,
     pca_for_tsne = pca_for_tsne.fit_transform(data)
     data_tsneed = TSNE(n_components=num_tsne_components,
                       random_state=seed,
-                      init=pca_for_tsne[:,0:2]).fit_transform(pca_for_tsne)
+                      init=pca_for_tsne[:,0:num_tsne_components]).fit_transform(pca_for_tsne)
     np.save(save_path + f'tsne_{aux_name1}_{aux_name2}.npy', data_tsneed)
 
 def nmf_then_save(data, num_factors, save_path, aux_name1, aux_name2):
     data_nonneg = data - np.min(data, axis=0) # TODO is this the best way to do this? Surely we subtract the min from each dim, and maybe also normalize. OR OR OR we could 'a-score', a term I coined that is like z-scoring but where you subtract the min instead of the mean
     model = NMF(n_components=num_factors,
-                init='random', random_state=0, max_iter=5000, verbose=1)
+                init='random', random_state=0, max_iter=5000, verbose=1, tol=0.005)
     env_h_nmf = model.fit(data_nonneg)
     np.save(save_path + f'nmf_{aux_name1}_{aux_name2}.npy',
             env_h_nmf.transform(data_nonneg))
