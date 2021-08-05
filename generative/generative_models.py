@@ -566,7 +566,7 @@ class Decoder(nn.Module):
         # Make agent into an attribute of the decoder class
         self.agent = agent
 
-    def forward(self, z_c, z_g, true_h0=None, true_actions=None):
+    def forward(self, z_c, z_g, true_h0=None, true_actions=None, retain_grads=False):
 
         pred_obs = []
         pred_rews = []
@@ -595,6 +595,11 @@ class Decoder(nn.Module):
         # trained to approximate true_h0.
         agent_h = true_h0 if true_h0 is not None else pred_agent_h0
 
+        if retain_grads:
+            pred_agent_h0.retain_grad()
+            env_cell_state.retain_grad()
+            env_h.retain_grad()
+
         for i in range(self.num_sim_steps):
             # The first part of the for-loop happens only within t
             if i > 0:
@@ -612,7 +617,7 @@ class Decoder(nn.Module):
             ## Step forward the agent to get act@t and logprobs@t, but
             ## agent_h@t+1
             act, logits, value, agent_h = self.agent.predict_STE(ob, agent_h,
-                                                                 done)
+                                                                 done, retain_grads=retain_grads)
             pred_acts.append(act)
             pred_agent_logprobs.append(logits)
             pred_agent_values.append(value)
@@ -628,6 +633,14 @@ class Decoder(nn.Module):
             env_rnn_state = \
                 self.env_stepper.encode_and_step(act, env_rnn_state, z_g)
             env_h, env_cell_state = env_rnn_state # env@t+1
+
+            if retain_grads:
+                ob.retain_grad()
+                agent_h.retain_grad()
+                act.retain_grad()
+                logits.retain_grad()
+                env_cell_state.retain_grad()
+                env_h.retain_grad()
 
             ## Get ready for new step
             self.agent.train_prev_recurrent_states = None

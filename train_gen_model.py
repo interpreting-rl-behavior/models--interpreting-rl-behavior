@@ -400,7 +400,7 @@ def loss_function(args, preds, labels, mu_c, logvar_c, mu_g, logvar_g, train_inf
     mu = torch.cat([mu_c, mu_g], dim=1)
     logvar = torch.cat([logvar_c, logvar_g], dim=1)
     kl_divergence = -0.5 * torch.mean(1 + logvar - mu.pow(2) - logvar.exp(),
-                                     dim=1) # Mean(sum?) along latent size dim.
+                                     dim=1)  # Mean(sum?) along latent size dim.
     kl_divergence = torch.mean(kl_divergence)  # Mean along batch dim
     train_info_bufs['KL'].append(kl_divergence.item())
     kl_divergence *= args.loss_scale_kl

@@ -3,17 +3,11 @@ because it generates data that this script uses."""
 
 import pandas as pd
 import numpy as np
-from sklearn.manifold import TSNE
-from sklearn.decomposition import PCA
-from sklearn.preprocessing import StandardScaler
 import argparse
-
-import matplotlib
 import matplotlib.pyplot as plt
 import seaborn as sns
 import os
 import time
-import imageio
 
 pd.options.mode.chained_assignment = None  # default='warn'
 
@@ -34,7 +28,7 @@ def parse_args():
 def run():
     args = parse_args()
     # number of episodes to make plots for. Needs to be
-    num_generated_samples = 200
+    num_generated_samples = 4000
     # the same as the precomputed data you want to use
     plot_pca = True
     plot_3d_pca_all = True
@@ -45,9 +39,7 @@ def run():
 
     # Set up saving and loading dirs
     precomp_data_path = args.precomputed_analysis_data_path
-    save_path = 'latent_vec_plots'
-    if not os.path.exists(save_path):
-        os.makedirs(save_path, exist_ok=True)
+    save_path = 'analysis/latent_vec_plots'
 
     # Load lv data
     lv_inf_pca = np.load(os.path.join(precomp_data_path,

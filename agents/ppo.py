@@ -77,7 +77,7 @@ class PPO(BaseAgent):
         return act.cpu().numpy(), dist.logits.cpu().numpy(), value.cpu().numpy(), hidden_state.cpu().numpy()
 
 
-    def predict_STE(self, obs, hidden_state, done):
+    def predict_STE(self, obs, hidden_state, done, retain_grads=False):
         """Stepse agent forward once but uses a straight through estimator:
         the action is passed forward as a one hot vector, but the gradient is
         back through the action logits. """
@@ -87,7 +87,8 @@ class PPO(BaseAgent):
         # mask = torch.FloatTensor(1-done).to(device=self.device)
         mask = torch.ones_like(done).squeeze() - done.squeeze()
         # obs = obs.permute(0, 3, 1, 2)
-        dist, value, hidden_state = self.policy(obs, hidden_state, mask)
+        dist, value, hidden_state = self.policy(obs, hidden_state, mask, retain_grads=retain_grads)
+
         act = dist.logits.argmax(dim=1)
         # log_prob_act = dist.log_prob(act)
 

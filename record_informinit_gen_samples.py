@@ -92,7 +92,7 @@ def run():
     # minus one because the first simulated observation is the last
     # initializing context obs.
 
-    samples_to_record = 2000
+    samples_to_record = 20000
     if samples_to_record % batch_size > 0:
         raise ValueError("Samples to record should be an integer multiple of "+\
                          "batch size")
@@ -233,6 +233,8 @@ def record_gen_samples(epoch, args, gen_model, batch_size, agent, data, logger, 
         _, _, _, _, preds = gen_model(full_obs, agent_h0, actions_all,
                                                           use_true_h0=False,
                                                           use_true_actions=False)
+        # Both of these were false but for some reason it doesn't appear to be
+        #  leading to the same distribution of hxs
 
         pred_obs = preds['obs']
         pred_rews = preds['reward']
@@ -291,12 +293,8 @@ def record_gen_samples(epoch, args, gen_model, batch_size, agent, data, logger, 
             save_str = data_dir + '/sample_' + f'{new_sample_idx:05d}.mp4'
             tvio.write_video(save_str, ob, fps=14)
 
-    # Make an empty csv file that you'll use to manually identify behaviours and
-    #  features in the generated samples
-    behav_list = []
-
     # TODO merge this script with record_random_gen_samples but just use
-    # conditionals instead of having multiple scripts. Use git diff
+    #  conditionals instead of having multiple scripts. Use git diff
 
 def safe_mean(xs):
     return np.nan if len(xs) == 0 else np.mean(xs)

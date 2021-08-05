@@ -3,21 +3,13 @@ because it generates data that this script uses."""
 
 import pandas as pd
 import numpy as np
-from sklearn.manifold import TSNE
-from sklearn.decomposition import PCA
-from sklearn.preprocessing import StandardScaler
 import argparse
-
 import matplotlib
 import matplotlib.pyplot as plt
 import seaborn as sns
 import os
 import time
 import imageio
-
-#TODO: think about t-SNE initialization 
-# https://www.nature.com/articles/s41587-020-00809-z 
-# https://jlmelville.github.io/smallvis/init.html
 
 pd.options.mode.chained_assignment = None  # default='warn'
 
@@ -54,9 +46,7 @@ def run():
     third_PC_ind = 3
 
     # Prepare load and save dirs
-    save_path = 'hx_plots'
-    os.makedirs(save_path, exist_ok=True)
-
+    save_path = 'analysis/hx_plots'
 
     presaved_data_path = args.presaved_data_path
     hx_presaved_filepath = presaved_data_path + "hxs_%i.npy" % num_episodes

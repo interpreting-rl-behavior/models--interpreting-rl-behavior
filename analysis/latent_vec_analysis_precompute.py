@@ -5,15 +5,9 @@ because they generate data that is used
 here. """
 import pandas as pd
 import numpy as np
-from sklearn.manifold import TSNE
 from sklearn.decomposition import PCA
-from sklearn.decomposition import NMF
-from sklearn.cluster import AgglomerativeClustering
-from sklearn.neighbors import kneighbors_graph
-#import umap
 from sklearn.preprocessing import StandardScaler
-
-from precomput_analysis_funcs import scale_then_pca_then_save, plot_variance_expl_plot, clustering_after_pca, tsne_after_pca, nmf_then_save
+from precomput_analysis_funcs import scale_then_pca_then_save, plot_variance_expl_plot, clustering_after_pca, tsne_after_pca
 
 
 
@@ -46,7 +40,7 @@ def parse_args():
 # EPISODE_STRINGS = {v:str(v) for v in range(3431)}
 def run():
     args = parse_args()
-    num_samples = 200 # number of generated samples to use
+    num_samples = 4000 # number of generated samples to use
     n_components_pca = 128
     n_components_tsne = 2
     n_clusters = 100
@@ -58,9 +52,9 @@ def run():
     generated_data_path_rand = args.generated_data_dir_rand
 
     save_path = 'latent_vec_analysis_precomp/'
-    # save_path = os.path.join("analysis", save_path)
+    save_path = os.path.join(os.getcwd(), "analysis", save_path)
     plot_save_path = 'latent_vec_plots'
-    # plot_save_path = os.path.join("analysis", plot_save_path)
+    plot_save_path = os.path.join(os.getcwd(), "analysis", plot_save_path)
     os.makedirs(save_path, exist_ok=True)
     os.makedirs(plot_save_path, exist_ok=True)
 

@@ -30,18 +30,23 @@ class CategoricalPolicy(nn.Module):
     def is_recurrent(self):
         return self.recurrent
 
-    def forward(self, x, hx, masks):
+    def forward(self, x, hx, masks, retain_grads=False):
         hidden = self.embedder(x)
         if self.recurrent:
             # Fill in init hx to get grads right (it's a hacky solution to use
             #  trainable initial hidden states, but it's hard to get it to work
             #  with this Kostrikov repo since it uses numpy so much).
-            inithx_mask = [torch.all(hx[i] == self.init_hx) for i in
-                           range(hx.shape[0])]
-            hx[inithx_mask] = self.init_hx
+            if not retain_grads:
+                inithx_mask = [torch.all(hx[i] == self.init_hx) for i in
+                               range(hx.shape[0])]
+                hx[inithx_mask] = self.init_hx
             hidden, hx = self.gru(hidden, hx, masks)
         logits = self.fc_policy(hidden)
         log_probs = F.log_softmax(logits, dim=1)
         p = Categorical(logits=log_probs)
         v = self.fc_value(hidden).reshape(-1)
-        return p, v, hx
+
+        if retain_grads:
+            return p, v, hidden
+        else:
+            return p, v, hx
