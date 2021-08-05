@@ -16,10 +16,10 @@ def parse_args():
         description='args for plotting')
     parser.add_argument(
         '--agent_env_data_dir', type=str,
-        default="../data/")
+        default="data/")
     parser.add_argument(
         '--generated_data_dir', type=str,
-        default='../generative/recorded_informinit_gen_samples')
+        default='generative/recorded_informinit_gen_samples')
 
     args = parser.parse_args()
     return args
