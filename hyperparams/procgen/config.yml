@@ -40,11 +40,11 @@ easy-200:
 
 hard:
     algo: ppo
-    n_envs: 256
+    n_envs: 128
     n_steps: 256
     epoch: 3
     mini_batch_per_epoch: 8
-    mini_batch_size: 2048
+    mini_batch_size: 4096
     gamma: 0.999
     lmbda: 0.95
     learning_rate: 0.0005

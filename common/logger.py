@@ -1,7 +1,7 @@
 import numpy as np
 import pandas as pd
 from collections import deque
-from torch.utils.tensorboard import SummaryWriter
+#from torch.utils.tensorboard import SummaryWriter
 import time
 
 class Logger(object):
@@ -42,7 +42,7 @@ class Logger(object):
                                'val_max_episode_rewards', 'val_mean_episode_rewards', 'val_min_episode_rewards',
                                'val_max_episode_len', 'val_mean_episode_len', 'val_min_episode_len',
                                'val_mean_timeouts'])
-        self.writer = SummaryWriter(logdir)
+#        self.writer = SummaryWriter(logdir)
         self.timesteps = 0
         self.num_episodes = 0
         self.num_episodes_val = 0
@@ -87,16 +87,17 @@ class Logger(object):
         self.timesteps += (self.n_envs * steps)
 
     def write_summary(self, summary):
-        for key, value in summary.items():
-            self.writer.add_scalar(key, value, self.timesteps)
+#        for key, value in summary.items():
+#            self.writer.add_scalar(key, value, self.timesteps)
+        pass
 
     def dump(self):
         wall_time = time.time() - self.start_time
         if self.num_episodes > 0:
             episode_statistics = self._get_episode_statistics()
             episode_statistics_list = list(episode_statistics.values())
-            for key, value in episode_statistics.items():
-                self.writer.add_scalar(key, value, self.timesteps)
+#            for key, value in episode_statistics.items():
+#                self.writer.add_scalar(key, value, self.timesteps)
         else:
             episode_statistics_list = [None] * 12
         log = [self.timesteps] + [wall_time] + [self.num_episodes] + [self.num_episodes_val] + episode_statistics_list
