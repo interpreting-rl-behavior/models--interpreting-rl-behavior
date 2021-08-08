@@ -178,6 +178,14 @@ if __name__=='__main__':
     done = np.zeros(agent.n_envs)
 
 
+    num = 0
+    total_done = 0
+    n_steps_since_last_done = 0
+    n_timeouts = 0
+    n_reached_end = 0
+    step = 0
+    incremeted_n_reached_end = False
+
     while True:
         agent.policy.eval()
         for _ in range(agent.n_steps):  # = 256
@@ -188,8 +196,35 @@ if __name__=='__main__':
             obs = next_obs
             hidden_state = next_hidden_state
 
+            if n_steps_since_last_done == 998:
+                n_timeouts += 1
+                print('timed out')
+
+            if info[0]['coinrun_reached_end'] == 1 and not incremeted_n_reached_end:
+                print('reached end')
+                incremeted_n_reached_end = True
+                n_reached_end += 1
+
+            if done:
+                print('------------------')
+                print('previous seed:')
+                print(info[0]['prev_level_seed'])
+                print()
+                incremeted_n_reached_end = False
+                total_done += 1
+                n_steps_since_last_done = 0
+            else:
+                n_steps_since_last_done += 1
+
+
         _, _, last_val, hidden_state = agent.predict(obs, hidden_state, done)
         agent.storage.store_last(obs, hidden_state, last_val)
 
         agent.storage.compute_estimates(agent.gamma, agent.lmbda, agent.use_gae,
                                        agent.normalize_adv)
+        print()
+        print('//////')
+        print('total:', total_done)
+        print()
+        print('total timed out:', n_timeouts)
+        print('total reached end:', n_reached_end)
