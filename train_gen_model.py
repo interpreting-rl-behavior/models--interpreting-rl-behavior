@@ -195,21 +195,8 @@ def run():
     optimizer = torch.optim.Adam(gen_model.parameters(), lr=args.lr)
 
     if args.model_file is not None:
-        checkpoint = torch.load(args.model_file, map_location=device)
-
-        updated_params_keys = [x[0] for x in gen_model.named_parameters()]
-        new_checkpoint_dict = {k: v for k, v in checkpoint['gen_model_state_dict'].items()
-                    if k in updated_params_keys}
-        gen_model.load_state_dict(new_checkpoint_dict, device)
-        # gen_model.load_state_dict(checkpoint['gen_model_state_dict'], device)
-
-        # updated_params = [x[0] for x in gen_model.named_parameters()]
-        # keepinds = {i for i, (k, v) in enumerate(checkpoint['gen_model_state_dict'].items())
-        #             if k in updated_params}
-        # newcheck = {k: v for k, v in checkpoint['gen_model_state_dict'].items()
-        #             if k in updated_params}
-        # gen_model.load_state_dict(newcheck, device)
-        # optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
+        gen_model.load_state_dict(checkpoint['gen_model_state_dict'], device)
+        optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
         logger.info('Loaded generative model from {}.'.format(args.model_file))
     else:
         logger.info('Training generative model from scratch.')
