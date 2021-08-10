@@ -1,0 +1,14 @@
+pyyaml
+matplotlib
+numpy
+pandas
+torch>=1.3
+torchvision
+tensorboard
+opencv-python
+procgen
+gym
+scikit-learn
+
+
+
