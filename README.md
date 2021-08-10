@@ -152,7 +152,7 @@ Note that you may need to add arguments for the scaling factors of each loss com
 ## Calculating saliency maps
 
 
-Saliency maps calculate the gradient (avereged over noised samples) of some
+Saliency maps calculate the gradient (averaged over noised samples) of some
 network quantity (e.g. the agent's value function output) with respect to inputs
 or intermediate network activations.
 We can thus calculate how important dimensions of the generated observations or
