@@ -51,7 +51,7 @@ def run():
                         help='number of checkpoints to store')
     parser.add_argument('--model_file', type=str)
     parser.add_argument('--agent_file', type=str)
-    parser.add_argument('--data_dir', type=str, default='generative/data/')
+    parser.add_argument('--data_dir', type=str, default='data/')
     parser.add_argument('--save_interval', type=int, default=100)
     parser.add_argument('--log_interval', type=int, default=100)
     parser.add_argument('--lr', type=float, default=5e-4)
@@ -112,25 +112,21 @@ def run():
 
     # Make save dirs
     print('INITIALIZING LOGGER...')
-    logdir_base = 'generative/'
-    if not (os.path.exists(logdir_base)):
-        os.makedirs(logdir_base)
-    resdir = logdir_base + 'results/'
-    if not (os.path.exists(resdir)):
-        os.makedirs(resdir)
-    resdir = resdir + args.tgm_exp_name
-    if not (os.path.exists(resdir)):
-        os.makedirs(resdir)
+    save_dir_base = 'analysis/'
+    if not (os.path.exists(save_dir_base)):
+        os.makedirs(save_dir_base)
+    save_dir = os.path.join(save_dir_base, 'loss_over_time')
+    if not (os.path.exists(save_dir)):
+        os.makedirs(save_dir)
+
     gen_model_session_name = datetime.now().strftime("%Y%m%d_%H%M%S")
-    sess_dir = os.path.join(resdir, gen_model_session_name)
-    if not (os.path.exists(sess_dir)):
-        os.makedirs(sess_dir)
+    # sess_dir = os.path.join(save_dir, gen_model_session_name)
+    # if not (os.path.exists(sess_dir)):
+    #     os.makedirs(sess_dir)
 
     # Logger
-    logger.configure(dir=sess_dir, format_strs=['csv', 'stdout'])
-    reconpred_dir = os.path.join(sess_dir, 'recons_v_preds')
-    if not (os.path.exists(reconpred_dir)):
-        os.makedirs(reconpred_dir)
+    logger.configure(dir=save_dir, format_strs=['csv', 'stdout'])
+
 
     # Set up agent
     print('INTIALIZING AGENT MODEL...')
@@ -204,14 +200,13 @@ def run():
 
 
     with torch.no_grad():
-        losses = train(args, train_loader, optimizer, gen_model, agent,
-                    logger, sess_dir, device)
+        losses = train(args, train_loader, optimizer, gen_model, device)
 
-    with open(f"generative/analysis/loss_over_time/{gen_model_session_name}.json", 'w') as f:
+    with open(f"analysis/loss_over_time/{gen_model_session_name}.json", 'w') as f:
         json.dump(losses, f, indent=4)
 
 
-def train(args, train_loader, optimizer, gen_model, agent, logger, save_dir, device):
+def train(args, train_loader, optimizer, gen_model, device):
 
     # Set up logging queue objects
     loss_keys = ['obs', 'hx', 'done', 'reward', 'act_log_probs', 'total recon w/o KL']
@@ -224,8 +219,8 @@ def train(args, train_loader, optimizer, gen_model, agent, logger, save_dir, dev
     # Training cycle
     for batch_idx, data in enumerate(train_loader):
         print(f"Batch {batch_idx + 1}/{len(train_loader)}")
-        # if batch_idx == 50:
-        #     break
+        if batch_idx == 500:
+            break
 
         # Make all data into floats and put on the right device
         data = {k: v.to(device).float() for k, v in data.items()}
@@ -240,24 +235,26 @@ def train(args, train_loader, optimizer, gen_model, agent, logger, save_dir, dev
         mu_c, logvar_c, mu_g, logvar_g, preds = gen_model(full_obs, agent_h0, actions_all,
                                                           use_true_h0=True,
                                                           use_true_actions=True)
-        train_info_bufs = loss_function(args, preds, data, mu_c, logvar_c, mu_g, logvar_g,
-                                        train_info_bufs, device)
+        train_info_bufs = loss_function(args, preds, data, train_info_bufs, device)
     
     losses = {}
     for key in loss_keys:
-        losses[key] = torch.mean(torch.stack(train_info_bufs[key]), dim=0).tolist()
+        loss_tensor = torch.cat(train_info_bufs[key])
+        losses[key + '_mean'] = torch.mean(loss_tensor, dim=0).tolist()
+        losses[key + '_max'] = torch.max(loss_tensor,  dim=0).values.tolist()
+        losses[key + '_min'] = torch.min(loss_tensor,  dim=0).values.tolist()
 
     return losses
        
-def loss_function(args, preds, labels, mu_c, logvar_c, mu_g, logvar_g, train_info_bufs, device):
+def loss_function(args, preds, labels, train_info_bufs, device):
 
     loss_hyperparams = {'obs': args.loss_scale_obs,
                         'hx': args.loss_scale_hx,
                         'reward': args.loss_scale_reward,
                         'done': args.loss_scale_done,
                         'act_log_probs': args.loss_scale_act_log_probs}
-
-    loss = torch.zeros(args.num_sim_steps).to(device)
+    bs = args.batch_size
+    loss = torch.zeros(bs, args.num_sim_steps).to(device)
 
     for key in train_info_bufs.keys():
         if key == 'total recon w/o KL': # Not using values for loss
@@ -266,16 +263,18 @@ def loss_function(args, preds, labels, mu_c, logvar_c, mu_g, logvar_g, train_inf
         label = labels[key].to(device).float().squeeze()
         label = label[:, -args.num_sim_steps:]
 
-        # Get the mean value over all dims except for num_sim_steps (dim 1)
-        mean_dims = [0] + list(range(len(pred.shape)))[2:]
+        # Get the mean value over all dims except for batch and num_sim_steps (dim 1)
+        mean_dims = list(range(len(pred.shape)))[2:]
         # Get MSE for this key
-        key_loss = torch.mean((pred - label) ** 2, dim=mean_dims)
-        scaled_loss = key_loss * loss_hyperparams[key]
+        if mean_dims:  # ensures it doesn't mean for empty dims list
+            key_loss = torch.mean((pred - label) ** 2, dim=mean_dims)
+        else:
+            key_loss = (pred - label) ** 2
+        # scaled_loss = key_loss * loss_hyperparams[key]
 
         # Currently saves the scaled loss, not the raw loss
-        train_info_bufs[key].append(scaled_loss)
-
-        loss += scaled_loss
+        train_info_bufs[key].append(key_loss)
+        loss += key_loss
 
     train_info_bufs['total recon w/o KL'].append(loss)
     return train_info_bufs
