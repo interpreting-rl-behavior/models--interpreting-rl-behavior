@@ -11,6 +11,8 @@ Overview of steps:
 - Run analyses on recorded dataset of real agent-environment rollouts
 - Record dataset of simulated agent-environment rollouts from the generative model
 - Run analyses on the recorded simulated rollouts. 
+- Analysis of the prediction quality over time
+
 
 _N.B. During development, some of the below commands are prefixed with terms that
 are for submitting jobs on ETHZ's clusters, which use IBM Spectrum LSF e.g.:_
@@ -145,3 +147,26 @@ number of simulation steps the generative model produces. To run this experiment
 
 Note that you may need to add arguments for the scaling factors of each loss component (e.g. --loss_scale_obs=1000.0 --loss_scale_hx=1.0). To create a line plot using the data from the above experiment, run:
 > python analysis/plot_loss_over_time.py --presaved_data_path=generative/analysis/loss_over_time/[json output file above]"
+
+
+## Calculating saliency maps
+
+
+Saliency maps calculate the gradient (avereged over noised samples) of some
+network quantity (e.g. the agent's value function output) with respect to inputs
+or intermediate network activations.
+We can thus calculate how important dimensions of the generated observations or
+agent hidden states are for the value function. 
+
+Say we wanted to generate saliency maps with respect to value and leftwards actions
+for specifically the generated samples numbered 33 39 56 84. We'd use the 
+following command:
+> python saliency_exps.py --distribution_mode=hard --agent_file="logs/procgen/coinrun/[agent_training_experiment_name]/[agent_training_unique_seed]/[agent_name].pth" --model_file="generative/results/[generative_model_training_experiment_name]/[date_time_of_gen_model_training]/[gen_model_name].pt" --batch_size=2 --num_sim_steps=28 --saliency_func_type value leftwards --sample_ids 33 39 56 84
+
+If we wanted to generate saliency maps for the same quantities but combine those
+samples into one sample by taking their mean latent space vector (instead of 
+iterating over each sample individually), we'd add
+the flag ``--combine_samples_not_iterate``
+
+If we wanted to generate saliency maps for all samples from 0 to 100, we'd replace
+the ``--sample_ids 33 39 56 84`` flag with ``--sample_ids 0 to 100``.
