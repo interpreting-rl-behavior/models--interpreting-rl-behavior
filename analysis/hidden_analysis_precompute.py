@@ -28,8 +28,8 @@ def parse_args():
 # EPISODE_STRINGS = {v:str(v) for v in range(3431)}
 def run():
     args = parse_args()
-    num_episodes = 10000#2000  # number of episodes to make plots for
-    num_generated_samples = 1000 # number of generated samples to use
+    num_episodes = 1000#2000  # number of episodes to make plots for
+    num_generated_samples = 200 # number of generated samples to use
     num_epi_paths = 9  # Number of episode to plot paths through time for. Arrow plots.
     n_components_pca = 64
     n_components_tsne = 2
@@ -66,27 +66,35 @@ def run():
 
     # PCA
     print('Starting PCA...')
-    hx_prescaling = hx
-    scaler = StandardScaler()
-    scaler = scaler.fit(hx_prescaling)
-    hx = scaler.transform(hx_prescaling)
-    gen_hx_prescaling = gen_hx
-    gen_hx = scaler.transform(gen_hx) # Don't think this needs its own scaler because gen_hx is supposed to be from the same distrib as hx
-    mean_hx = scaler.mean_
-    var_hx = scaler.var_
+    uncentred_unscaled_hx = hx
+    uncentred_unscaled_gen_hx = gen_hx
+
+    mu = np.mean(uncentred_unscaled_hx, axis=0)
+    std = np.std(uncentred_unscaled_hx, axis=0)
+
+    centred_scaled_hx = (uncentred_unscaled_hx - mu ) / std
+    centred_scaled_gen_hx = (uncentred_unscaled_gen_hx - mu) / std
+
     pca_obj = PCA(n_components=n_components_pca)
-    hx_pca = pca_obj.fit_transform(hx)
-    gen_hx_projected = pca_obj.transform(gen_hx)
+    centred_scaled_hx_pca = pca_obj.fit_transform(centred_scaled_hx)
+    centred_scaled_gen_hx_projected = pca_obj.transform(centred_scaled_gen_hx)
+
+    # For future reference the following returns an array of mostly True:
+    np.isclose(pca_obj.transform(centred_scaled_hx),
+               centred_scaled_hx @ (pca_obj.components_.transpose()),
+               atol=1e-3)
+
     print('PCA finished.')
 
     # Save PCs and the projections of each of the hx onto those PCs.
-    np.save(save_path + 'hx_pca_%i.npy' % num_episodes, hx_pca)
-    np.save(save_path + 'pcomponents_%i.npy' % num_episodes,
-            scaler.inverse_transform(pca_obj.components_))
+    np.save(save_path + 'hx_mu_%i.npy' % num_episodes, mu)
+    np.save(save_path + 'hx_std_%i.npy' % num_episodes, std)
+    np.save(save_path + 'hx_pca_%i.npy' % num_episodes, centred_scaled_hx_pca)
+    np.save(save_path + 'pcomponents_%i.npy' % num_episodes,pca_obj.components_)
     # And save the projections of the generated data onto the PCs of true data
     np.save(save_path + 'gen_hx_projected_real%i_gen%i.npy' % (num_episodes,
                                                          num_generated_samples),
-            gen_hx_projected)
+            centred_scaled_gen_hx_projected)
 
     # Plot variance explained plot
     above95explained = \
