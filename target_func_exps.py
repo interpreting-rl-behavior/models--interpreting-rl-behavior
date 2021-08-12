@@ -10,8 +10,6 @@ import matplotlib.pyplot as plt
 class TargetFunction():
     def __init__(self, args, sim_len=30, device='cuda'):
         """
-        embedder: (torch.Tensor) model to extract the embedding for observation
-        action_size: number of the categorical actions
         """
         super(TargetFunction, self).__init__()
         self.device = device
@@ -29,7 +27,7 @@ class TargetFunction():
         # TODO add decaying 'temperature' setting that forces samples to be
         #  different
         self.lr = 1e-2
-        value_lr = 1e-2
+        value_lr = 1e-1
         self.min_loss = 1e-3
         self.num_its = 30000
         num_its_hx = 10000
@@ -294,7 +292,7 @@ class TargetFunction():
         # Make a target that is simply slightly higher than
         # the current prediction.
         target_values = preds.clone().detach().cpu().numpy()
-        print(target_values.mean())
+        print(f"Target values: {target_values.mean()}")
         self.optimized_quantity.append(target_values.mean())
         target_values += self.increment
         target_values = torch.tensor(target_values, device=self.device)
@@ -463,7 +461,7 @@ if __name__=='__main__':
                         help='number of checkpoints to store')
     parser.add_argument('--model_file', type=str)
     parser.add_argument('--agent_file', type=str)
-    parser.add_argument('--data_dir', type=str, default='generative/data/') # TODO change to test data directory.
+    parser.add_argument('--data_dir', type=str, default='data/') # TODO change to test data directory.
     parser.add_argument('--precomputed_analysis_dir', type=str,
                         default='analysis/hx_analysis_precomp/') # TODO change to test data directory.
 
@@ -471,7 +469,7 @@ if __name__=='__main__':
     parser.add_argument('--log_interval', type=int, default=100)
     parser.add_argument('--lr', type=float, default=5e-4)
     parser.add_argument('--batch_size', type=int, default=128)
-    parser.add_argument('--num_initializing_steps', type=int, default=8)
+    parser.add_argument('--num_initializing_steps', type=int, default=3)
     parser.add_argument('--num_sim_steps', type=int, default=22)
 
     # multi threading
@@ -532,7 +530,7 @@ if __name__=='__main__':
         while run_target_func_loop:
 
             pred_obs, pred_rews, pred_dones, pred_agent_hs, \
-            pred_agent_logprobs, pred_agent_values = \
+            pred_agent_logprobs, pred_agent_values, pred_env_hs = \
                 tfe.gen_model.decoder(z_c=sample_vecs[:,0:z_c_size],
                                       z_g=sample_vecs[:,z_c_size:z_c_size + \
                                                                  z_g_size],
@@ -544,7 +542,9 @@ if __name__=='__main__':
                           'done': pred_dones,
                           'act_log_probs': pred_agent_logprobs,
                           'value': pred_agent_values,
-                          'sample_vecs': sample_vecs}
+                          'sample_vecs': sample_vecs,
+                          'env_hx': pred_env_hs[0],
+                          'env_cell_state': pred_env_hs[1]}
 
             # Calculate Target function loss
             target_func_loss, loss_info = target_func.loss_func(preds_dict,
@@ -565,13 +565,13 @@ if __name__=='__main__':
             # Get gradient and step the optimizer
             target_func_loss.backward()
             print("Biggest grad: %f" % torch.abs(sample_vecs.grad).max().item())
+            print("Prenorm grad mean mag: %f" % torch.abs(sample_vecs.grad).mean())
 
             torch.nn.utils.clip_grad_norm_(sample_vecs,
                                            target_func.grad_norm, norm_type=2.0)
             targ_func_opt.step()
             print("Total distance: %f" % \
                   ((sample_vecs - start_sample_vecs)**2).sum().sqrt())
-            print("Prenorm grad mean mag: %f" % torch.abs(sample_vecs.grad).mean())
             print("\n")
 
             # Prepare for the next step
@@ -599,9 +599,6 @@ if __name__=='__main__':
         plt.ylabel(target_func.optimized_quantity_name)
         plt.savefig(opt_q_plot_str)
         plt.close()
-        target_func.optimized_quantity = []
-
-
 
         # Visualize the optimized latent vectors
         obs = torch.stack(pred_obs, dim=1).squeeze()
@@ -644,4 +641,5 @@ if __name__=='__main__':
         tvio.write_video(save_str, grid, fps=14)
 
 
+        target_func.optimized_quantity = []
 
