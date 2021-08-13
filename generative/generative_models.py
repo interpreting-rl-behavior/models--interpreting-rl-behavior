@@ -76,7 +76,7 @@ class LayeredConvNet(nn.Module):
                     self.lns.append(ln)
                     self.nets.append(ln)
                 # self.nets.append(nn.RReLU())
-                self.nets.append(nn.LeakyReLU(negative_slope=((1/3)-0.125)))
+                self.nets.append(nn.LeakyReLU())
             ch_in = ch_out
 
     def forward(self, x):
@@ -117,7 +117,7 @@ class NLayerPerceptron(nn.Module):
             if i < len(sizes)-2:  # Doesn't add activation (or LN) to final layer
                 if layer_norm:
                     self.nets.append(nn.LayerNorm(sizes[i+1]))
-                self.nets.append(nn.LeakyReLU(negative_slope=((1/3)-0.125)))
+                self.nets.append(nn.LeakyReLU())
 
     def forward(self, x):
         # TODO convert outs to a dict and name each of the saved outputs
@@ -484,9 +484,15 @@ class GlobalContextEncoder(nn.Module):
         w = x.shape[3]
         ch = x.shape[4]
 
-        # Get only the even-numbered timesteps (because it's wasteful that a
+        # Get only the timesteps at intervals (because it's wasteful that a
         # global context encoder should see every single frame)
-        chosen_ts = [t for t in list(range(0, ts)) if t % 2 == 0] # gets even ts
+        midpoint_intervals = np.arange(0, ts, step=4)
+        midpoint_intervals_rand = midpoint_intervals[1:-1]
+        random_interval_diffs = np.random.randint(-2, 2, len(midpoint_intervals_rand))
+        chosen_ts = [t+rand for t, rand in zip(midpoint_intervals_rand, random_interval_diffs)]
+        midpoint_intervals[1:-1] = chosen_ts
+        chosen_ts = midpoint_intervals
+        # chosen_ts = [t for t in list(range(0, ts)) if t % 2 == 0] # gets even ts
         num_chosen_ts = len(chosen_ts)
         x = x[:,chosen_ts]
 
