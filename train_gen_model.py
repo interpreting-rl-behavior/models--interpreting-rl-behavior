@@ -195,6 +195,8 @@ def run():
     optimizer = torch.optim.Adam(gen_model.parameters(), lr=args.lr)
 
     if args.model_file is not None:
+        logger.info("Loading generative model from %s" % args.model_file)
+        checkpoint = torch.load(args.model_file, map_location=device)
         gen_model.load_state_dict(checkpoint['gen_model_state_dict'], device)
         optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
         logger.info('Loaded generative model from {}.'.format(args.model_file))
