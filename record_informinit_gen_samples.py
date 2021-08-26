@@ -7,6 +7,7 @@ from common.model import NatureModel, ImpalaModel
 from common.policy import CategoricalPolicy
 from common import set_global_seeds, set_global_log_levels
 from train import create_venv
+from overlay_image import overlay_actions
 
 import os, yaml, argparse
 import gym
@@ -270,6 +271,8 @@ def record_gen_samples(epoch, args, gen_model, batch_size, agent, data, logger, 
                      'agent_logprobs', 'agent_values', 'env_hid_states',
                      'env_cell_states', 'latent_vec']
 
+        actions = np.argmax(pred_agent_logprobs, axis=-1)
+
         # Make dirs for these variables and save variables to dirs and save vid
         samples_so_far = epoch * batch_size
         new_sample_indices = range(samples_so_far, samples_so_far + batch_size)
@@ -290,6 +293,8 @@ def record_gen_samples(epoch, args, gen_model, batch_size, agent, data, logger, 
             ob = ob.permute(0, 2, 3, 1)
             ob = ob.clone().detach().type(torch.uint8)
             ob = ob.cpu().numpy()
+            # Overlay a square in the top right showing the agent's actions
+            ob = overlay_actions(ob, actions[i], size=16)
             save_str = data_dir + '/sample_' + f'{new_sample_idx:05d}.mp4'
             tvio.write_video(save_str, ob, fps=14)
 
