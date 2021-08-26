@@ -66,6 +66,9 @@ def arrow_images(size=100):
         img = add_line(img, arrow_points[direction]["tip"], arrow_points[direction]["left"])
         img = add_line(img, arrow_points[direction]["tip"], arrow_points[direction]["right"])
         imgs[direction] = img
+
+    # Default image needed for procgen actions that don't map to directions
+    imgs[None] = background.copy()
     return imgs
 
 def overlay_actions(obs, actions, size=16):
