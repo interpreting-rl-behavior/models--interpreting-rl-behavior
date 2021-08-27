@@ -25,38 +25,74 @@ def arrow_images(size=100):
     offset = size // 10
     # Give the position in the grid of the three arrowhead endpoints based on the action direction.
     # Note that we need to indent by 1 pixel otherwise we get index errors
+    size_diag = int((size//2) * ((size//2) / ((size//2)**2 + (size//2)**2)**0.5))
+
+    # arrow_points = {
+    #     "down": {
+    #         "tip": (size-1, size//2), "left": (size-1-offset, size//2-offset),
+    #         "right": (size-1-offset, size//2+offset)
+    #     },
+    #     "downleft": {
+    #         "tip": (size-1, 1), "left": (size-1-int(offset*1.41), 1),
+    #         "right": (size-1, 1+int(offset*1.41))
+    #     },
+    #     "left": {
+    #         "tip": (size//2, 1), "left": (size//2+offset, 1+offset),
+    #         "right": (size//2-offset, 1+offset)
+    #     },
+    #     "upleft": {
+    #         "tip": (1, 1), "left": (1, 1+int(offset*1.41)),
+    #         "right": (1+int(offset*1.41), 1)
+    #     },
+    #     "up": {
+    #         "tip": (1, size//2), "left": (1+offset, size//2-offset),
+    #         "right": (1+offset, size//2+offset)
+    #     },
+    #     "upright": {
+    #         "tip": (1, size-1), "left": (1, size-1-int(offset*1.41)),
+    #         "right": (1+int(offset*1.41), size-1)
+    #     },
+    #     "right": {
+    #         "tip": (size//2, size-1), "left": (size//2-offset, size-1-offset),
+    #         "right": (size//2+offset, size-1-offset)
+    #     },
+    #     "downright": {
+    #         "tip": (size-1, size-1), "left": (size-1, size-1-int(offset*1.41)),
+    #         "right": (size-1-int(offset*1.41), size-1)
+    #     },
+    # }
     arrow_points = {
         "down": {
             "tip": (size-1, size//2), "left": (size-1-offset, size//2-offset),
             "right": (size-1-offset, size//2+offset)
         },
         "downleft": {
-            "tip": (size-1, 1), "left": (size-1-int(offset*1.41), 1),
-            "right": (size-1, 1+int(offset*1.41))
+            "tip": (size//2 + size_diag, size//2 - size_diag), "left": (size//2 + size_diag-int(offset*1.41), size//2 - size_diag),
+            "right": (size//2 + size_diag, size//2 - size_diag+int(offset*1.41))
         },
         "left": {
             "tip": (size//2, 1), "left": (size//2+offset, 1+offset),
             "right": (size//2-offset, 1+offset)
         },
         "upleft": {
-            "tip": (1, 1), "left": (1, 1+int(offset*1.41)),
-            "right": (1+int(offset*1.41), 1)
+            "tip": (size//2 - size_diag, size//2 - size_diag), "left": (size//2 - size_diag, size//2 - size_diag+int(offset*1.41)),
+            "right": (size//2 - size_diag+int(offset*1.41), size//2 - size_diag)
         },
         "up": {
             "tip": (1, size//2), "left": (1+offset, size//2-offset),
             "right": (1+offset, size//2+offset)
         },
         "upright": {
-            "tip": (1, size-1), "left": (1, size-1-int(offset*1.41)),
-            "right": (1+int(offset*1.41), size-1)
+            "tip": (size//2 - size_diag, size//2 + size_diag), "left": (size//2 - size_diag, size//2 + size_diag-int(offset*1.41)),
+            "right": (size//2 - size_diag+int(offset*1.41), size//2 + size_diag)
         },
         "right": {
             "tip": (size//2, size-1), "left": (size//2-offset, size-1-offset),
             "right": (size//2+offset, size-1-offset)
         },
         "downright": {
-            "tip": (size-1, size-1), "left": (size-1, size-1-int(offset*1.41)),
-            "right": (size-1-int(offset*1.41), size-1)
+            "tip": (size//2 + size_diag, size//2 + size_diag), "left": (size//2 + size_diag, size//2 + size_diag-int(offset*1.41)),
+            "right": (size//2 + size_diag-int(offset*1.41), size//2 + size_diag)
         },
     }
     imgs = {}
@@ -86,7 +122,9 @@ def overlay_actions(obs, actions, size=16):
         action_str = coinrun_actions[actions[timestep]]
         action_img = arrows[action_str]
         # Overlay in the top right corner
-        obs[timestep][:action_img.shape[0], -action_img.shape[0]:] = action_img
+        action_img_size = action_img.shape[0]
+        half_ob_size = obs.shape[1] //2
+        obs[timestep][:action_img_size, half_ob_size-action_img_size//2:half_ob_size+action_img_size//2] = action_img
     return obs
 
 if __name__ == "__main__":
