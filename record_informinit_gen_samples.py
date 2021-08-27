@@ -70,9 +70,11 @@ def run():
     parser.add_argument('--log_interval', type=int, default=100)
     parser.add_argument('--lr', type=float, default=5e-4)
     parser.add_argument('--batch_size', type=int, default=128)
-    parser.add_argument('--num_initializing_steps', type=int, default=8)
-    parser.add_argument('--num_sim_steps', type=int, default=22)
+    parser.add_argument('--num_initializing_steps', type=int, default=3)
+    parser.add_argument('--num_sim_steps', type=int, default=28)
     parser.add_argument('--layer_norm', type=int, default=0)
+    parser.add_argument('--swap_directions_from', nargs='+')
+    parser.add_argument('--swap_directions_to', nargs='+')
 
     # multi threading
     parser.add_argument('--num_threads', type=int, default=8)
@@ -92,7 +94,7 @@ def run():
     # minus one because the first simulated observation is the last
     # initializing context obs.
 
-    samples_to_record = 20000
+    samples_to_record = 200
     if samples_to_record % batch_size > 0:
         raise ValueError("Samples to record should be an integer multiple of "+\
                          "batch size")
@@ -229,10 +231,32 @@ def record_gen_samples(epoch, args, gen_model, batch_size, agent, data, logger, 
         agent_h0 = data['hx'][:, -args.num_sim_steps, :]
         actions_all = data['action'][:, -args.num_sim_steps:]
 
-        # Forward and backward pass and update generative model parameters
+        # If doing validation experiments that swap or collapse directions, put
+        # the arguments into the right format.
+        if args.swap_directions_from is not None:
+            assert len(args.swap_directions_from) == \
+                   len(args.swap_directions_to)
+            from_dirs = []
+            to_dirs = []
+            # Convert from strings into the right type (int or None)
+            for from_dir, to_dir in zip(args.swap_directions_from,
+                                        args.swap_directions_to):
+                if from_dir == 'None':
+                    from_dirs.append(None)
+                else:
+                    from_dirs.append(int(from_dir))
+                if to_dir == 'None':
+                    to_dirs.append(None)
+                else:
+                    to_dirs.append(int(to_dir))
+            swap_directions = [from_dirs, to_dirs]
+        else:
+            swap_directions = None
+        # Forward pass of generative model
         _, _, _, _, preds = gen_model(full_obs, agent_h0, actions_all,
                                                           use_true_h0=False,
-                                                          use_true_actions=False)
+                                                          use_true_actions=False,
+                                                          swap_directions=swap_directions)
         # Both of these were false but for some reason it doesn't appear to be
         #  leading to the same distribution of hxs
 

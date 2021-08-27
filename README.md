@@ -170,3 +170,27 @@ the flag ``--combine_samples_not_iterate``
 
 If we wanted to generate saliency maps for all samples from 0 to 100, we'd replace
 the ``--sample_ids 33 39 56 84`` flag with ``--sample_ids 0 to 100``.
+
+
+## Validating hypotheses by controlling the dynamics
+
+If our hypotheses about the role of different directions in hidden-state 
+space are correct, we should be able to make predictions about how the agent 
+should behave when those directions are altered. 
+
+We can record the hidden states while either swapping different directions in 
+hidden-state-space or collapsing directions into the nullspace so that the agent
+can't use those directions. 
+
+We can use the `record_informinit_gen_samples.py` script to do this. 
+
+By default, the CLI arguments for `--swap_directions_from` and 
+`--swap_directions_from` are empty. If we want to swap the 10th hx direction
+with the 12th hx direction and at the same time collapse the 5th hx direction
+into the nullspace, we simply add the arguments
+> --swap_directions_from 10 5 --swap_directions_to 12 None 
+
+It's also advised to change the directory that the recordings get saved to in
+order not to overwrite previous data from the unaltered agent hx dynamics. To do
+this add something like:
+> --data_save_dir=generative/recorded_validations_swapping

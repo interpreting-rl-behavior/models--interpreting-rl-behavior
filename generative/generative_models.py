@@ -8,6 +8,7 @@ from torch.nn import init
 import torch.optim as optim
 from torch.nn import Parameter as P
 from .action_cond_lstm import ActionCondLSTMLayer, LSTMCell, ActionCondLSTMCell, ActionCondLayerNormLSTMCell, LSTMState
+import os
 
 class LayeredConvNet(nn.Module):
     """Template class
@@ -231,7 +232,7 @@ class VAE(nn.Module):
         self.decoder = Decoder(hyperparams, agent)
 
 
-    def forward(self, obs, agent_h0, actions, use_true_h0=False, use_true_actions=False):
+    def forward(self, obs, agent_h0, actions, use_true_h0=False, use_true_actions=False, swap_directions=None):
 
         # Feed inputs into encoder and return the mean
         # and log(variance)
@@ -265,7 +266,8 @@ class VAE(nn.Module):
         pred_agent_values, pred_env_hs = self.decoder(z_c=sample_c,
                                          z_g=sample_g,
                                          true_h0=true_h0,
-                                         true_actions=true_acts)
+                                         true_actions=true_acts,
+                                         swap_directions=swap_directions)
 
 
         # Collect outputs
@@ -571,7 +573,24 @@ class Decoder(nn.Module):
         # Make agent into an attribute of the decoder class
         self.agent = agent
 
-    def forward(self, z_c, z_g, true_h0=None, true_actions=None, retain_grads=False):
+        hx_analysis_dir = os.path.join('analysis', 'hx_analysis_precomp')
+        directions_path = os.path.join(hx_analysis_dir, 'pcomponents_1000.npy')
+        hx_std_path = os.path.join(hx_analysis_dir, 'hx_std_1000.npy')
+
+        if os.path.exists(directions_path):
+            device = agent.device
+            self.hx_std = torch.tensor(np.load(hx_std_path)).to(device).requires_grad_()
+            directions = torch.tensor(np.load(
+                directions_path)).to(device).requires_grad_()
+            directions = directions.transpose(0, 1)
+            directions = directions * self.hx_std
+            directions = [directions[:,i] for i in
+                               range(directions.shape[1])]
+            self.directions = [direction/torch.norm(direction) for direction
+                               in directions]  # Normalise vecs
+
+    def forward(self, z_c, z_g, true_h0=None, true_actions=None,
+                retain_grads=False, swap_directions=None):
 
         pred_obs = []
         pred_rews = []
@@ -621,8 +640,13 @@ class Decoder(nn.Module):
             # Code in the for loop following here spans t AND t+1
             ## Step forward the agent to get act@t and logprobs@t, but
             ## agent_h@t+1
+            old_agent_h = agent_h.clone().detach()
             act, logits, value, agent_h = self.agent.predict_STE(ob, agent_h,
                                                                  done, retain_grads=retain_grads)
+            if swap_directions is not None:
+                agent_h = self.swap_directions(swap_directions,
+                                               old_agent_h,
+                                               agent_h)
             pred_acts.append(act)
             pred_agent_logprobs.append(logits)
             pred_agent_values.append(value)
@@ -654,6 +678,51 @@ class Decoder(nn.Module):
 
         return pred_obs, pred_rews, pred_dones, pred_agent_hs, \
                pred_agent_logprobs, pred_agent_values, pred_env_hs
+
+    def swap_directions(self, swap_directions, old_agent_h, agent_h):
+        delta = agent_h - old_agent_h
+        original_agent_h = agent_h - delta # for gradients
+        bs = agent_h.shape[0]
+
+        delta_subtract = torch.zeros_like(delta)
+        delta_add = torch.zeros_like(delta)
+
+        # Define the directions
+        from_dirs = swap_directions[0]
+        to_dirs = swap_directions[1]
+
+        # project the delta onto the directions that we're swapping out and
+        # keep the projection amounts. Also save the directions we want to
+        # remove from the delta (i.e. delta_subtract)
+        from_dirs_projection_amounts = []
+        for from_dir in from_dirs:
+            direction = self.directions[from_dir]
+            projection_amount = delta @ direction # inner product
+            direction = torch.stack([direction] * bs)
+            delta_subtract += (direction.transpose(0,1) * projection_amount
+                               ).transpose(0,1)
+            from_dirs_projection_amounts.append(projection_amount)
+
+        # Make a vector to add to the delta that has the same size of projection
+        # but in a different direction
+        null_dir = torch.zeros_like(self.directions[0])
+        for to_dir, projection_amount in zip(to_dirs,
+                                             from_dirs_projection_amounts):
+            if to_dir is not None:
+                direction = self.directions[from_dir]
+            else:
+                direction = null_dir
+            direction = torch.stack([direction] * bs)
+            delta_add += (direction.transpose(0,1) * projection_amount
+                               ).transpose(0,1)
+
+        delta = delta - delta_subtract + delta_add
+        return delta
+
+
+
+
+
 
 
 class EnvStepperStateInitializer(nn.Module):
