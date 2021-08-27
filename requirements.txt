@@ -9,6 +9,4 @@ opencv-python
 procgen
 gym
 scikit-learn
-
-
-
+scikit-image
