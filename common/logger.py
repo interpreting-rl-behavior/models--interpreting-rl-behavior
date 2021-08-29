@@ -119,6 +119,6 @@ class Logger(object):
         episode_statistics['[Valid] Rewards/mean_episodes'] = np.mean(self.episode_reward_buffer_v)
         episode_statistics['[Valid] Rewards/min_episodes'] = np.min(self.episode_reward_buffer_v)
         episode_statistics['[Valid] Len/max_episodes'] = np.max(self.episode_len_buffer_v)
-        episode_statistics['[Valid] Len/mean_episodes'] = np.max(self.episode_len_buffer_v)
-        episode_statistics['[Valid] Len/min_episodes'] = np.max(self.episode_len_buffer_v)
+        episode_statistics['[Valid] Len/mean_episodes'] = np.mean(self.episode_len_buffer_v)
+        episode_statistics['[Valid] Len/min_episodes'] = np.min(self.episode_len_buffer_v)
         return episode_statistics
