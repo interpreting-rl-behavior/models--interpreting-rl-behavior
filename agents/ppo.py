@@ -122,9 +122,10 @@ class PPO(BaseAgent):
         hidden_state = np.zeros((self.n_envs, self.storage.hidden_state_size))
         done = np.zeros(self.n_envs)
 
-        obs_v = self.env_valid.reset()
-        hidden_state_v = np.zeros((self.n_envs, self.storage.hidden_state_size))
-        done_v = np.zeros(self.n_envs)
+        if self.env_valid is not None:
+            obs_v = self.env_valid.reset()
+            hidden_state_v = np.zeros((self.n_envs, self.storage.hidden_state_size))
+            done_v = np.zeros(self.n_envs)
 
         while self.t < num_timesteps:
             # Run Policy
@@ -160,7 +161,10 @@ class PPO(BaseAgent):
             # Log the training-procedure
             self.t += self.n_steps * self.n_envs
             rew_batch, done_batch = self.storage.fetch_log_data()
-            rew_batch_v, done_batch_v = self.storage_valid.fetch_log_data()
+            if self.storage_valid is not None:
+                rew_batch_v, done_batch_v = self.storage_valid.fetch_log_data()
+            else:
+                rew_batch_v = done_batch_v = None
             self.logger.feed(rew_batch, done_batch, rew_batch_v, done_batch_v)
             self.logger.write_summary(summary)
             self.logger.dump()
