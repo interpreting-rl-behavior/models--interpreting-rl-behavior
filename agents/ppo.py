@@ -161,7 +161,7 @@ class PPO(BaseAgent):
             self.t += self.n_steps * self.n_envs
             rew_batch, done_batch = self.storage.fetch_log_data()
             rew_batch_v, done_batch_v = self.storage_valid.fetch_log_data()
-            self.logger.feed(rew_batch, done_batch, value_batch, summary, rew_batch_v, done_batch_v)
+            self.logger.feed(rew_batch, done_batch, rew_batch_v, done_batch_v)
             self.logger.write_summary(summary)
             self.logger.dump()
             self.optimizer = adjust_lr(self.optimizer, self.learning_rate, self.t, num_timesteps)
