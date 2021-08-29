@@ -38,6 +38,7 @@ if __name__=='__main__':
     env_name = args.env_name
     val_env_name = args.val_env_name if args.val_env_name else args.env_name
     start_level = args.start_level
+    start_level_val = random.randint(0, 9999)
     num_levels = args.num_levels
     distribution_mode = args.distribution_mode
     param_name = args.param_name
@@ -51,8 +52,8 @@ if __name__=='__main__':
     set_global_seeds(seed)
     set_global_log_levels(log_level)
 
-#    if args.start_level == 0:
-#        raise ValueError("Seeds for training and validation envs are equal.")
+    if args.start_level == start_level_val:
+        raise ValueError("Seeds for training and validation envs are equal.")
 
     ####################
     ## HYPERPARAMETERS #
@@ -84,7 +85,7 @@ if __name__=='__main__':
         venv = ProcgenEnv(num_envs=n_envs,
                           env_name=val_env_name if is_valid else env_name,
                           num_levels=0 if is_valid else args.num_levels,
-                          start_level=0 if is_valid else args.start_level,
+                          start_level=start_level_val if is_valid else args.start_level,
                           distribution_mode=args.distribution_mode,
                           num_threads=args.num_threads,
                           random_percent=args.random_percent)
