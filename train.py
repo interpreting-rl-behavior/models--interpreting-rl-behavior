@@ -51,6 +51,9 @@ if __name__=='__main__':
     set_global_seeds(seed)
     set_global_log_levels(log_level)
 
+#    if args.start_level == 0:
+#        raise ValueError("Seeds for training and validation envs are equal.")
+
     ####################
     ## HYPERPARAMETERS #
     ####################
@@ -73,8 +76,12 @@ if __name__=='__main__':
     ## ENVIRONMENT ##
     #################
     print('INITIALIZAING ENVIRONMENTS...')
+
+    n_steps = hyperparameters.get('n_steps', 256)
+    n_envs = hyperparameters.get('n_envs', 256)
+
     def create_venv(args, hyperparameters, is_valid=False):
-        venv = ProcgenEnv(num_envs=hyperparameters.get('n_envs', 256),
+        venv = ProcgenEnv(num_envs=n_envs,
                           env_name=val_env_name if is_valid else env_name,
                           num_levels=0 if is_valid else args.num_levels,
                           start_level=0 if is_valid else args.start_level,
@@ -89,11 +96,10 @@ if __name__=='__main__':
         venv = TransposeFrame(venv)
         venv = ScaledFloatFrame(venv)
         return venv
-    n_steps = hyperparameters.get('n_steps', 256)
-    n_envs = hyperparameters.get('n_envs', 64)
 
     env = create_venv(args, hyperparameters)
     env_valid = create_venv(args, hyperparameters, is_valid=True)
+
 
     ############
     ## LOGGER ##
