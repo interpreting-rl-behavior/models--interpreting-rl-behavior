@@ -42,7 +42,6 @@ if __name__=='__main__':
     num_levels = args.num_levels
     distribution_mode = args.distribution_mode
     param_name = args.param_name
-    device = args.device
     gpu_device = args.gpu_device
     num_timesteps = args.num_timesteps
     seed = args.seed

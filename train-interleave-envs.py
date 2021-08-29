@@ -126,7 +126,7 @@ if __name__=='__main__':
         policy = CategoricalPolicy(model, recurrent, action_size)
     else:
         raise NotImplementedError
-    policy.to(args.device)
+    policy.to(device)
 
     #############
     ## STORAGE ##
