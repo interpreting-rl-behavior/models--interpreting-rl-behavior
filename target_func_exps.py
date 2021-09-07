@@ -358,7 +358,7 @@ class TargetFunction():
         # directions_magnitude = np.linalg.norm(directions, axis=1)
         # direc_scales = pred_magnitude/directions_magnitude
 
-        # Make a target that is the direction of the target than
+        # Make a target that is more in the direction of the goal direction than
         # the current prediction.
         target_hx = preds.clone().detach().cpu().numpy()
         opt_quant = np.inner(target_hx[:, self.timesteps], directions).mean()
