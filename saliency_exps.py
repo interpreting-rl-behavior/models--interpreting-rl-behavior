@@ -23,9 +23,18 @@ class SaliencyFunction():
                                 9: None, 10: None, 11: None,
                                 12: None, 13: None, 14: None}
 
+        # Get arrays necessary for projecting hx onto dim-reduced directions
+        hx_analysis_dir = os.path.join('analysis', 'hx_analysis_precomp')
+        directions_path = os.path.join(hx_analysis_dir, 'pcomponents_1000.npy')
+        hx_mu_path = os.path.join(hx_analysis_dir, 'hx_mu_1000.npy')
+        hx_std_path = os.path.join(hx_analysis_dir, 'hx_std_1000.npy')
+        self.directions = torch.tensor(np.load(directions_path)).to(device).requires_grad_()
+        self.directions = self.directions.transpose(0, 1)
+        self.hx_mu = torch.tensor(np.load(hx_mu_path)).to(device).requires_grad_()
+        self.hx_std = torch.tensor(np.load(hx_std_path)).to(device).requires_grad_()
 
         # Set settings for specific target functions
-        common_timesteps = (14,)#tuple(range(0,28))
+        common_timesteps = (8,)#tuple(range(0,28))
         if self.saliency_func_type == 'action':
             self.loss_func = self.action_saliency_loss_function
             self.timesteps = common_timesteps
@@ -43,6 +52,10 @@ class SaliencyFunction():
             self.timesteps = common_timesteps
         elif self.saliency_func_type == 'value_delta':
             self.loss_func = self.value_delta_saliency_loss_function
+        elif self.saliency_func_type == 'hx_direction':
+            self.loss_func = self.hx_direction_saliency_loss_function
+            self.timesteps = common_timesteps
+            self.direction_idx = 2
 
     def action_saliency_loss_function(self, preds_dict):
         preds = preds_dict['act_log_probs']
@@ -91,6 +104,21 @@ class SaliencyFunction():
         preds = preds[:, self.timesteps]
         loss_sum = preds.mean()
 
+        return loss_sum
+
+    def hx_direction_saliency_loss_function(self, preds_dict):
+        preds = preds_dict['hx']
+        preds = torch.stack(preds, dim=1)
+        preds = preds[:, self.timesteps, :]
+
+        # Scale and project hx onto direction
+        preds = (preds - self.hx_mu) / self.hx_std
+        preds = preds @ (self.directions)
+
+        # Then just pick the direction we want to take the saliency of
+        preds = preds[:,:,self.direction_idx]
+
+        loss_sum = preds.mean()
         return loss_sum
 
 def combine_sample_latent_vecs(sample_ids):
@@ -159,7 +187,14 @@ def forward_backward_pass(sample_vecs, sfe, saliency_func):
     for key in grads_keys:
         tensors = preds_dict[key]
         preds_dict[key] = torch.stack(tensors, dim=1).squeeze()
-        grads = [tensor.grad for tensor in tensors]
+        grads_initial = [tensor.grad for tensor in tensors]
+        null_grad = torch.zeros_like(tensors[0])
+        grads = []
+        for grad in grads_initial:
+            if grad is not None:
+                grads.append(grad)
+            else:
+                grads.append(null_grad)
         grads_dict[key] = torch.stack(grads, dim=1).mean(dim=0)
 
     return preds_dict, grads_dict
