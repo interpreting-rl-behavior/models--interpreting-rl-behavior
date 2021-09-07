@@ -2,7 +2,6 @@
 When the generative model is training, the data are logged to a CSV file. This
 script plots the relevant variables.
 """
-# TODO fix these plots
 import os
 
 import pandas as pd
