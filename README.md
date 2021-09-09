@@ -67,7 +67,7 @@ agent-environment rollouts:
 That'll take a while to train (a few days/weeks). Once it's trained, we'll record some agent-
 environment rollouts from the model. This will enable us to compare the 
 simulations to the true rollouts and will help us understand our generative 
-model (which includes the agent that we want to interpret) better. This is how
+model (which includes the a3gent that we want to interpret) better. This is how
 we record samples from the generative model:
 
 > bsub -W 23:59 -R "rusage[mem=32768,ngpus_excl_p=1]" -R "select[gpu_model0==GeForceGTX1080Ti]" 
@@ -89,14 +89,13 @@ to the decoder.
 ## Analysis of latent vector of VAE
 
 In theory, the distribution of the VAE latent vector space is trained to be as close
-as possible to a standard multivariate gaussian distribution (i.e. it is trained
-to have a hyperspherical density function). In practice, however, the KL 
+as possible to a standard multivariate gaussian distribution. In practice, however, the KL 
 divergence never reaches zero so the distribution of the latent vector never
-becomes a perfect hypersphere. We produce PCA and and tSNE plots of the VAE
+becomes a perfectly Gaussian We produce PCA and and tSNE plots of the VAE
 latent vectors to observe the structure of the distribution. 
 
 > bsub -W 23:59 -R "rusage[mem=32768]" 
-> python latent_vec_analysis_precompute.py --agent_env_data_dir=[path_to_real_rollout_data_save_dir]/data --generated_data_dir_inf=[path_to_sim_rollout_data_save_dir]/recorded_informinit_gen_samples --generated_data_dir_rand=[path_to_sim_rollout_data_save_dir]/recorded_random_gen_samples
+> python latent_vec_analysis_precompute.py --agent_env_data_dir=[path_to_real_rollout_data_save_dir]/data --generated_data_dir_inf=[path_to_sim_rollout_data_save_dir]/recorded_informinit_gen_samples --generated_data_dir_rand=[path_to_sim_rollout_data_save_dir]/recorded_randinit_gen_samples
 > 
 > bsub -W 23:59 -R "rusage[mem=32768]" 
 > python latent_vec_analysis_plotting.py --agent_env_data_dir=[path_to_real_rollout_data_save_dir]/data --precomputed_analysis_data_path=analysis/latent_vec_analysis_precomp/
@@ -185,7 +184,7 @@ can't use those directions.
 We can use the `record_informinit_gen_samples.py` script to do this. 
 
 By default, the CLI arguments for `--swap_directions_from` and 
-`--swap_directions_from` are empty. If we want to swap the 10th hx direction
+`--swap_directions_to` are empty. If we want to swap the 10th hx direction
 with the 12th hx direction and at the same time collapse the 5th hx direction
 into the nullspace, we simply add the arguments
 > --swap_directions_from 10 5 --swap_directions_to 12 None 
