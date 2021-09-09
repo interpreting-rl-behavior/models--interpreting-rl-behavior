@@ -30,8 +30,8 @@ def run():
     num_epi_paths = 9  # Number of episode to plot paths through time for. Arrow plots.
     n_components_pca = 64
     n_components_tsne = 2
-    n_components_nmf = 32
-    n_clusters = 200
+    n_components_nmf = 64
+    n_clusters = 400
 
     # Prepare load and save dirs
     generated_data_path = args.generated_data_dir

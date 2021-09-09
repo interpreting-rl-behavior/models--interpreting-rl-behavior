@@ -34,7 +34,7 @@ def run():
     n_components_pca = 64
     n_components_tsne = 2
     n_components_nmf = 32
-    n_clusters = 70
+    n_clusters = 100
     path_epis = list(range(num_epi_paths))
 
     seed = 42  # for the tSNE algo
