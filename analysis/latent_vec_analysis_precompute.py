@@ -8,17 +8,14 @@ import numpy as np
 from sklearn.decomposition import PCA
 from sklearn.preprocessing import StandardScaler
 from precomput_analysis_funcs import scale_then_pca_then_save, plot_variance_expl_plot, clustering_after_pca, tsne_after_pca
-
-
-
 import argparse
-
 import matplotlib
 import matplotlib.pyplot as plt
 import os
 import time
 
 pd.options.mode.chained_assignment = None  # default='warn'
+
 
 def parse_args():
     parser = argparse.ArgumentParser(
@@ -28,10 +25,10 @@ def parse_args():
         default="data/")
     parser.add_argument(
         '--generated_data_dir_inf', type=str,
-        default='../generative/recorded_informinit_gen_samples')
+        default='generative/recorded_informinit_gen_samples')
     parser.add_argument(
         '--generated_data_dir_rand', type=str,
-        default='../generative/recorded_random_gen_samples')
+        default='generative/recorded_random_gen_samples')
 
     args = parser.parse_args()
     return args
@@ -40,7 +37,7 @@ def parse_args():
 # EPISODE_STRINGS = {v:str(v) for v in range(3431)}
 def run():
     args = parse_args()
-    num_samples = 4000 # number of generated samples to use
+    num_samples = 200 # number of generated samples to use
     n_components_pca = 128
     n_components_tsne = 2
     n_clusters = 100

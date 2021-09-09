@@ -32,7 +32,7 @@ def parse_args():
 
 def run():
     args = parse_args()
-    num_episodes = 1000#2000  # number of episodes to make plots for. Needs to be
+    num_episodes = 4000#2000  # number of episodes to make plots for. Needs to be
     num_generated_samples = 200
     # the same as the precomputed data you want to use
     plot_pca = True

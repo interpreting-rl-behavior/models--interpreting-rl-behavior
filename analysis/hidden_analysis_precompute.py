@@ -28,7 +28,7 @@ def parse_args():
 # EPISODE_STRINGS = {v:str(v) for v in range(3431)}
 def run():
     args = parse_args()
-    num_episodes = 1000#2000  # number of episodes to make plots for
+    num_episodes = 4000#2000  # number of episodes to make plots for
     num_generated_samples = 200 # number of generated samples to use
     num_epi_paths = 9  # Number of episode to plot paths through time for. Arrow plots.
     n_components_pca = 64
@@ -80,9 +80,9 @@ def run():
     centred_scaled_gen_hx_projected = pca_obj.transform(centred_scaled_gen_hx)
 
     # For future reference the following returns an array of mostly True:
-    np.isclose(pca_obj.transform(centred_scaled_hx),
-               centred_scaled_hx @ (pca_obj.components_.transpose()),
-               atol=1e-3)
+    # np.isclose(pca_obj.transform(centred_scaled_hx),
+    #            centred_scaled_hx @ (pca_obj.components_.transpose()),
+    #            atol=1e-3)
 
     print('PCA finished.')
 

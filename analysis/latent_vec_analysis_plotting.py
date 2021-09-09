@@ -19,7 +19,7 @@ def parse_args():
         '--agent_env_data_dir', type=str,
         default="data")
     parser.add_argument(
-        '--precomputed_analysis_data_path', type=str, default="latent_vec_analysis_precomp/")
+        '--precomputed_analysis_data_path', type=str, default="analysis/latent_vec_analysis_precomp/")
     parser.add_argument(
         '--presaved_data_path', type=str, default="/media/lee/DATA/DDocs/AI_neuro_work/assurance_project_stuff/data/precollected/")
     args = parser.parse_args()
