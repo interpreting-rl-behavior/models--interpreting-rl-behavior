@@ -574,8 +574,8 @@ class Decoder(nn.Module):
         self.agent = agent
 
         hx_analysis_dir = os.path.join('analysis', 'hx_analysis_precomp')
-        directions_path = os.path.join(hx_analysis_dir, 'pcomponents_1000.npy')
-        hx_std_path = os.path.join(hx_analysis_dir, 'hx_std_1000.npy')
+        directions_path = os.path.join(hx_analysis_dir, 'pcomponents_4000.npy')
+        hx_std_path = os.path.join(hx_analysis_dir, 'hx_std_4000.npy')
 
         if os.path.exists(directions_path):
             device = agent.device
