@@ -35,23 +35,24 @@ class SaliencyFunction():
         self.hx_mu = torch.tensor(np.load(hx_mu_path)).to(device).requires_grad_()
         self.hx_std = torch.tensor(np.load(hx_std_path)).to(device).requires_grad_()
 
-        # Set settings for specific target functions
+        # Set settings for specific saliency functions
         common_timesteps = (11,)#tuple(range(0,28))
+        common_timesteps_min_one = tuple([t - 1 for t in common_timesteps])
         if self.saliency_func_type == 'action':
             self.loss_func = self.action_saliency_loss_function
-            self.timesteps = common_timesteps
+            self.timesteps = common_timesteps_min_one # because there's no act_0 in this agent
         elif self.saliency_func_type == 'leftwards':
             self.loss_func = self.action_leftwards_saliency_loss_function
-            self.timesteps = common_timesteps
+            self.timesteps = common_timesteps_min_one
         elif self.saliency_func_type == 'jumping_up':
             self.loss_func = self.action_jumping_up_saliency_loss_function
-            self.timesteps = common_timesteps
+            self.timesteps = common_timesteps_min_one
         elif self.saliency_func_type == 'jumping_right':
             self.loss_func = self.action_jumping_right_saliency_loss_function
-            self.timesteps = common_timesteps
-        elif self.saliency_func_type == 'value':
+            self.timesteps = common_timesteps_min_one
+        elif self.saliency_func_type == 'value': # because there's no v_0 in this agent
             self.loss_func = self.value_saliency_loss_function
-            self.timesteps = common_timesteps
+            self.timesteps = common_timesteps_min_one
         elif self.saliency_func_type == 'value_delta':
             self.loss_func = self.value_delta_saliency_loss_function
         elif self.saliency_func_type == 'hx_direction':
@@ -74,7 +75,7 @@ class SaliencyFunction():
 
             # Scale and project hx onto direction
             preds = (preds - hx_mu) / hx_std
-            preds = preds @ (directions)
+            preds = preds @ directions
 
             # Then just pick the direction we want to take the saliency of
             preds = preds[:, :, direction_idx]
@@ -290,6 +291,7 @@ def run_saliency_mapping_and_save(latent_vecs, latent_vec_name, sfe, saliency_fu
     # Forward and backward pass
     preds_dict, grads_dict = forward_backward_pass(latent_vecs,
                                                    sfe, saliency_func)
+
     saliency_func_type = saliency_func.saliency_func_type
     timesteps = saliency_func.timesteps
     # Save results
@@ -299,6 +301,9 @@ if __name__=='__main__':
     if True:
         parser = argparse.ArgumentParser()
         parser.add_argument('--saliency_func_type', nargs='+')
+        parser.add_argument('--combine_samples_not_iterate', dest='combine_samples_not_iterate', action='store_true')
+        parser.set_defaults(combine_samples_not_iterate=False)
+        parser.add_argument('--saliency_direction_idx', type=int, default=1)
         parser.add_argument('--gen_mod_exp_type', type=str, default='saliency_exp',
                             help='type of generative model experiment')
         parser.add_argument('--exp_name', type=str, default='test',
@@ -342,9 +347,7 @@ if __name__=='__main__':
         # multi threading
         parser.add_argument('--num_threads', type=int, default=8)
 
-        parser.add_argument('--combine_samples_not_iterate', dest='combine_samples_not_iterate', action='store_true')
-        parser.set_defaults(combine_samples_not_iterate=False)
-        parser.add_argument('--saliency_direction_idx', type=int, default=1)
+
 
         # Set up args and exp
         args = parser.parse_args()
