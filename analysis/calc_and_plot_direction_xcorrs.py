@@ -114,6 +114,8 @@ def run():
         plot_heatmap(xcorrs_both, save_path, "xcorr_hx_and_env_t+%i" % int(k), k)
 
         plot_heatmap(xcorrs_hx[:11,:11], save_path, "first_ten_xcorr_hx_t+%i" % int(k), k)
+        plot_heatmap(xcorrs_hx[:21,:21], save_path, "first_twenty_xcorr_hx_t+%i" % int(k), k)
+
 
 
 def plot_heatmap(matrix, save_path, name, k):
