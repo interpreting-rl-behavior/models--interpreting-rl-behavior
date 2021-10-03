@@ -9,179 +9,9 @@ import torch.optim as optim
 from torch.nn import Parameter as P
 from .action_cond_lstm import ActionCondLSTMLayer, LSTMCell, ActionCondLSTMCell, ActionCondLayerNormLSTMCell, LSTMState
 import os
+from .layers import LayeredConvNet, LayeredResBlockUp, LayeredResBlockDown, NLayerPerceptron
 
-class LayeredConvNet(nn.Module):
-    """Template class
-
-    Note:
-        Some notes
-
-    Args:
-        param1 (str): Description of `param1`.
-        param2 (:obj:`int`, optional): Description of `param2`. Multiple
-            lines are supported.
-        param3 (:obj:`list` of :obj:`str`): Description of `param3`.
-
-    Attributes:
-        attr1 (str): Description of `attr1`.
-        attr2 (:obj:`int`, optional): Description of `attr2`.
-
-    """
-    def __init__(self, stride=[2, 2, 2],
-                 channels=[3, 64, 32, 32],
-                 kernel_sizes=[6, 6, 6],
-                 padding_hs=[1, 1, 1],
-                 padding_ws=[1, 1, 1],
-                 input_hw=64,
-                 deconv=False,
-                 layer_norm=False):
-        super(LayeredConvNet, self).__init__()
-
-        # Check all inps have right len
-        if not len(channels)-1 == len(kernel_sizes) or \
-           not len(kernel_sizes) == len(padding_hs) or \
-           not len(padding_hs) == len(padding_ws) or \
-           not len(padding_ws) == len(stride):
-            raise ValueError("One of your conv lists has the wrong length.")
-
-        self.input_hw = input_hw
-        layer_in_hw = self.input_hw
-        self.nets = nn.ModuleList([])
-        self.deconv = deconv
-        ch_in = channels[0]
-        self.lns = [] # for debugging only
-        for i, (ch_out, k, p_h, p_w, strd) in enumerate(zip(channels[1:],
-                                                 kernel_sizes,
-                                                 padding_hs,
-                                                 padding_ws,
-                                                 stride)):
-            if deconv:
-                net = nn.ConvTranspose2d(ch_in, ch_out,
-                                         kernel_size=(k,k),
-                                         stride=(strd,strd),
-                                         padding=(p_h,p_w))
-            else:
-                net = nn.Conv2d(ch_in, ch_out,
-                                kernel_size=(k,k),
-                                stride=(strd,strd),
-                                padding=(p_h,p_w))
-            self.nets.append(net)
-            if i < len(kernel_sizes) - 1: # Doesn't add actv or LN on last layer
-                if layer_norm:
-                    layer_in_hw = conv_output_size(layer_in_hw,
-                                                   stride=strd,
-                                                   padding=p_h,
-                                                   kernel_size=k,
-                                                   transposed=deconv)
-                    ln = nn.LayerNorm([ch_out, layer_in_hw, layer_in_hw])
-                    self.lns.append(ln)
-                    self.nets.append(ln)
-                # self.nets.append(nn.RReLU())
-                self.nets.append(nn.LeakyReLU())
-            ch_in = ch_out
-
-    def forward(self, x):
-        # TODO convert outs to a dict and name each of the saved outputs
-        #  according to the layer
-        outs = []
-        out = x
-        for l in self.nets:
-            out = l(out)
-            outs.append(out)
-        return out, outs
-
-class NLayerPerceptron(nn.Module):
-    """An N layer perceptron with a linear output.
-
-    Note:
-        Some notes
-
-    Args:
-        param1 (str): Description of `param1`.
-        param2 (:obj:`int`, optional): Description of `param2`. Multiple
-            lines are supported.
-        param3 (:obj:`list` of :obj:`str`): Description of `param3`.
-
-    Attributes:
-        attr1 (str): Description of `attr1`.
-        attr2 (:obj:`int`, optional): Description of `attr2`.
-
-    """
-    def __init__(self, sizes=[256, 256], layer_norm=False):
-        super(NLayerPerceptron, self).__init__()
-        self.nets = nn.ModuleList([])
-        for i in range(len(sizes)-1):
-            net = nn.Linear(in_features=sizes[i],
-                            out_features=sizes[i+1])
-            self.nets.append(net)
-
-            if i < len(sizes)-2:  # Doesn't add activation (or LN) to final layer
-                if layer_norm:
-                    self.nets.append(nn.LayerNorm(sizes[i+1]))
-                self.nets.append(nn.LeakyReLU())
-
-    def forward(self, x):
-        # TODO convert outs to a dict and name each of the saved outputs
-        #  according to the layer
-        outs = []
-        out = x
-        for l in self.nets:
-            out = l(out)
-            outs.append(out)
-        return out, outs
-
-
-class ResBlockUp(nn.Module):
-    """A Residual Block with optional upsampling.
-
-    Adapted from [BigGAN](https://github.com/ajbrock/BigGAN-PyTorch/blob/98459431a5d618d644d54cd1e9fceb1e5045648d/layers.py ) (Brock et al. 2018)
-
-    """
-
-    def __init__(self, in_channels, out_channels, hw,
-                 which_conv=nn.Conv2d, which_norm=nn.LayerNorm,
-                 activation=nn.LeakyReLU(),
-                 upsample=nn.UpsamplingNearest2d(scale_factor=2)):
-        super(ResBlockUp, self).__init__()
-
-        self.in_channels, self.out_channels = in_channels, out_channels
-        self.which_conv, self.which_norm = which_conv, which_norm
-        self.activation = activation
-        self.upsample = upsample
-        kern = 3
-        stride = 1
-
-        # Conv layers
-        self.conv1 = self.which_conv(self.in_channels, self.out_channels,
-                                     kernel_size=kern, stride=stride,
-                                     padding=1)
-        self.conv2 = self.which_conv(self.out_channels, self.out_channels,
-                                     kernel_size=kern, stride=stride,
-                                     padding=1)
-
-        self.learnable_sc = in_channels != out_channels or upsample
-        if self.learnable_sc:  # learnable shortcut connection
-            self.conv_sc = self.which_conv(in_channels, out_channels,
-                                           kernel_size=1, padding=0)
-        # Normalization layers
-        self.normalize1 = self.which_norm([self.in_channels, hw, hw])
-        self.normalize2 = self.which_norm([self.out_channels, hw * 2, hw * 2])
-
-        # upsample layers
-        self.upsample = upsample
-
-    def forward(self, x):
-        h = self.activation(self.normalize1(x))
-        if self.upsample:
-            h = self.upsample(h)
-            x = self.upsample(x)
-        h = self.conv1(h)
-        h = self.activation(self.normalize2(h))
-        h = self.conv2(h)
-        if self.learnable_sc:
-            x = self.conv_sc(x)
-        return h + x
-
+# TODO remove all hardcoding
 
 class VAE(nn.Module):
     """The Variational Autoencoder that generates agent-environment sequences.
@@ -199,10 +29,6 @@ class VAE(nn.Module):
             VAE encoder. In the decoder, these are reconstructed.
         num_pred_steps (`int`): The number of steps into the future that the
             decoder is tasked to predict, not just reconstruct.
-
-    Attributes:
-        attr1 (str): Description of `attr1`.
-        attr2 (:obj:`int`, optional): Description of `attr2`.
 
     """
 
@@ -285,22 +111,10 @@ class VAE(nn.Module):
 
 
 class Encoder(nn.Module):
-    """Encoder network
+    """
+    Encoder network
 
     Consists of a GlobalContextEncoder and and InitializerEncoder
-
-    Note:
-        Some notes
-
-    Args:
-        param1 (str): Description of `param1`.
-        param2 (:obj:`int`, optional): Description of `param2`. Multiple
-            lines are supported.
-        param3 (:obj:`list` of :obj:`str`): Description of `param3`.
-
-    Attributes:
-        attr1 (str): Description of `attr1`.
-        attr2 (:obj:`int`, optional): Description of `attr2`.
 
     """
     def __init__(self, hyperparams):
@@ -309,13 +123,7 @@ class Encoder(nn.Module):
         self.initializer_encoder = \
             InitializerEncoder(rnn_hidden_size=hyperparams.initializer_rnn_hidden_size,
                                agent_hidden_size=hyperparams.agent_hidden_size,
-                               sample_dim=hyperparams.initializer_sample_dim,
-                               stride=[2,2,2],
-                               channels=[3,64,32,32],
-                               kernel_sizes=[6,4,3],
-                               padding_hs=[1,1,1],
-                               padding_ws=[1,1,1],
-                               layer_norm=hyperparams.layer_norm)
+                               sample_dim=hyperparams.initializer_sample_dim)
 
         self.global_context_encoder = \
             GlobalContextEncoder(rnn_hidden_size=hyperparams.global_context_encoder_rnn_hidden_size,
@@ -331,12 +139,9 @@ class Encoder(nn.Module):
         self.global_context_seq_len = hyperparams.num_sim_steps
 
     def forward(self, full_obs, agent_h0):
-        #TODO be sure that you reset the hidden state of your env rnns
-        # either here or elsewhere
 
         # Split frames into initialization frames and global context frames
         init_obs = full_obs[:, 0:self.init_seq_len]
-        #init_obs = torch.flip(init_obs, dims=[1]) # reverse time
         glob_ctx_obs = full_obs[:, -self.global_context_seq_len:]
 
         # Run InitializerEncoder
@@ -349,7 +154,7 @@ class Encoder(nn.Module):
 
 
 class InitializerEncoder(nn.Module):
-    """Template class
+    """
 
     Recurrent network that takes a seq of frames from t=-k to t=0 as input.
     The final output gets passed along with the final agent hidden state into
@@ -357,33 +162,16 @@ class InitializerEncoder(nn.Module):
     which will get decoded into the the agent's initial hidden state (at t=0)
     and, when combined with z_g, the initial environment state.
 
-    Note:
-        Some notes
-
-    Args:
-        param1 (str): Description of `param1`.
-        param2 (:obj:`int`, optional): Description of `param2`. Multiple
-            lines are supported.
-        param3 (:obj:`list` of :obj:`str`): Description of `param3`.
-
-    Attributes:
-        attr1 (str): Description of `attr1`.
-        attr2 (:obj:`int`, optional): Description of `attr2`.
-
     """
-    def __init__(self, rnn_hidden_size, agent_hidden_size,
-                 sample_dim, stride, channels,
-                 kernel_sizes, padding_hs, padding_ws, layer_norm):
+    def __init__(self, rnn_hidden_size, agent_hidden_size, sample_dim):
         super(InitializerEncoder, self).__init__()
-        self.conv_input = LayeredConvNet(stride=stride,
-                                         channels=channels,
-                                         kernel_sizes=kernel_sizes,
-                                         padding_hs=padding_hs,
-                                         padding_ws=padding_ws,
-                                         layer_norm=layer_norm)
-        # conv will output tensor of shape 32 * 8 * 8
+        self.conv_input = LayeredResBlockDown(input_hw=64,
+                                              input_ch=3,
+                                              hidden_ch=64,
+                                              output_hw=8,
+                                              output_ch=32)
 
-        self.rnn = nn.LSTM(input_size=32 * 8 * 8,
+        self.rnn = nn.LSTM(input_size=self.conv_input.output_size,
                            hidden_size=rnn_hidden_size,
                            num_layers=1,
                            batch_first=True)
@@ -435,22 +223,9 @@ class InitializerEncoder(nn.Module):
         return mu, logvar
 
 
-class GlobalContextEncoder(nn.Module):
-    """Encodes global latent variable by observing whole sequence
-
-    Note:
-        Some notes
-
-    Args:
-        param1 (str): Description of `param1`.
-        param2 (:obj:`int`, optional): Description of `param2`. Multiple
-            lines are supported.
-        param3 (:obj:`list` of :obj:`str`): Description of `param3`.
-
-    Attributes:
-        attr1 (str): Description of `attr1`.
-        attr2 (:obj:`int`, optional): Description of `attr2`.
-
+class GlobalContextEncoder(nn.Module): # TODO replace LSTM with permutation invarient network
+    """
+    Encodes global latent variable by observing whole sequence
     """
     def __init__(self, rnn_hidden_size, sample_dim, stride, channels,
                  kernel_sizes, padding_hs, padding_ws, layer_norm):
@@ -522,22 +297,10 @@ class GlobalContextEncoder(nn.Module):
         return mu, logvar
 
 
-class Decoder(nn.Module):
-    """Template class
-
-    Note:
-        Some notes
-
-    Args:
-        param1 (str): Description of `param1`.
-        param2 (:obj:`int`, optional): Description of `param2`. Multiple
-            lines are supported.
-        param3 (:obj:`list` of :obj:`str`): Description of `param3`.
-
-    Attributes:
-        attr1 (str): Description of `attr1`.
-        attr2 (:obj:`int`, optional): Description of `attr2`.
-
+class Decoder(nn.Module): # TODO make agent optional.
+    """
+    Takes the VAE latent vector as input and simulates an agent-environment
+    rollout
     """
     def __init__(self, hyperparams, agent):
         super(Decoder, self).__init__()
@@ -720,26 +483,8 @@ class Decoder(nn.Module):
         return delta
 
 
-
-
-
-
-
 class EnvStepperStateInitializer(nn.Module):
-    """Template class
-
-    Note:
-        Some notes
-
-    Args:
-        param1 (str): Description of `param1`.
-        param2 (:obj:`int`, optional): Description of `param2`. Multiple
-            lines are supported.
-        param3 (:obj:`list` of :obj:`str`): Description of `param3`.
-
-    Attributes:
-        attr1 (str): Description of `attr1`.
-        attr2 (:obj:`int`, optional): Description of `attr2`.
+    """
 
     """
     def __init__(self, z_c_size, z_g_size, env_h_size, layer_norm):
@@ -773,20 +518,7 @@ class EnvStepperStateInitializer(nn.Module):
         return (hx_state, cell_state)
 
 class EnvStepper(nn.Module):
-    """Template class
-
-    Note:
-        Some notes
-
-    Args:
-        param1 (str): Description of `param1`.
-        param2 (:obj:`int`, optional): Description of `param2`. Multiple
-            lines are supported.
-        param3 (:obj:`list` of :obj:`str`): Description of `param3`.
-
-    Attributes:
-        attr1 (str): Description of `attr1`.
-        attr2 (:obj:`int`, optional): Description of `attr2`.
+    """
 
     """
     def __init__(self, env_hidden_size, env_conv_top_shape, z_g_size,
@@ -800,35 +532,15 @@ class EnvStepper(nn.Module):
         self.z_g_size = z_g_size
 
         # Networks in output step
-        self.ob_decoder_fc = NLayerPerceptron([self.env_h_size,
-                                               self.ob_conv_top_size])
-        # self.ob_decoder_conv = LayeredConvNet(stride=stride_out,
-        #                                       channels=channels_out,
-        #                                       kernel_sizes=kernel_sizes_out,
-        #                                       padding_hs=padding_hs_out,
-        #                                       padding_ws=padding_ws_out,
-        #                                       deconv=True,
-        #                                       layer_norm=layer_norm,
-        #                                       input_hw=self.ob_conv_top_shape[1])
-        self.ob_decoder_conv = nn.ModuleList([])
-        image_out_size = 64
-        doubles = 1
-        while True:
-            if image_out_size // (self.shp[-1] * 2**doubles ) == 1:
-                break
-            else:
-                doubles += 1
 
-        num_layers = doubles
-        hw = self.shp[-1]
-        for l in range(num_layers):
-            in_ch = channels[l]
-            out_ch = channels[l+1]
-            net = ResBlockUp(in_channels=in_ch,
-                             out_channels=out_ch,
-                             hw=hw)
-            hw *= 2
-            self.ob_decoder_conv.append(net)
+        self.ob_decoder_conv = LayeredResBlockUp(input_hw=self.shp[1],
+                                                 input_ch=self.shp[0],
+                                                 hidden_ch=256,
+                                                 output_hw=64,
+                                                 output_ch=3)
+        self.ob_decoder_fc = NLayerPerceptron([self.env_h_size,
+                                               self.ob_decoder_conv.input_size])
+
         self.done_decoder = NLayerPerceptron([env_hidden_size, 64, 1],
                                              layer_norm=layer_norm)
         self.reward_decoder = NLayerPerceptron([env_hidden_size, 64, 1],
@@ -865,8 +577,7 @@ class EnvStepper(nn.Module):
         # Convert hidden state to image prediction
         x, _ = self.ob_decoder_fc(hx)
         x = x.view(x.shape[0], self.shp[0], self.shp[1], self.shp[2])
-        for resup in self.ob_decoder_conv:
-            x = resup(x)
+        x, _ = self.ob_decoder_conv(x)
         ob = torch.sigmoid(x)
 
         # Convert hidden state to reward prediction
@@ -878,49 +589,36 @@ class EnvStepper(nn.Module):
 
         return ob, rew, done
 
-
-# Probably better just to have two 'forward' like functions. One for a full
-# step, the other for a half step that just produces its outputs given a cell
-# state. This very function can be used in the full step.
-
-
-class GenericClass(nn.Module):
-    """Template class
-
-    Note:
-        Some notes
-
-    Args:
-        param1 (str): Description of `param1`.
-        param2 (:obj:`int`, optional): Description of `param2`. Multiple
-            lines are supported.
-        param3 (:obj:`list` of :obj:`str`): Description of `param3`.
-
-    Attributes:
-        attr1 (str): Description of `attr1`.
-        attr2 (:obj:`int`, optional): Description of `attr2`.
-
-    """
-    def __init__(self, insize=256, outsize=256):
-        super(TwoLayerPerceptron, self).__init__()
-        self.net = \
-            nn.Sequential(nn.Linear(insize, insize),
-                          nn.ReLU(),
-                          nn.Linear(insize, outsize))
-
-    def forward(self, x):
-        return self.net(x)
-
-
+# class GenericClass(nn.Module):
+#     """Template class
+#
+#     Note:
+#         Some notes
+#
+#     Args:
+#         param1 (str): Description of `param1`.
+#         param2 (:obj:`int`, optional): Description of `param2`. Multiple
+#             lines are supported.
+#         param3 (:obj:`list` of :obj:`str`): Description of `param3`.
+#
+#     Attributes:
+#         attr1 (str): Description of `attr1`.
+#         attr2 (:obj:`int`, optional): Description of `attr2`.
+#
+#     """
+#     def __init__(self, insize=256, outsize=256):
+#         super(TwoLayerPerceptron, self).__init__()
+#         self.net = \
+#             nn.Sequential(nn.Linear(insize, insize),
+#                           nn.ReLU(),
+#                           nn.Linear(insize, outsize))
+#
+#     def forward(self, x):
+#         return self.net(x)
 
 class Namespace:
+    """
+    Because they're nicer to work with than dictionaries
+    """
     def __init__(self, **kwargs):
         self.__dict__.update(kwargs)
-
-def conv_output_size(input_hw, stride, padding, kernel_size, transposed=False):
-    """assumes a square input"""
-    if transposed:
-        out_hw = stride * (input_hw - 1) + kernel_size - 2 * padding
-    else:
-        out_hw = ( (input_hw - kernel_size + ( 2 * padding)) / stride) + 1
-    return int(out_hw)
