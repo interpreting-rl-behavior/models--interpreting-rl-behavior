@@ -26,6 +26,7 @@ class CategoricalPolicy(nn.Module):
             self.gru = GRU(self.embedder.output_dim, self.embedder.output_dim)
             self.init_hx = \
                 torch.nn.Parameter(torch.randn(self.embedder.output_dim) * 0.1)
+        self.action_noise = False
 
     def is_recurrent(self):
         return self.recurrent
@@ -42,7 +43,15 @@ class CategoricalPolicy(nn.Module):
                 hx[inithx_mask] = self.init_hx
             hidden, hx = self.gru(hidden, hx, masks)
         logits = self.fc_policy(hidden)
+        if self.action_noise:
+            # For recording purposes in order to train the gen model
+            # on diverse data
+            logits = logits * 0.7
+            logits = torch.clamp(logits,max=0.8, min=-1.8)
+            logits[:,9:] = -3. # make no op actions less likely
+            logits[:,7] = 0. # make right quite likely so that agent doesn't get too stuck
         log_probs = F.log_softmax(logits, dim=1)
+
         p = Categorical(logits=log_probs)
         v = self.fc_value(hidden).reshape(-1)
 

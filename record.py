@@ -131,8 +131,10 @@ if __name__=='__main__':
     agent = AGENT(env, policy, logger, storage, device, num_checkpoints, **hyperparameters)
     checkpoint = torch.load(args.model_file, map_location=device)
     agent.policy.load_state_dict(checkpoint["model_state_dict"])
+    agent.policy.action_noise = False # Only for recording data for gen model training
     agent.optimizer.load_state_dict(checkpoint["optimizer_state_dict"])
     agent.n_envs = n_envs
+
 
     # Make save dirs
     logdir_base = args.logdir

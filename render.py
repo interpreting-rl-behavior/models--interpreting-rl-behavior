@@ -161,6 +161,7 @@ if __name__=='__main__':
     agent = AGENT(env, policy, logger, storage, device, num_checkpoints, **hyperparameters)
 
     agent.policy.load_state_dict(torch.load(args.model_file, map_location=device)["model_state_dict"])
+    agent.policy.action_noise = False # Only for recording data for gen model training
     agent.n_envs = n_envs
 
     ##############
