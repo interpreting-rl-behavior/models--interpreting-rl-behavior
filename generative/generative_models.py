@@ -127,13 +127,7 @@ class Encoder(nn.Module):
 
         self.global_context_encoder = \
             GlobalContextEncoder(rnn_hidden_size=hyperparams.global_context_encoder_rnn_hidden_size,
-                                 sample_dim=hyperparams.global_context_sample_dim,
-                                 stride=[2,2,2],
-                                 channels=[3, 32, 16, 16],
-                                 kernel_sizes=[6, 4, 3],
-                                 padding_hs=[1, 1, 1],
-                                 padding_ws=[1, 1, 1],
-                                 layer_norm=hyperparams.layer_norm)
+                                 sample_dim=hyperparams.global_context_sample_dim)
 
         self.init_seq_len = hyperparams.num_initialization_obs
         self.global_context_seq_len = hyperparams.num_sim_steps
@@ -165,13 +159,13 @@ class InitializerEncoder(nn.Module):
     """
     def __init__(self, rnn_hidden_size, agent_hidden_size, sample_dim):
         super(InitializerEncoder, self).__init__()
-        self.conv_input = LayeredResBlockDown(input_hw=64,
+        self.image_embedder = LayeredResBlockDown(input_hw=64,
                                               input_ch=3,
                                               hidden_ch=64,
                                               output_hw=8,
                                               output_ch=32)
 
-        self.rnn = nn.LSTM(input_size=self.conv_input.output_size,
+        self.rnn = nn.LSTM(input_size=self.image_embedder.output_size,
                            hidden_size=rnn_hidden_size,
                            num_layers=1,
                            batch_first=True)
@@ -199,7 +193,7 @@ class InitializerEncoder(nn.Module):
         ch = x.shape[4]
 
         x = x.reshape(batches*ts, h, w, ch)
-        x, _ = self.conv_input(x)
+        x, _ = self.image_embedder(x)
 
         # Unflatten conv outputs again to reconstruct time dim
 
@@ -227,18 +221,16 @@ class GlobalContextEncoder(nn.Module): # TODO replace LSTM with permutation inva
     """
     Encodes global latent variable by observing whole sequence
     """
-    def __init__(self, rnn_hidden_size, sample_dim, stride, channels,
-                 kernel_sizes, padding_hs, padding_ws, layer_norm):
+    def __init__(self, rnn_hidden_size, sample_dim):
         super(GlobalContextEncoder, self).__init__()
-        self.conv_input = LayeredConvNet(stride=stride,
-                                         channels=channels,
-                                         kernel_sizes=kernel_sizes,
-                                         padding_hs=padding_hs,
-                                         padding_ws=padding_ws,
-                                         layer_norm=layer_norm)
-        # conv will output tensor of shape 16 * 8 * 8
 
-        self.rnn = nn.LSTM(input_size=16 * 8 * 8, # TODO make output size an attribute of LayeredConvNet so that you don't have to hard code this.
+        self.image_embedder = LayeredResBlockDown(input_hw=64,
+                                                  input_ch=3,
+                                                  hidden_ch=32,
+                                                  output_hw=8,
+                                                  output_ch=16) #todo consider 32
+
+        self.rnn = nn.LSTM(input_size=self.image_embedder.output_size, # TODO make output size an attribute of LayeredConvNet so that you don't have to hard code this.
                            hidden_size=rnn_hidden_size,
                            num_layers=1,
                            batch_first=True)
@@ -275,7 +267,7 @@ class GlobalContextEncoder(nn.Module): # TODO replace LSTM with permutation inva
 
 
         x = x.reshape([batches*num_chosen_ts, h, w, ch])
-        x, _ = self.conv_input(x)
+        x, _ = self.image_embedder(x)
 
         # Unflatten conv outputs again to reconstruct time dim
 
@@ -527,15 +519,14 @@ class EnvStepper(nn.Module):
 
         self.env_h_size = env_hidden_size
         self.ob_conv_top_shape = env_conv_top_shape
-        self.shp = self.ob_conv_top_shape  # legibility
         self.ob_conv_top_size = np.prod(self.ob_conv_top_shape)
         self.z_g_size = z_g_size
 
         # Networks in output step
 
-        self.ob_decoder_conv = LayeredResBlockUp(input_hw=self.shp[1],
-                                                 input_ch=self.shp[0],
-                                                 hidden_ch=256,
+        self.ob_decoder_conv = LayeredResBlockUp(input_hw=self.ob_conv_top_shape[1],
+                                                 input_ch=self.ob_conv_top_shape[0],
+                                                 hidden_ch=128,
                                                  output_hw=64,
                                                  output_ch=3)
         self.ob_decoder_fc = NLayerPerceptron([self.env_h_size,
@@ -576,7 +567,7 @@ class EnvStepper(nn.Module):
 
         # Convert hidden state to image prediction
         x, _ = self.ob_decoder_fc(hx)
-        x = x.view(x.shape[0], self.shp[0], self.shp[1], self.shp[2])
+        x = x.view(x.shape[0], self.ob_conv_top_shape[0], self.ob_conv_top_shape[1], self.ob_conv_top_shape[2])
         x, _ = self.ob_decoder_conv(x)
         ob = torch.sigmoid(x)
 
