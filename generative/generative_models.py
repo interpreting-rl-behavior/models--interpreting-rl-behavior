@@ -11,7 +11,6 @@ from .action_cond_lstm import ActionCondLSTMLayer, LSTMCell, ActionCondLSTMCell,
 import os
 from .layers import LayeredConvNet, LayeredResBlockUp, LayeredResBlockDown, NLayerPerceptron
 
-# TODO remove all hardcoding
 
 class VAE(nn.Module):
     """The Variational Autoencoder that generates agent-environment sequences.
@@ -224,23 +223,34 @@ class GlobalContextEncoder(nn.Module): # TODO replace LSTM with permutation inva
     def __init__(self, rnn_hidden_size, sample_dim):
         super(GlobalContextEncoder, self).__init__()
 
-        self.image_embedder = LayeredResBlockDown(input_hw=64,
+        embedding_size = 256
+
+        self.image_conv_embedder = LayeredResBlockDown(input_hw=64,
                                                   input_ch=3,
                                                   hidden_ch=32,
                                                   output_hw=8,
-                                                  output_ch=16) #todo consider 32
+                                                  output_ch=16)
+        self.image_fc_embedder = nn.Linear(in_features=int(self.image_conv_embedder.output_size),
+                                           out_features=embedding_size)
 
-        self.rnn = nn.LSTM(input_size=self.image_embedder.output_size, # TODO make output size an attribute of LayeredConvNet so that you don't have to hard code this.
-                           hidden_size=rnn_hidden_size,
-                           num_layers=1,
-                           batch_first=True)
+        # self.seq_enc = nn.LSTM(input_size=self.image_conv_embedder.output_size,
+        #                    hidden_size=rnn_hidden_size,
+        #                    num_layers=1,
+        #                    batch_first=True)
+        t_layer = torch.nn.TransformerEncoderLayer(d_model=embedding_size, nhead=1,
+                                             dim_feedforward=embedding_size,
+                                             dropout=0.0).to(torch.device('cuda:0'))
+        norm = nn.LayerNorm(normalized_shape=embedding_size, eps=1e-5)
+        self.seq_enc = torch.nn.TransformerEncoder(t_layer, num_layers=2, norm=norm).to(torch.device('cuda:0'))
 
-        self.converter_base = nn.Sequential(nn.Linear(rnn_hidden_size,
-                                                      rnn_hidden_size),
+
+
+        self.converter_base = nn.Sequential(nn.Linear(embedding_size,
+                                                      embedding_size),
                                             nn.ReLU())
-        self.converter_split_mu = nn.Linear(rnn_hidden_size,
+        self.converter_split_mu = nn.Linear(embedding_size,
                                             sample_dim)
-        self.converter_split_lv = nn.Linear(rnn_hidden_size,
+        self.converter_split_lv = nn.Linear(embedding_size,
                                             sample_dim) # log var
 
     def forward(self, x):
@@ -267,20 +277,29 @@ class GlobalContextEncoder(nn.Module): # TODO replace LSTM with permutation inva
 
 
         x = x.reshape([batches*num_chosen_ts, h, w, ch])
-        x, _ = self.image_embedder(x)
+        x, _ = self.image_conv_embedder(x)
 
-        # Unflatten conv outputs again to reconstruct time dim
-
-        x = x.reshape([batches, num_chosen_ts, x.shape[1], x.shape[2], x.shape[3]])
+        # # Unflatten conv outputs again to reconstruct time dim
+        #
+        # x = x.reshape([batches, num_chosen_ts, x.shape[1], x.shape[2], x.shape[3]])
 
         # Flatten conv outputs to size HxWxCH to get rnn input vecs
+        x = x.reshape([batches*num_chosen_ts, -1])
+        x = self.image_fc_embedder(x)
         x = x.reshape([batches, num_chosen_ts, -1])
+        x = x.permute([1,0,2]) # swap batch and t axis
 
+        #RNN
         # Pass seq of vecs to global context RNN
-        x, _ = self.rnn(x)
+        # x, _ = self.seq_enc(x)
+        #
+        # # Pass RNN output to Global Context Converter to get mu_g and sigma_g
+        # x = x[:, -1]  # get last ts
 
-        # Pass RNN output to Global Context Converter to get mu_g and sigma_g
-        x = x[:, -1]  # get last ts
+        #Attn
+        x = self.seq_enc(x)
+        x = x.permute([1,0,2]) # swap batch and t axis back again
+        x = torch.mean(x, dim=1)
 
         x = self.converter_base(x)
         mu = self.converter_split_mu(x)
