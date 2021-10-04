@@ -125,7 +125,7 @@ class Encoder(nn.Module):
                                sample_dim=hyperparams.initializer_sample_dim)
 
         self.global_context_encoder = \
-            GlobalContextEncoder(rnn_hidden_size=hyperparams.global_context_encoder_rnn_hidden_size,
+            GlobalContextEncoder(embedding_size=hyperparams.global_context_encoder_rnn_hidden_size,
                                  sample_dim=hyperparams.global_context_sample_dim)
 
         self.init_seq_len = hyperparams.num_initialization_obs
@@ -216,21 +216,19 @@ class InitializerEncoder(nn.Module):
         return mu, logvar
 
 
-class GlobalContextEncoder(nn.Module): # TODO replace LSTM with permutation invarient network
+class GlobalContextEncoder(nn.Module):
     """
     Encodes global latent variable by observing whole sequence
     """
-    def __init__(self, rnn_hidden_size, sample_dim):
+    def __init__(self, embedding_size, sample_dim):
         super(GlobalContextEncoder, self).__init__()
-
-        embedding_size = 256
 
         self.image_conv_embedder = LayeredResBlockDown(input_hw=64,
                                                   input_ch=3,
                                                   hidden_ch=32,
                                                   output_hw=8,
                                                   output_ch=16)
-        self.image_fc_embedder = nn.Linear(in_features=int(self.image_conv_embedder.output_size),
+        self.image_fc_embedder = nn.Linear(in_features=self.image_conv_embedder.output_size,
                                            out_features=embedding_size)
 
         # self.seq_enc = nn.LSTM(input_size=self.image_conv_embedder.output_size,
@@ -341,7 +339,6 @@ class Decoder(nn.Module): # TODO make agent optional.
         self.env_stepper = EnvStepper(env_hidden_size=env_h_size,
                                       env_conv_top_shape=env_conv_top_shape,
                                       z_g_size=z_g_size,
-                                      channels=[128, 256, 256, 3],  #[64, 64, 256, 3],
                                       layer_norm=layer_norm)
 
         # Make agent into an attribute of the decoder class
@@ -533,7 +530,7 @@ class EnvStepper(nn.Module):
 
     """
     def __init__(self, env_hidden_size, env_conv_top_shape, z_g_size,
-                 channels, layer_norm):
+                 layer_norm):
         super(EnvStepper, self).__init__()
 
         self.env_h_size = env_hidden_size
