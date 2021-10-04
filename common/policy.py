@@ -49,7 +49,7 @@ class CategoricalPolicy(nn.Module):
             logits = logits * 0.7
             logits = torch.clamp(logits,max=0.8, min=-1.8)
             logits[:,9:] = -3. # make no op actions less likely
-            logits[:,7] = 0. # make right quite likely so that agent doesn't get too stuck
+            logits[:,7] = 0.1 # make right quite likely so that agent doesn't get too stuck
         log_probs = F.log_softmax(logits, dim=1)
 
         p = Categorical(logits=log_probs)
