@@ -40,14 +40,14 @@ class VAE(nn.Module):
             num_initialization_obs=num_initialization_obs,
             num_obs_full=num_obs_full,
             num_sim_steps=num_obs_full-num_initialization_obs+1,  # Plus one is because the last obs of the init seq is the first obs of the simulated seq
-            initializer_sample_dim=64,
+            initializer_sample_dim=128,
             initializer_rnn_hidden_size=512,
-            global_context_sample_dim=64,
-            global_context_encoder_rnn_hidden_size=512,
+            global_context_sample_dim=128,
+            global_context_encoder_embedding_size=256,
             #Decoder
             agent_hidden_size=64,
             action_space_dim=agent.env.action_space.n,
-            env_stepper_rnn_hidden_size=1024,
+            env_stepper_rnn_hidden_size=512,
             layer_norm=True
         )
         self.device = device
@@ -125,7 +125,7 @@ class Encoder(nn.Module):
                                sample_dim=hyperparams.initializer_sample_dim)
 
         self.global_context_encoder = \
-            GlobalContextEncoder(embedding_size=hyperparams.global_context_encoder_rnn_hidden_size,
+            GlobalContextEncoder(embedding_size=hyperparams.global_context_encoder_embedding_size,
                                  sample_dim=hyperparams.global_context_sample_dim)
 
         self.init_seq_len = hyperparams.num_initialization_obs
@@ -379,7 +379,7 @@ class Decoder(nn.Module): # TODO make agent optional.
         pred_env_hxs.append(env_h)  # env@t=0
         pred_env_cls.append(env_cell_state)
 
-        pred_agent_h0, _ = self.agent_initializer(z_c)
+        pred_agent_h0, _ = self.agent_initializer(z_c.detach()) # STOP GRADIENT flowing back to encoder
         pred_agent_hs.append(pred_agent_h0) # agent_h@t=0
 
         # if we want to feed the correct h0 (the 0th hx) instead of the
@@ -561,7 +561,7 @@ class EnvStepper(nn.Module):
         self.env_rnn = ActionCondLSTMLayer(cell,
                                  self.z_g_size,  # input size + self.env_h_size + self.z_g_size,
                                  self.env_h_size,  # hx size
-                                 self.env_h_size*2,  # fusion size
+                                 self.env_h_size,  # fusion size
                                  15,  # action space dim
                                  )
 
