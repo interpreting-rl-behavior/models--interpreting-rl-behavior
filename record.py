@@ -1,8 +1,11 @@
 """Makes a dataset for the generative model."""
 import random
+
+import numpy as np
 import torch
 import pandas as pd
 import os, time, yaml, argparse
+import shutil
 import gym
 
 from train import create_venv
@@ -12,6 +15,7 @@ from common.storage import Storage
 from common.model import NatureModel, ImpalaModel
 from common.policy import CategoricalPolicy
 from common import set_global_seeds, set_global_log_levels
+from overlay_image import overlay_actions
 
 import torchvision.io as tvio
 
@@ -19,8 +23,8 @@ import torchvision.io as tvio
 if __name__=='__main__':
     start_time = time.time()
 
-
     parser = argparse.ArgumentParser()
+
     parser.add_argument('--exp_name',         type=str, default = 'test', help='experiment name')
     parser.add_argument('--env_name',         type=str, default = 'coinrun', help='environment ID')
     parser.add_argument('--start_level',      type=int, default = int(0), help='start-level for environment')
@@ -32,13 +36,10 @@ if __name__=='__main__':
     parser.add_argument('--seed',             type=int, default = random.randint(0,9999), help='Random generator seed')
     parser.add_argument('--log_level',        type=int, default = int(40), help='[10,20,30,40]')
     parser.add_argument('--num_checkpoints',  type=int, default = int(1), help='number of checkpoints to store')
-
-    #multi threading
     parser.add_argument('--num_threads', type=int, default=8)
-
-    #render parameters
     parser.add_argument('--model_file', type=str)
     parser.add_argument('--logdir', type=str, default='.') #todo does this work?
+
     args = parser.parse_args()
 
     exp_name = args.exp_name
@@ -64,14 +65,14 @@ if __name__=='__main__':
         print(key, ':', value)
 
     n_steps = hyperparameters.get('n_steps', 256)
-    n_envs = 1
+    n_envs = hyperparameters.get('n_envs', 64)
     hyperparameters['n_envs'] = n_envs  # overwrite because can only record one
     # at a time.
 
-    max_episodes = 1000#70000
+    # Recording-specific hyperparams
+    max_episodes = 50000
     secs_in_24h = 60*60*24
     max_time_recording = secs_in_24h * 1.8
-
 
     # Device
     os.environ["CUDA_VISIBLE_DEVICES"] = str(gpu_device)
@@ -131,10 +132,9 @@ if __name__=='__main__':
     agent = AGENT(env, policy, logger, storage, device, num_checkpoints, **hyperparameters)
     checkpoint = torch.load(args.model_file, map_location=device)
     agent.policy.load_state_dict(checkpoint["model_state_dict"])
-    agent.policy.action_noise = False # Only for recording data for gen model training
+    agent.policy.action_noise = True # Only for recording data for gen model training
     agent.optimizer.load_state_dict(checkpoint["optimizer_state_dict"])
     agent.n_envs = n_envs
-
 
     # Make save dirs
     logdir_base = args.logdir
@@ -155,32 +155,37 @@ if __name__=='__main__':
                     'value',
                     'action',]
 
-    data = pd.DataFrame(columns=column_names)
+    ## Init logging-objects for recording loop
+    data = []
+    for i in range(n_envs):
+        data.append(pd.DataFrame(columns=column_names))
+    obs_lists = [[] for i in range(n_envs)]
+    hx_lists = [[] for i in range(n_envs)]
+    logprob_lists = [[] for i in range(n_envs)]
 
-    ## Init params for training loop
+    # Init agent and env
     obs = agent.env.reset()
-    # TODO init with hx param
     hidden_state = np.stack(
-        [agent.policy.init_hx.clone().detach().cpu().numpy()] * agent.n_envs)
+        [agent.policy.init_hx.clone().detach().cpu().numpy()] \
+        * agent.n_envs)     # init with hx param
     done = np.zeros(agent.n_envs)
 
+    # Timestep trackers
     global_steps = 0
-    episode_steps = 0
-    episode_number = 0
+    episode_steps = np.zeros_like(np.arange(n_envs))
+    episode_number = np.array(np.arange(n_envs))
 
-    ## Make dirs for files #TODO add some unique identifier so you don't end up with a bunch of partial episodes due to overwriting
-    dir_name = logdir + 'episode' + str(episode_number)
+    # Check you're not overwriting
+    dir_name = os.path.join(logdir, f'episode_{episode_number[0]:05d}')
     if os.path.exists(dir_name):
         raise UserWarning("You are overwriting your previous data! Delete " + \
                           "or move your old dataset first.")
     if not (os.path.exists(dir_name)):
         os.makedirs(dir_name)
 
-    obs_list = []
-    hx_list = []
-    logprob_list = []
-
     while True:
+        epi_max = np.max(episode_number)
+        print(epi_max)
         agent.policy.eval()
 
         # Step agent and environment
@@ -188,84 +193,107 @@ if __name__=='__main__':
         next_obs, rew, done, info = agent.env.step(act)
 
         # Store non-array variables
-        data = data.append({
-            'level_seed': info[0]['level_seed'], # TODO for some reason seed is misaligned for the first step of each episode except the 0th episode.
-            'episode': episode_number,
-            'global_step': global_steps,
-            'episode_step': episode_steps,
-            'done': done[0],
-            'reward': rew[0],
-            'value': value[0],
-            'action': act[0],
-        }, ignore_index=True)
+        for i in range(n_envs):
+            data[i] = data[i].append({'level_seed': info[i]['level_seed'], # TODO for some reason seed is misaligned for the first step of each episode except the 0th episode.
+                                     'episode': episode_number[i],
+                                     'global_step': global_steps,
+                                     'episode_step': episode_steps[i],
+                                     'done': done[i],
+                                     'reward': rew[i],
+                                     'value': value[i],
+                                     'action': act[i],
+                                     }, ignore_index=True)
 
-        obs_list.append(obs)
-        hx_list.append(hidden_state)
-        logprob_list.append(log_prob_act)
+            obs_lists[i].append(obs[i])
+            hx_lists[i].append(hidden_state[i])
+            logprob_lists[i].append(log_prob_act[i])
 
         # Increment for next step
         obs = next_obs
         hidden_state = next_hidden_state
         global_steps += 1
         episode_steps += 1
+        print("Episode number: ", episode_number)
+        print("Episode len: ", episode_steps)
+        print("Done:        ", done + 0)
+        # At end of episode
+        if np.any(done):
+            done_idxs = np.where(done)[0] # [0] is because np.where returns a tuple
+            for idx in done_idxs:
+                done_epi_idx = episode_number[idx]
+                data[idx].to_csv(os.path.join(logdir,
+                    f'data_gen_model_{done_epi_idx:05d}.csv'),
+                    index=False)
 
-        if done[0]:  # At end of episode
-            data.to_csv(logdir + f'data_gen_model_{episode_number}.csv', index=False)
+                # Make dirs for files
+                dir_name = os.path.join(logdir, f'episode_{done_epi_idx:05d}')
+                if not (os.path.exists(dir_name)):
+                    os.makedirs(dir_name)
 
-            # Make dirs for files
-            dir_name = os.path.join(logdir, 'episode' + str(episode_number))
-            if not (os.path.exists(dir_name)):
-                os.makedirs(dir_name)
+                # Stack arrays for this episode into one array
+                obs_array = np.stack(obs_lists[idx]).squeeze()
+                hx_array  = np.stack(hx_lists[idx]).squeeze()
+                lp_array  = np.stack(logprob_lists[idx]).squeeze()
 
-            # Stack arrays for this episode into one array
-            obs_array = np.stack(obs_list).squeeze()
-            hx_array  = np.stack(hx_list).squeeze()
-            lp_array  = np.stack(logprob_list).squeeze()
+                # Prepare names for saving
+                obs_name = dir_name + '/ob.npy'
+                hx_name = dir_name + '/hx.npy'
+                lp_name = dir_name + '/lp.npy'
 
-            # Prepare names for saving
-            obs_name = dir_name + '/' + 'ob.npy'
-            hx_name = dir_name + '/' + 'hx.npy'
-            lp_name = dir_name + '/' + 'lp.npy'
+                # Save stacked array
+                np.save(obs_name, np.array(obs_array * 255, dtype=np.uint8))
+                np.save(hx_name, hx_array)
+                np.save(lp_name, lp_array)
 
-            # Save stacked array
-            np.save(obs_name, np.array(obs_array * 255, dtype=np.uint8))
-            np.save(hx_name, hx_array)
-            np.save(lp_name, lp_array)
+                # Save vid
+                ob = torch.tensor(obs_array * 255)
+                ob = ob.permute(0, 2, 3, 1)
+                ob = ob.clone().detach().type(torch.uint8)
+                ob = ob.cpu().numpy()
+                # Overlay a square with arrows showing the agent's actions
+                actions = np.array(data[idx]['action'])
+                ob = overlay_actions(ob, actions, size=16)
+                save_str = os.path.join(logdir, f'sample_{done_epi_idx:05d}.mp4')
+                tvio.write_video(save_str, ob, fps=14)
 
-            # Save vid
-            ob = torch.tensor(obs_array * 255)
-            ob = ob.permute(0, 2, 3, 1)
-            ob = ob.clone().detach().type(torch.uint8)
-            ob = ob.cpu().numpy()
-            save_str = logdir + '/sample_' + f'{episode_number:05d}.mp4'
+                # Reset things for the beginning of the next episode
+                data[idx] = pd.DataFrame(columns=column_names)
 
-            tvio.write_video(save_str, ob, fps=14)
+                episode_number[idx] = epi_max + 1
+                epi_max += 1
+                episode_steps[idx] = 0
 
-            # Reset things for the beginning of the next episode
-            data = pd.DataFrame(columns=column_names)
-            print("Episode number: %i ;  Episode len: %i " % (episode_number, episode_steps))
-            episode_number += 1
-            episode_steps = 0
+                obs_lists[idx] = []
+                hx_lists[idx] = []
+                logprob_lists[idx] = []
 
-            obs_list = []
-            hx_list = []
-            logprob_list = []
+                # Reset hidden state
+                hidden_state[idx,:] = np.stack(
+                    agent.policy.init_hx.clone().detach().cpu().numpy())
 
-            # Reset hidden state
-            hidden_state = np.stack(
-                [agent.policy.init_hx.clone().detach().cpu().numpy()] * \
-                agent.n_envs)
-
-        if (episode_number >= max_episodes) or \
+        # End recording loop if max num recorded episodes OR time-limit has
+        # been reached
+        if (np.min(episode_number) > max_episodes) or \
                 ((time.time() - start_time) > max_time_recording):
             break
 
+    # Delete superfluous data episodes
+    for e in range(max_episodes, np.max(episode_number)):
+        superfluous_dir = os.path.join(logdir, f'episode_{e:05d}')
+        superfluous_file = os.path.join(logdir, f'data_gen_model_{e:05d}.csv')
+        superfluous_vid = os.path.join(logdir, f'sample_{e:05d}.mp4')
+        if os.path.exists(superfluous_dir):
+            shutil.rmtree(superfluous_dir)
+            os.remove(superfluous_file)
+            os.remove(superfluous_vid)
+
+    # Combine data into one dataset
     print("Combining datasets")
     data = pd.DataFrame(columns=['global_step', 'episode'])
-    for e in range(episode_number):
-        epi_filename = logdir + f'data_gen_model_{e}.csv'
+    for e in range(max_episodes):
+        epi_filename = os.path.join(logdir, f'data_gen_model_{e:05d}.csv')
         data_e = pd.read_csv(epi_filename)
         data = data.append(data_e[['global_step', 'episode']])
-        # os.remove(epi_filename)
-    data.to_csv(logdir + f'idx_to_episode.csv',
-                index=False)
+    data['global_step'] = np.arange(len(data['global_step'])) # Set global step
+    # so that each data step has a unique global step.
+    data.to_csv(logdir + f'idx_to_episode.csv', index=False)
