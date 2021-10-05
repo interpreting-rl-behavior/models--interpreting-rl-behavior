@@ -65,9 +65,9 @@ class ProcgenDataset(Dataset):
         episode_number = episode_number + use_next_epi
 
         # Get data
-        csv_load_path = self.data_dir + 'data_gen_model_%i.csv' % episode_number
+        csv_load_path = os.path.join(self.data_dir, f'data_gen_model_{episode_number:05d}.csv')
         data = pd.read_csv(csv_load_path)
-        vecs_load_path = self.data_dir + 'episode' + str(episode_number)
+        vecs_load_path = os.path.join(self.data_dir, f'episode_{episode_number:05d}')
         obs = np.load(vecs_load_path + '/ob.npy')
         hx  = np.load(vecs_load_path + '/hx.npy')
         lp  = np.load(vecs_load_path + '/lp.npy')
