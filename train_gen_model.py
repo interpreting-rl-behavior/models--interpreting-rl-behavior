@@ -1,5 +1,6 @@
 from common.env.procgen_wrappers import *
 import util.logger as logger  # from common.logger import Logger
+from util.parallel import DataParallel
 from common.storage import Storage
 from common.model import NatureModel, ImpalaModel
 from common.policy import CategoricalPolicy
@@ -191,7 +192,9 @@ def run():
     ## Make or load generative model and optimizer
     gen_model = VAE(agent, device, num_initializing_steps, total_seq_len)
 
+    gen_model = DataParallel(gen_model)
     gen_model = gen_model.to(device)
+
     optimizer = torch.optim.Adam(gen_model.parameters(), lr=args.lr)
 
     if args.model_file is not None:
@@ -266,6 +269,8 @@ def train(epoch, args, train_loader, optimizer, gen_model, agent, logger, save_d
                                                           use_true_actions=True)
         loss, train_info_bufs = loss_function(args, preds, data, mu_c, logvar_c, mu_g, logvar_g,
                                               train_info_bufs, device)
+        # if torch.any(data['obs'][:,-1].sum(dim=[1,2,3])==0.) and not torch.any(data['done'][:,-1]):
+        #     print('boop')
 
         loss.backward()
         torch.nn.utils.clip_grad_norm_(gen_model.parameters(), 0.001)
