@@ -62,7 +62,7 @@ class VAE(nn.Module):
         # Feed inputs into encoder and return the mean
         # and log(variance)
 
-        mu_c, logvar_c, mu_g, logvar_g = self.encoder(obs, agent_h0)
+        mu_c, logvar_c, mu_g, logvar_g = self.encoder(obs)
 
         sigma_c = torch.exp(0.5 * logvar_c)  # log(var) -> standard deviation
         sigma_g = torch.exp(0.5 * logvar_g)
@@ -121,7 +121,6 @@ class Encoder(nn.Module):
 
         self.initializer_encoder = \
             InitializerEncoder(rnn_hidden_size=hyperparams.initializer_rnn_hidden_size,
-                               agent_hidden_size=hyperparams.agent_hidden_size,
                                sample_dim=hyperparams.initializer_sample_dim)
 
         self.global_context_encoder = \
@@ -131,14 +130,14 @@ class Encoder(nn.Module):
         self.init_seq_len = hyperparams.num_initialization_obs
         self.global_context_seq_len = hyperparams.num_sim_steps
 
-    def forward(self, full_obs, agent_h0):
+    def forward(self, full_obs):
 
         # Split frames into initialization frames and global context frames
         init_obs = full_obs[:, 0:self.init_seq_len]
         glob_ctx_obs = full_obs[:, -self.global_context_seq_len:]
 
         # Run InitializerEncoder
-        mu_c, logvar_c = self.initializer_encoder(init_obs, agent_h0)
+        mu_c, logvar_c = self.initializer_encoder(init_obs)
 
         # Run GlobalContextEncoder
         mu_g, logvar_g = self.global_context_encoder(glob_ctx_obs)
@@ -156,12 +155,12 @@ class InitializerEncoder(nn.Module):
     and, when combined with z_g, the initial environment state.
 
     """
-    def __init__(self, rnn_hidden_size, agent_hidden_size, sample_dim):
+    def __init__(self, rnn_hidden_size, sample_dim):
         super(InitializerEncoder, self).__init__()
         self.image_embedder = LayeredResBlockDown(input_hw=64,
                                               input_ch=3,
                                               hidden_ch=64,
-                                              output_hw=8,
+                                              output_hw=16,
                                               output_ch=32)
 
         self.rnn = nn.LSTM(input_size=self.image_embedder.output_size,
@@ -170,7 +169,7 @@ class InitializerEncoder(nn.Module):
                            batch_first=True)
 
         self.converter_base = nn.Sequential(
-                                nn.Linear(rnn_hidden_size + agent_hidden_size,
+                                nn.Linear(rnn_hidden_size,
                                           rnn_hidden_size),
                                 nn.ReLU()
                                             )
@@ -179,7 +178,7 @@ class InitializerEncoder(nn.Module):
         self.converter_split_lv = nn.Linear(rnn_hidden_size,
                                             sample_dim)  # log var
 
-    def forward(self, inp_obs_seq, agent_h0):
+    def forward(self, inp_obs_seq):
         """Takes the sequence of inputs to encode context to
         initialise the env stepper and agent initial hidden state"""
         # Flatten inp seqs along time dimension to pass all to conv nets
@@ -191,12 +190,10 @@ class InitializerEncoder(nn.Module):
         w = x.shape[3]
         ch = x.shape[4]
 
-        x = x.reshape(batches*ts, h, w, ch)
-        x, _ = self.image_embedder(x)
-
-        # Unflatten conv outputs again to reconstruct time dim
-
-        x = x.view(batches, ts, x.shape[1], x.shape[2], x.shape[3])
+        images = [x[:, i] for i in range(ts)]  # split along time dim
+        embeddings = [self.image_embedder(im) for im in images]
+        embeddings = [im for (im, _) in embeddings]
+        x = torch.stack(embeddings, dim=1)  # stack along time dim
 
         # Flatten conv outputs to size HxWxCH to get rnn input vecs
         x = x.view(batches, ts, -1)
@@ -207,8 +204,6 @@ class InitializerEncoder(nn.Module):
         # Concat RNN output to agent h0 and then pass to Converter nets
         # to get mu_g and sigma_g
         x = x[:, -1]  # get last ts
-        x = torch.cat([x, agent_h0], dim=1)
-
         x = self.converter_base(x)
         mu = self.converter_split_mu(x)
         logvar = self.converter_split_lv(x)
@@ -231,10 +226,6 @@ class GlobalContextEncoder(nn.Module):
         self.image_fc_embedder = nn.Linear(in_features=self.image_conv_embedder.output_size,
                                            out_features=embedding_size)
 
-        # self.seq_enc = nn.LSTM(input_size=self.image_conv_embedder.output_size,
-        #                    hidden_size=rnn_hidden_size,
-        #                    num_layers=1,
-        #                    batch_first=True)
         t_layer = torch.nn.TransformerEncoderLayer(d_model=embedding_size, nhead=1,
                                              dim_feedforward=embedding_size,
                                              dropout=0.0).to(torch.device('cuda:0'))
@@ -269,36 +260,22 @@ class GlobalContextEncoder(nn.Module):
         chosen_ts = [t+rand for t, rand in zip(midpoint_intervals_rand, random_interval_diffs)]
         midpoint_intervals[1:-1] = chosen_ts
         chosen_ts = midpoint_intervals
-        # chosen_ts = [t for t in list(range(0, ts)) if t % 2 == 0] # gets even ts
         num_chosen_ts = len(chosen_ts)
         x = x[:,chosen_ts]
 
-
-        x = x.reshape([batches*num_chosen_ts, h, w, ch])
-        x, _ = self.image_conv_embedder(x)
-
-        # # Unflatten conv outputs again to reconstruct time dim
-        #
-        # x = x.reshape([batches, num_chosen_ts, x.shape[1], x.shape[2], x.shape[3]])
-
-        # Flatten conv outputs to size HxWxCH to get rnn input vecs
-        x = x.reshape([batches*num_chosen_ts, -1])
-        x = self.image_fc_embedder(x)
-        x = x.reshape([batches, num_chosen_ts, -1])
-        x = x.permute([1,0,2]) # swap batch and t axis
-
-        #RNN
-        # Pass seq of vecs to global context RNN
-        # x, _ = self.seq_enc(x)
-        #
-        # # Pass RNN output to Global Context Converter to get mu_g and sigma_g
-        # x = x[:, -1]  # get last ts
+        # Embed images into vectors for the sequence encoder
+        embeddings = [self.image_conv_embedder(x[:,i]) for i in range(num_chosen_ts)]
+        embeddings = [x.reshape(batches, -1) for (x, _) in embeddings]
+        embeddings = [self.image_fc_embedder(x) for x in embeddings]
+        embeddings = torch.stack(embeddings, dim=1)  # Stack along time dim
+        embeddings = embeddings.permute([1,0,2])  # Swap batch and time dim for transformer.  -> [t, b, etc]
 
         #Attn
-        x = self.seq_enc(x)
-        x = x.permute([1,0,2]) # swap batch and t axis back again
+        x = self.seq_enc(embeddings)
+        x = x.permute([1,0,2]) # swap batch and t axis back again -> [b, t, etc]
         x = torch.mean(x, dim=1)
 
+        # Convert transformer output into global vector sampling params
         x = self.converter_base(x)
         mu = self.converter_split_mu(x)
         logvar = self.converter_split_lv(x)
