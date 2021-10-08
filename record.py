@@ -174,18 +174,19 @@ if __name__=='__main__':
     global_steps = 0
     episode_steps = np.zeros_like(np.arange(n_envs))
     episode_number = np.array(np.arange(n_envs))
+    episode_lens = np.zeros(max_episodes)
 
     # Check you're not overwriting
     dir_name = os.path.join(logdir, f'episode_{episode_number[0]:05d}')
-    if os.path.exists(dir_name):
-        raise UserWarning("You are overwriting your previous data! Delete " + \
-                          "or move your old dataset first.")
+    # if os.path.exists(dir_name):
+    #     raise UserWarning("You are overwriting your previous data! Delete " + \
+    #                       "or move your old dataset first.")
     if not (os.path.exists(dir_name)):
         os.makedirs(dir_name)
 
     while True:
         epi_max = np.max(episode_number)
-        print(epi_max)
+        print(f"Episode min|50%%|max: {np.min(episode_number)} | {np.median(episode_number)} | {np.max(episode_number)}")
         agent.policy.eval()
 
         # Step agent and environment
@@ -221,6 +222,10 @@ if __name__=='__main__':
             done_idxs = np.where(done)[0] # [0] is because np.where returns a tuple
             for idx in done_idxs:
                 done_epi_idx = episode_number[idx]
+
+                if episode_number[idx] < max_episodes: # save episode len
+                    episode_lens[done_epi_idx] = episode_steps[idx]
+
                 data[idx].to_csv(os.path.join(logdir,
                     f'data_gen_model_{done_epi_idx:05d}.csv'),
                     index=False)
@@ -258,7 +263,6 @@ if __name__=='__main__':
 
                 # Reset things for the beginning of the next episode
                 data[idx] = pd.DataFrame(columns=column_names)
-
                 episode_number[idx] = epi_max + 1
                 epi_max += 1
                 episode_steps[idx] = 0
@@ -290,10 +294,32 @@ if __name__=='__main__':
     # Combine data into one dataset
     print("Combining datasets")
     data = pd.DataFrame(columns=['global_step', 'episode'])
+    list_of_ref_dfs = []
+    # for e in range(max_episodes):
+    #     epi_filename = os.path.join(logdir, f'data_gen_model_{e:05d}.csv')
+    #     data_e = pd.read_csv(epi_filename)
+    #     data = data.append(data_e[['global_step', 'episode']])
+    # data['global_step'] = np.arange(len(data['global_step'])) # Set global step
+    # # so that each data step has a unique global step.
+    max_global_step = 0
     for e in range(max_episodes):
+        print(e)
+        ref_df_e = pd.DataFrame(columns=['global_step', 'episode'])
+        ref_df_e['global_step'] = \
+            np.arange(max_global_step, max_global_step+episode_lens[e])
+        ref_df_e['episode'] = (np.ones(int(episode_lens[e])) * e).astype(int)
+        list_of_ref_dfs.append(ref_df_e)
+        max_global_step = max_global_step + episode_lens[e]
+    reference_df = pd.concat(list_of_ref_dfs)
+    reference_df_name = os.path.join(logdir, f'idx_to_episode.csv')
+    reference_df.to_csv(reference_df_name, index=False)
+
+    # Then go through all the individual episodes and fix the global step data
+    for e in range(max_episodes):
+        print(e)
         epi_filename = os.path.join(logdir, f'data_gen_model_{e:05d}.csv')
         data_e = pd.read_csv(epi_filename)
-        data = data.append(data_e[['global_step', 'episode']])
-    data['global_step'] = np.arange(len(data['global_step'])) # Set global step
-    # so that each data step has a unique global step.
-    data.to_csv(logdir + f'idx_to_episode.csv', index=False)
+        glob_steps_e = reference_df[reference_df['episode'] == e]['global_step']
+        data_e['global_step'] = glob_steps_e
+        data_e.to_csv(epi_filename)
+
