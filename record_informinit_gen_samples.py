@@ -36,6 +36,12 @@ def run():
     of the samples. There will also be a manually managed csv file that marks
     each of the thousands of samples with binary markers if they contain certain
     behaviours.
+
+    This script can also test that the environment model is independent of the agent used to train it.
+    Simply set the cmd arg --manual_action to a direction you wish to set all actions to in the
+    decoder. This will run the gen model but force the agent to take this action at each timestep.
+    Note that you may wish to set the --data_save_dir to the place you would wish to output the
+    video samples.
     """
     parser = argparse.ArgumentParser()
 
@@ -76,7 +82,10 @@ def run():
     parser.add_argument('--layer_norm', type=int, default=0)
     parser.add_argument('--swap_directions_from', nargs='+')
     parser.add_argument('--swap_directions_to', nargs='+')
-
+    parser.add_argument('--samples_to_record', type=int, default=200)
+    parser.add_argument('--manual_action', type=str,
+                        choices=['downleft', 'left', 'upleft', 'down', 'up', 'downright', 'right', 'upright'],
+                        help='Action direction to manually set for all timesteps (upright, left, ...)')
     # multi threading
     parser.add_argument('--num_threads', type=int, default=8)
 
@@ -95,11 +104,10 @@ def run():
     # minus one because the first simulated observation is the last
     # initializing context obs.
 
-    samples_to_record = 200
-    if samples_to_record % batch_size > 0:
+    if args.samples_to_record % batch_size > 0:
         raise ValueError("Samples to record should be an integer multiple of "+\
                          "batch size")
-    num_epochs = samples_to_record // batch_size
+    num_epochs = args.samples_to_record // batch_size
 
     set_global_seeds(seed)
     set_global_log_levels(log_level)
@@ -210,6 +218,12 @@ def run():
                            agent, data, logger, data_dir, device)
 
 
+def action_str_to_int(action):
+    """
+    Converts a string representing the action direction to the integer that takes that action
+    in procgen.
+    """
+
 def record_gen_samples(epoch, args, gen_model, batch_size, agent, data, logger, data_dir, device):
 
     # Set up logging queue objects
@@ -221,6 +235,17 @@ def record_gen_samples(epoch, args, gen_model, batch_size, agent, data, logger, 
     # Prepare for training cycle
     gen_model.eval()
 
+    coinrun_actions = {'downleft': 0, 'left': 1, 'upleft': 2, 'down': 3, 'up': 5, 'downright': 6,
+                       'right': 7, 'upright': 8}
+
+    if args.manual_action:
+        manual_action = coinrun_actions[args.manual_action]
+        use_true_actions = True
+    else:
+        manual_action = None
+        # Use the predicted actions from the gen model if not using manual actions
+        use_true_actions = False
+
     # Recording cycle
     with torch.no_grad():
 
@@ -231,6 +256,9 @@ def record_gen_samples(epoch, args, gen_model, batch_size, agent, data, logger, 
         full_obs = data['obs']
         agent_h0 = data['hx'][:, -args.num_sim_steps, :]
         actions_all = data['action'][:, -args.num_sim_steps:]
+
+        if args.manual_action is not None:
+            actions_all.fill_(manual_action)
 
         # If doing validation experiments that swap or collapse directions, put
         # the arguments into the right format.
@@ -256,7 +284,7 @@ def record_gen_samples(epoch, args, gen_model, batch_size, agent, data, logger, 
         # Forward pass of generative model
         _, _, _, _, preds = gen_model(full_obs, agent_h0, actions_all,
                                                           use_true_h0=False,
-                                                          use_true_actions=False,
+                                                          use_true_actions=use_true_actions,
                                                           swap_directions=swap_directions)
         # Both of these were false but for some reason it doesn't appear to be
         #  leading to the same distribution of hxs
@@ -295,7 +323,11 @@ def record_gen_samples(epoch, args, gen_model, batch_size, agent, data, logger, 
                      'agent_logprobs', 'agent_values', 'env_hid_states',
                      'env_cell_states', 'latent_vec']
 
-        actions = np.argmax(pred_agent_logprobs, axis=-1)
+        # Recover the actions for use in the action overlay
+        if manual_action is not None:
+            actions = np.ones((args.batch_size, args.num_sim_steps)) * manual_action
+        else:
+            actions = np.argmax(pred_agent_logprobs, axis=-1)
 
         # Make dirs for these variables and save variables to dirs and save vid
         samples_so_far = epoch * batch_size
