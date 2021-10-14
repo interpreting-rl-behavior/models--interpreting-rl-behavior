@@ -42,10 +42,10 @@ class TargetFunction():
         self.directions_scale = 0.05
         self.timesteps = list(range(0, sim_len))
         self.distance_threshold = 1.3
-        hx_timesteps = (13,)
-        directions_timesteps = (13,)  # because FPS is 14 therefore hx happens after 1s
+        hx_timesteps = (11,)
+        directions_timesteps = (11,)
         self.target_function_type = args.target_function_type
-        num_episodes_precomputed = 2000 # hardcoded for dev
+        num_episodes_precomputed = 4000 # hardcoded for dev
 
         self.grad_norm = 100.
         value_grad_norm = 10.
@@ -364,6 +364,7 @@ class TargetFunction():
         opt_quant = np.inner(target_hx[:, self.timesteps], directions).mean()
         print(opt_quant)
         self.optimized_quantity.append(opt_quant)
+        print("Opt quant: %f" % opt_quant)
         target_hx[:, self.timesteps] += (directions * self.directions_scale)
         target_hx = torch.tensor(target_hx, device=self.device)
 
