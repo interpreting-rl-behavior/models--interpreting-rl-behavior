@@ -268,7 +268,19 @@ class GlobalContextEncoder(nn.Module):
         embeddings = [x.reshape(batches, -1) for (x, _) in embeddings]
         embeddings = [self.image_fc_embedder(x) for x in embeddings]
         embeddings = torch.stack(embeddings, dim=1)  # Stack along time dim
-        embeddings = embeddings.permute([1,0,2])  # Swap batch and time dim for transformer.  -> [t, b, etc]
+        embeddings = embeddings.permute([1,0,2])  # Swap batch and time dim for transformer.  -> [t, b, d]
+
+        # Randomise a few of the samples between batches (so that the generative
+        #  model can't rely too heavily on the global context
+        #  encoder).
+        rand_inds = torch.randperm(num_chosen_ts) #randomize along t dim first, just so that when we take half of the time we're not talking only later timesteps
+        embeddings = embeddings[rand_inds, :]
+        half_embeddings = embeddings[:num_chosen_ts//2,:] # get half of timesteps
+        other_half = embeddings[num_chosen_ts//2:,:]
+        rand_inds = torch.randperm(batches*(num_chosen_ts//2))
+        half_embeddings = half_embeddings.view(batches*(num_chosen_ts//2), -1)[rand_inds] # choose random ts from random b
+        half_embeddings = half_embeddings.view(num_chosen_ts//2,batches,-1) # put back in the right shape
+        embeddings = torch.cat([half_embeddings, other_half]) # rejoin the randomised steps with the other steps.
 
         #Attn
         x = self.seq_enc(embeddings)
