@@ -71,6 +71,8 @@ class VAE(nn.Module):
         sample_c = (torch.randn(sigma_c.size(), device=self.device) * sigma_c) + mu_c
         sample_g = (torch.randn(sigma_g.size(),
                                 device=self.device) * sigma_g) + mu_g
+        # Silencing the global context encoder
+        sample_g = torch.zeros_like(sample_g).to(self.device)
 
         # Decode
         if use_true_h0:
