@@ -2,6 +2,7 @@ import numpy as np
 
 from common.env.procgen_wrappers import *
 import util.logger as logger  # from common.logger import Logger
+from util.parallel import DataParallel
 from common.storage import Storage
 from common.model import NatureModel, ImpalaModel
 from common.policy import CategoricalPolicy
@@ -199,7 +200,7 @@ def run():
     # Set up generative model
     ## Make or load generative model
     gen_model = VAE(agent, device, num_initializing_steps, total_seq_len)
-
+    gen_model = DataParallel(gen_model)
     gen_model = gen_model.to(device)
 
     if args.model_file is not None:

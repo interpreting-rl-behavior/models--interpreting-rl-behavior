@@ -19,6 +19,8 @@ from generative.procgen_dataset import ProcgenDataset
 from collections import deque
 import torchvision.io as tvio
 from datetime import datetime
+from util.parallel import DataParallel
+
 
 
 def run():
@@ -179,7 +181,7 @@ def run():
     # Set up generative model
     ## Make or load generative model
     gen_model = VAE(agent, device, num_initializing_steps, total_seq_len)
-
+    gen_model = DataParallel(gen_model)
     gen_model = gen_model.to(device)
 
     if args.model_file is not None:

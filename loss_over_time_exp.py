@@ -1,5 +1,6 @@
 from common.env.procgen_wrappers import *
 import util.logger as logger  # from common.logger import Logger
+from util.parallel import DataParallel
 from common.storage import Storage
 from common.model import NatureModel, ImpalaModel
 from common.policy import CategoricalPolicy
@@ -186,7 +187,7 @@ def run():
 
     ## Make or load generative model and optimizer
     gen_model = VAE(agent, device, num_initializing_steps, total_seq_len)
-
+    gen_model = DataParallel(gen_model)
     gen_model = gen_model.to(device)
     optimizer = torch.optim.Adam(gen_model.parameters(), lr=args.lr)
 

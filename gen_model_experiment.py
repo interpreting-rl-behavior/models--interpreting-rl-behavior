@@ -9,6 +9,7 @@ from common import set_global_seeds, set_global_log_levels
 from train import create_venv
 from generative.generative_models import VAE
 from generative.procgen_dataset import ProcgenDataset
+from util.parallel import DataParallel
 
 
 class GenerativeModelExperiment():
@@ -141,6 +142,8 @@ class GenerativeModelExperiment():
 
         ## Make or load generative model and optimizer
         gen_model = VAE(agent, device, num_initializing_steps, total_seq_len)
+
+        gen_model = DataParallel(gen_model)
         gen_model = gen_model.to(device)
         optimizer = torch.optim.Adam(gen_model.parameters(), lr=args.lr)
 
