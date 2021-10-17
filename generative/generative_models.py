@@ -31,15 +31,15 @@ class VAE(nn.Module):
 
     """
 
-    def __init__(self, agent, device, num_initialization_obs, num_obs_full):
+    def __init__(self, agent, device, num_initialization_obs, num_sim_steps, total_data_seq_len):
         super(VAE, self).__init__()
 
         # Set settings
         hyperparams = Namespace(
             # Encoder
             num_initialization_obs=num_initialization_obs,
-            num_obs_full=num_obs_full,
-            num_sim_steps=num_obs_full-num_initialization_obs+1,  # Plus one is because the last obs of the init seq is the first obs of the simulated seq
+            total_data_seq_len=total_data_seq_len,
+            num_sim_steps=num_sim_steps,
             initializer_sample_dim=128,
             initializer_rnn_hidden_size=512,
             global_context_sample_dim=128,
@@ -55,7 +55,6 @@ class VAE(nn.Module):
         # Create networks
         self.encoder = Encoder(hyperparams)
         self.decoder = Decoder(hyperparams, agent)
-
 
     def forward(self, obs, agent_h0, actions, use_true_h0=False, use_true_actions=False, swap_directions=None):
 
@@ -118,6 +117,8 @@ class Encoder(nn.Module):
     """
     def __init__(self, hyperparams):
         super(Encoder, self).__init__()
+        self.init_seq_len = hyperparams.num_initialization_obs
+        self.global_context_seq_len = hyperparams.total_data_seq_len - self.init_seq_len
 
         self.initializer_encoder = \
             InitializerEncoder(rnn_hidden_size=hyperparams.initializer_rnn_hidden_size,
@@ -125,10 +126,9 @@ class Encoder(nn.Module):
 
         self.global_context_encoder = \
             GlobalContextEncoder(embedding_size=hyperparams.global_context_encoder_embedding_size,
-                                 sample_dim=hyperparams.global_context_sample_dim)
-
-        self.init_seq_len = hyperparams.num_initialization_obs
-        self.global_context_seq_len = hyperparams.num_sim_steps
+                                 sample_dim=hyperparams.global_context_sample_dim,
+                                 num_sim_ts=hyperparams.num_sim_steps,
+                                 num_inp_data_ts=self.global_context_seq_len)
 
     def forward(self, full_obs):
 
@@ -215,8 +215,11 @@ class GlobalContextEncoder(nn.Module):
     """
     Encodes global latent variable by observing whole sequence
     """
-    def __init__(self, embedding_size, sample_dim):
+    def __init__(self, embedding_size, sample_dim, num_sim_ts, num_inp_data_ts):
         super(GlobalContextEncoder, self).__init__()
+        # self.num_sim_ts = num_sim_ts
+        self.num_inp_data_ts = num_inp_data_ts
+        self.num_chosen_ts = max(2, self.num_inp_data_ts // 5)
 
         self.image_conv_embedder = LayeredResBlockDown(input_hw=64,
                                                   input_ch=3,
@@ -247,24 +250,19 @@ class GlobalContextEncoder(nn.Module):
         # Flatten inp seqs along time dimension to pass all to conv nets
         # along batch dim
         batches = x.shape[0]
-        ts = x.shape[1]
+        ts = x.shape[1] # == self.num_inp_data_ts
         h = x.shape[2]
         w = x.shape[3]
         ch = x.shape[4]
 
         # Get only the timesteps at intervals (because it's wasteful that a
         # global context encoder should see every single frame)
-        midpoint_intervals = np.arange(0, ts, step=4)
-        midpoint_intervals_rand = midpoint_intervals[1:-1]
-        random_interval_diffs = np.random.randint(-2, 2, len(midpoint_intervals_rand))
-        chosen_ts = [t+rand for t, rand in zip(midpoint_intervals_rand, random_interval_diffs)]
-        midpoint_intervals[1:-1] = chosen_ts
-        chosen_ts = midpoint_intervals
-        num_chosen_ts = len(chosen_ts)
+        chosen_ts = np.random.randint(0, self.num_inp_data_ts,
+                                      self.num_chosen_ts)
         x = x[:,chosen_ts]
 
         # Embed images into vectors for the sequence encoder
-        embeddings = [self.image_conv_embedder(x[:,i]) for i in range(num_chosen_ts)]
+        embeddings = [self.image_conv_embedder(x[:,i]) for i in range(self.num_chosen_ts)]
         embeddings = [x.reshape(batches, -1) for (x, _) in embeddings]
         embeddings = [self.image_fc_embedder(x) for x in embeddings]
         embeddings = torch.stack(embeddings, dim=1)  # Stack along time dim

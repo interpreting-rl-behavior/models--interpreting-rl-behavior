@@ -84,7 +84,8 @@ def run():
     batch_size = args.batch_size
     num_initializing_steps = args.num_initializing_steps
     num_sim_steps = args.num_sim_steps
-    total_seq_len = num_initializing_steps + num_sim_steps - 1
+    num_observed_steps = num_initializing_steps + num_sim_steps - 1
+    total_data_seq_len = num_sim_steps * 2
     # minus one because the first simulated observation is the last
     # initializing context obs.
 
@@ -183,14 +184,15 @@ def run():
     ## Make dataset
     train_dataset = ProcgenDataset(args.data_dir,
                                    initializer_seq_len=num_initializing_steps,
-                                   total_seq_len=total_seq_len,)
+                                   total_seq_len=total_data_seq_len,)
     train_loader = torch.utils.data.DataLoader(train_dataset,
                                                batch_size=batch_size,
                                                shuffle=True,
                                                num_workers=2)
 
     ## Make or load generative model and optimizer
-    gen_model = VAE(agent, device, num_initializing_steps, total_seq_len)
+    gen_model = VAE(agent, device, num_initializing_steps, num_sim_steps,
+                    total_data_seq_len)
 
     gen_model = DataParallel(gen_model)
     gen_model = gen_model.to(device)
@@ -212,7 +214,7 @@ def run():
     for epoch in range(0, args.epochs + 1):
 
         train(epoch, args, train_loader, optimizer, gen_model, agent,
-              logger, sess_dir, device)
+              logger, sess_dir, num_initializing_steps, num_observed_steps, device)
 
         # Save visualized random samples
         if epoch % 10 == 0 and epoch >= 1:
@@ -236,10 +238,10 @@ def run():
         # with ground truth (the closes thing a VAE gets to validation because
         # there are no labels).
         demo_recon_quality(args, epoch, train_loader, optimizer, gen_model,
-                           logger, sess_dir, device)
+                           logger, sess_dir, demo_recon_quality, device)
 
 
-def train(epoch, args, train_loader, optimizer, gen_model, agent, logger, save_dir, device):
+def train(epoch, args, train_loader, optimizer, gen_model, agent, logger, save_dir, num_initializing_steps, num_observed_steps, device):
 
     # Set up logging queue objects
     loss_keys = ['obs', 'hx', 'done', 'reward', 'act_log_probs', 'KL',
@@ -259,8 +261,8 @@ def train(epoch, args, train_loader, optimizer, gen_model, agent, logger, save_d
 
         # Get input data for generative model
         full_obs = data['obs']
-        agent_h0 = data['hx'][:, -args.num_sim_steps, :]
-        actions_all = data['action'][:, -args.num_sim_steps:]
+        agent_h0 = data['hx'][:, num_initializing_steps - 1, :]
+        actions_all = data['action'][:, num_initializing_steps - 1:] # TODO check if this is actually right and if it's why agent hx and actions appear to be slightly misaligned
 
         # Forward and backward pass and update generative model parameters
         optimizer.zero_grad()
@@ -268,9 +270,7 @@ def train(epoch, args, train_loader, optimizer, gen_model, agent, logger, save_d
                                                           use_true_h0=True,
                                                           use_true_actions=True)
         loss, train_info_bufs = loss_function(args, preds, data, mu_c, logvar_c, mu_g, logvar_g,
-                                              train_info_bufs, device)
-        # if torch.any(data['obs'][:,-1].sum(dim=[1,2,3])==0.) and not torch.any(data['done'][:,-1]):
-        #     print('boop')
+                                              train_info_bufs, num_initializing_steps, num_observed_steps, device)
 
         loss.backward()
         torch.nn.utils.clip_grad_norm_(gen_model.parameters(), 0.001)
@@ -323,7 +323,7 @@ def train(epoch, args, train_loader, optimizer, gen_model, agent, logger, save_d
                     pred_ob = pred_ob.clone().detach().type(torch.uint8)
                     pred_ob = pred_ob.cpu().numpy()
                     full_ob = full_ob.clone().detach().type(torch.uint8)
-                    full_ob = full_ob.cpu().numpy()[-args.num_sim_steps:]
+                    full_ob = full_ob.cpu().numpy()[(num_initializing_steps - 1):num_observed_steps]
 
                     # Join the prediction and the true observation side-by-side
                     combined_ob = np.concatenate([pred_ob, full_ob], axis=2)
@@ -335,7 +335,7 @@ def train(epoch, args, train_loader, optimizer, gen_model, agent, logger, save_d
                     tvio.write_video(save_str, combined_ob, fps=14)
 
 
-def loss_function(args, preds, labels, mu_c, logvar_c, mu_g, logvar_g, train_info_bufs, device):
+def loss_function(args, preds, labels, mu_c, logvar_c, mu_g, logvar_g, train_info_bufs, num_initializing_steps, num_observed_steps, device):
     """ Calculates the difference between predicted and actual:
         - observation
         - agent's recurrent hidden states
@@ -355,7 +355,7 @@ def loss_function(args, preds, labels, mu_c, logvar_c, mu_g, logvar_g, train_inf
                         'done': args.loss_scale_done,
                         'act_log_probs': args.loss_scale_act_log_probs}
 
-    dones = labels['done'][:, -args.num_sim_steps:]
+    dones = labels['done'][:, num_initializing_steps-1:num_observed_steps]
     before_dones = done_labels_to_mask(dones)
 
     # Reconstruction loss
@@ -364,7 +364,7 @@ def loss_function(args, preds, labels, mu_c, logvar_c, mu_g, logvar_g, train_inf
         pred  = torch.stack(preds[key], dim=1).squeeze()
 
         label = labels[key].to(device).float().squeeze()
-        label = label[:, -args.num_sim_steps:]
+        label = label[:, num_initializing_steps-1:num_observed_steps]
 
         # Calculate masks for hx & logprobs
         if key in ['hx', 'act_log_probs']:
@@ -390,7 +390,6 @@ def loss_function(args, preds, labels, mu_c, logvar_c, mu_g, logvar_g, train_inf
             loss = (pred - label)
             loss = torch.mean(loss ** 2)
 
-
         #mse = F.mse_loss(pred, label) # TODO test whether MSE or MAbsE is better (I think the VQ-VAE2 paper suggested MAE was better)
         train_info_bufs[key].append(loss.item())
         loss = loss * loss_hyperparams[key]
@@ -414,7 +413,7 @@ def loss_function(args, preds, labels, mu_c, logvar_c, mu_g, logvar_g, train_inf
     return loss + kl_divergence, train_info_bufs
 
 def demo_recon_quality(args, epoch, train_loader, optimizer, gen_model, logger,
-          save_dir, device, use_true_h0=False, use_true_actions=True):
+          save_dir, num_initializing_steps, device, use_true_h0=False, use_true_actions=True):
 
     # Set up logging objects
     logger.info('Demonstrating reconstruction and prediction quality')
@@ -430,8 +429,8 @@ def demo_recon_quality(args, epoch, train_loader, optimizer, gen_model, logger,
 
         # Get input data for generative model
         full_obs = data['obs']
-        agent_h0 = data['hx'][:, -args.num_sim_steps, :]
-        actions_all = data['action'][:, -args.num_sim_steps:]
+        agent_h0 = data['hx'][:, num_initializing_steps-1, :]
+        actions_all = data['action'][:, num_initializing_steps-1:]
 
         # Forward pass to get predicted observations
         optimizer.zero_grad()
@@ -458,7 +457,7 @@ def demo_recon_quality(args, epoch, train_loader, optimizer, gen_model, logger,
                 pred_ob = pred_ob.clone().detach().type(torch.uint8)
                 pred_ob = pred_ob.cpu().numpy()
                 full_ob = full_ob.clone().detach().type(torch.uint8)
-                full_ob = full_ob.cpu().numpy()[-args.num_sim_steps:]
+                full_ob = full_ob.cpu().numpy()[num_initializing_steps-1:]
 
                 # Join the prediction and the true observation side-by-side
                 combined_ob = np.concatenate([pred_ob, full_ob], axis=2)
