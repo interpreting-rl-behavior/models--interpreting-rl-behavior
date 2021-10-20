@@ -19,6 +19,8 @@ import torchvision.io as tvio
 from datetime import datetime
 
 
+# TODO sort out hyperparameters (incl archi) - put them all in one namespace.
+
 def run():
     parser = argparse.ArgumentParser()
     parser.add_argument('--exp_name', type=str, default='test',
@@ -190,7 +192,8 @@ def run():
                                                num_workers=2)
 
     ## Make or load generative model and optimizer
-    gen_model = VAE(agent, device, num_initializing_steps, total_seq_len)
+    # gen_model = VAE(agent, device, num_initializing_steps, total_seq_len)
+    gen_model = AgentEnvironmentSimulator(agent, device, num_initializing_steps, total_seq_len)
 
     gen_model = DataParallel(gen_model)
     gen_model = gen_model.to(device)
@@ -215,26 +218,25 @@ def run():
               logger, sess_dir, device)
 
         # Save visualized random samples
-        if epoch % 10 == 0 and epoch >= 1:
-            with torch.no_grad():
-                viz_batch_size = 20
-                vae_latent_size = 128
-                samples = torch.randn(viz_batch_size, vae_latent_size)
-                samples = samples.to(device)
-                z_c, z_g = torch.split(samples, split_size_or_sections=64, dim=1)
-                samples = gen_model.decoder(z_c, z_g, true_actions=None)[0]
-                samples = torch.stack(samples, dim=1)
-                for b in range(viz_batch_size):
-                    sample = samples[b].permute(0, 2, 3, 1)
-                    sample = sample * 255
-                    sample = sample.clone().detach().type(torch.uint8)
-                    sample = sample.cpu().numpy()
-                    save_str = sess_dir + '/generated_sample_' + str(epoch) + '_' + str(b) + '.mp4'
-                    tvio.write_video(save_str, sample, fps=14)
+        # if epoch % 10 == 0 and epoch >= 1:
+        #     with torch.no_grad():
+        #         viz_batch_size = 20
+        #         vae_latent_size = 128
+        #         samples = torch.randn(viz_batch_size, vae_latent_size)
+        #         samples = samples.to(device)
+        #         z_c, z_g = torch.split(samples, split_size_or_sections=64, dim=1)
+        #         samples = gen_model.decoder(z_c, z_g, true_actions=None)[0]
+        #         samples = torch.stack(samples, dim=1)
+        #         for b in range(viz_batch_size):
+        #             sample = samples[b].permute(0, 2, 3, 1)
+        #             sample = sample * 255
+        #             sample = sample.clone().detach().type(torch.uint8)
+        #             sample = sample.cpu().numpy()
+        #             save_str = sess_dir + '/generated_sample_' + str(epoch) + '_' + str(b) + '.mp4'
+        #             tvio.write_video(save_str, sample, fps=14)
 
         # Demonstrate reconsruction and prediction quality by comparing preds
-        # with ground truth (the closes thing a VAE gets to validation because
-        # there are no labels).
+        # with ground truth.
         demo_recon_quality(args, epoch, train_loader, optimizer, gen_model,
                            logger, sess_dir, device)
 
@@ -256,7 +258,6 @@ def train(epoch, args, train_loader, optimizer, gen_model, agent, logger, save_d
         # Make all data into floats and put on the right device
         data = {k: v.to(device).float() for k, v in data.items()}
 
-
         # Get input data for generative model
         full_obs = data['obs']
         agent_h0 = data['hx'][:, -args.num_sim_steps, :]
@@ -264,21 +265,17 @@ def train(epoch, args, train_loader, optimizer, gen_model, agent, logger, save_d
 
         # Forward and backward pass and update generative model parameters
         optimizer.zero_grad()
-        mu_c, logvar_c, mu_g, logvar_g, preds = gen_model(full_obs, agent_h0, actions_all,
-                                                          use_true_h0=True,
-                                                          use_true_actions=True)
-        loss, train_info_bufs = loss_function(args, preds, data, mu_c, logvar_c, mu_g, logvar_g,
+        preds = gen_model(full_obs, agent_h0, actions_all,
+                          use_true_h0=True,
+                          use_true_actions=True)
+        loss, train_info_bufs = loss_function(args, preds, data,
                                               train_info_bufs, device)
-        # if torch.any(data['obs'][:,-1].sum(dim=[1,2,3])==0.) and not torch.any(data['done'][:,-1]):
-        #     print('boop')
-
         loss.backward()
         torch.nn.utils.clip_grad_norm_(gen_model.parameters(), 0.001)
         for p in gen_model.decoder.agent.policy.parameters():
             if p.grad is not None:  # freeze agent parameters but not model's.
                 p.grad.data = torch.zeros_like(p.grad.data)
         optimizer.step()
-        #TODO sort out hyperparameters (incl archi) - put them all in one namespace.
 
         # Logging and saving info
         if batch_idx % args.log_interval == 0:
@@ -303,7 +300,7 @@ def train(epoch, args, train_loader, optimizer, gen_model, agent, logger, save_d
 
         # Visualize the predictions compared with the ground truth
         if batch_idx % 10000 == 0 or (epoch < 1 and batch_idx % 5000 == 0):
-
+            # TODO add actions visualisation here
             with torch.no_grad():
                 pred_obs = torch.stack(preds['obs'], dim=1).squeeze()
 
@@ -336,24 +333,14 @@ def train(epoch, args, train_loader, optimizer, gen_model, agent, logger, save_d
 
 
 def loss_function(args, preds, labels, mu_c, logvar_c, mu_g, logvar_g, train_info_bufs, device):
-    """ Calculates the difference between predicted and actual:
-        - observation
-        - agent's recurrent hidden states
-        - agent's logprobs
-        - rewards
-        - 'done' status
-
-        If this is insufficient to produce high quality samples, then we'll
-        add the attentive mask described in Rupprecht et al. (2019). And if
-        _that_ is still insufficient, then we'll look into adding a GAN
-        discriminator and loss term.
-      """
 
     loss_hyperparams = {'obs': args.loss_scale_obs,
                         'hx': args.loss_scale_hx,
                         'reward': args.loss_scale_reward,
                         'done': args.loss_scale_done,
-                        'act_log_probs': args.loss_scale_act_log_probs}
+                        'act_log_probs': args.loss_scale_act_log_probs,
+                        'pp_KL': 1.0,
+                        'KL_alpha': 0.8,}
 
     dones = labels['done'][:, -args.num_sim_steps:]
     before_dones = done_labels_to_mask(dones)
@@ -381,17 +368,13 @@ def loss_function(args, preds, labels, mu_c, logvar_c, mu_g, logvar_g, train_inf
                 mask = unsqz_lastdim(mask)
 
             # Calculate loss
-            # loss = torch.mean(torch.abs(pred - label))  # Mean Absolute Error
             loss = (pred - label) * mask
             loss = torch.mean(loss ** 2)
         else:
             # Calculate loss
-            # loss = torch.mean(torch.abs(pred - label))  # Mean Absolute Error
             loss = (pred - label)
             loss = torch.mean(loss ** 2)
 
-
-        #mse = F.mse_loss(pred, label) # TODO test whether MSE or MAbsE is better (I think the VQ-VAE2 paper suggested MAE was better)
         train_info_bufs[key].append(loss.item())
         loss = loss * loss_hyperparams[key]
         losses.append(loss)
