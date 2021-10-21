@@ -331,10 +331,16 @@ def train(epoch, args, train_loader, optimizer, gen_model, agent, logger, save_d
                                str(b) + '.mp4'
                     tvio.write_video(save_str, combined_ob, fps=14)
 
-def compute_kl_div_categorical(p_logits, q_logits, num_categ_distribs=32, num_categs=32):
-    p_logits = torch.stack(p_logits)
-    q_logits = torch.stack(q_logits)
+        # Demo recon quality without using true images
+        if batch_idx % 10000 == 0 or (epoch < 1 and batch_idx % 5000 == 0):
+            demo_recon_quality(args, epoch, train_loader, optimizer, gen_model,
+                               logger, save_dir, device, use_true_h0=True,
+                               use_true_actions=False)
 
+
+def compute_kl_div_categorical(p_logits, q_logits, num_categ_distribs=32, num_categs=32):
+
+    episilon = 1e-7
     ts = p_logits.shape[0]
     b = p_logits.shape[1]
     p_logits = p_logits.view(ts, b, num_categ_distribs, num_categs)
@@ -342,7 +348,7 @@ def compute_kl_div_categorical(p_logits, q_logits, num_categ_distribs=32, num_ca
 
     probs_p = torch.softmax(p_logits, dim=3)
     probs_q = torch.softmax(q_logits, dim=3)
-    kl_div = torch.sum(probs_p * torch.log(probs_p / probs_q))
+    kl_div = torch.sum(probs_p * torch.log(probs_p / probs_q + episilon) )
     return kl_div
 
 def loss_function(args, preds, labels, train_info_bufs, device):
@@ -399,12 +405,16 @@ def loss_function(args, preds, labels, train_info_bufs, device):
     train_info_bufs['total recon w/o KL'].append(recon_loss.item())
 
     # KL term
-    q = preds['env_h_stoch_logits']
-    p = preds['pred_env_h_stoch_logits']
     alpha = KL_loss_hyperparams['KL_alpha']
-    kl_divergence_qp = compute_kl_div_categorical(q, p) * alpha
-    kl_divergence_pq = compute_kl_div_categorical(p, q) * (1-alpha)
-    kl_divergence = kl_divergence_qp + kl_divergence_pq
+
+    q = preds['env_h_stoch_logits']  # approx posterior
+    p = preds['pred_env_h_stoch_logits']  # prior
+    q = torch.stack(q)
+    p = torch.stack(p)
+
+    kl_divergence_q = compute_kl_div_categorical(q.detach(), p) * alpha
+    kl_divergence_p = compute_kl_div_categorical(q, p.detach()) * (1-alpha)
+    kl_divergence = kl_divergence_q + kl_divergence_p
     train_info_bufs['KL'].append(kl_divergence.item())
 
     return recon_loss + kl_divergence, train_info_bufs
@@ -432,7 +442,7 @@ def demo_recon_quality(args, epoch, train_loader, optimizer, gen_model, logger,
         # Forward pass to get predicted observations
         optimizer.zero_grad()
         preds = gen_model(full_obs, agent_h0, actions_all,
-                          use_true_actions=True)
+                          use_true_actions=True, imagine=True)
 
         with torch.no_grad():
             pred_obs = torch.stack(preds['obs'], dim=1).squeeze()

@@ -105,8 +105,6 @@ class AgentEnvironmentSimulator(nn.Module): # TODO make agent optional.
                 env_stoch_logit = pred_env_stoch_logit
             else:
                 true_ob = full_obs[:, self.init_seq_len - 1 + i]
-                if true_ob.ndim != 4:
-                    print('boop')
                 true_env_stoch_logit = \
                     self.env_stepper.representation_model(true_ob, env_h_determ)  # w@t
                 env_stoch_logit = true_env_stoch_logit
