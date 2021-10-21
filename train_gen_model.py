@@ -11,7 +11,7 @@ import os, yaml, argparse
 import gym
 import random
 import torch
-from generative.generative_models import VAE
+from generative.generative_models import AgentEnvironmentSimulator
 from generative.procgen_dataset import ProcgenDataset
 
 from collections import deque
@@ -189,6 +189,7 @@ def run():
     train_loader = torch.utils.data.DataLoader(train_dataset,
                                                batch_size=batch_size,
                                                shuffle=True,
+                                               drop_last=True,
                                                num_workers=2)
 
     ## Make or load generative model and optimizer
@@ -266,13 +267,12 @@ def train(epoch, args, train_loader, optimizer, gen_model, agent, logger, save_d
         # Forward and backward pass and update generative model parameters
         optimizer.zero_grad()
         preds = gen_model(full_obs, agent_h0, actions_all,
-                          use_true_h0=True,
                           use_true_actions=True)
         loss, train_info_bufs = loss_function(args, preds, data,
                                               train_info_bufs, device)
         loss.backward()
         torch.nn.utils.clip_grad_norm_(gen_model.parameters(), 0.001)
-        for p in gen_model.decoder.agent.policy.parameters():
+        for p in gen_model.agent.policy.parameters():
             if p.grad is not None:  # freeze agent parameters but not model's.
                 p.grad.data = torch.zeros_like(p.grad.data)
         optimizer.step()
@@ -331,23 +331,39 @@ def train(epoch, args, train_loader, optimizer, gen_model, agent, logger, save_d
                                str(b) + '.mp4'
                     tvio.write_video(save_str, combined_ob, fps=14)
 
+def compute_kl_div_categorical(p_logits, q_logits, num_categ_distribs=32, num_categs=32):
+    p_logits = torch.stack(p_logits)
+    q_logits = torch.stack(q_logits)
 
-def loss_function(args, preds, labels, mu_c, logvar_c, mu_g, logvar_g, train_info_bufs, device):
+    ts = p_logits.shape[0]
+    b = p_logits.shape[1]
+    p_logits = p_logits.view(ts, b, num_categ_distribs, num_categs)
+    q_logits = q_logits.view(ts, b, num_categ_distribs, num_categs)
 
-    loss_hyperparams = {'obs': args.loss_scale_obs,
-                        'hx': args.loss_scale_hx,
-                        'reward': args.loss_scale_reward,
-                        'done': args.loss_scale_done,
-                        'act_log_probs': args.loss_scale_act_log_probs,
-                        'pp_KL': 1.0,
-                        'KL_alpha': 0.8,}
+    probs_p = torch.softmax(p_logits, dim=3)
+    probs_q = torch.softmax(q_logits, dim=3)
+    kl_div = torch.sum(probs_p * torch.log(probs_p / probs_q))
+    return kl_div
+
+def loss_function(args, preds, labels, train_info_bufs, device):
+
+    recon_loss_hyperparams = {'obs': args.loss_scale_obs,
+                            'hx': args.loss_scale_hx,
+                            'reward': args.loss_scale_reward,
+                            'done': args.loss_scale_done,
+                            'act_log_probs': args.loss_scale_act_log_probs
+                              }
+    KL_loss_hyperparams = {
+        'pp_KL': 1.0,
+        'KL_alpha': 0.8,
+    }
 
     dones = labels['done'][:, -args.num_sim_steps:]
     before_dones = done_labels_to_mask(dones)
 
     # Reconstruction loss
-    losses = []
-    for key in loss_hyperparams.keys():
+    recon_losses = []
+    for key in recon_loss_hyperparams.keys():
         pred  = torch.stack(preds[key], dim=1).squeeze()
 
         label = labels[key].to(device).float().squeeze()
@@ -376,25 +392,22 @@ def loss_function(args, preds, labels, mu_c, logvar_c, mu_g, logvar_g, train_inf
             loss = torch.mean(loss ** 2)
 
         train_info_bufs[key].append(loss.item())
-        loss = loss * loss_hyperparams[key]
-        losses.append(loss)
+        loss = loss * recon_loss_hyperparams[key]
+        recon_losses.append(loss)
 
-    loss = sum(losses)
-    train_info_bufs['total recon w/o KL'].append(loss.item())
+    recon_loss = sum(recon_losses)
+    train_info_bufs['total recon w/o KL'].append(recon_loss.item())
 
-    # see Appendix B from VAE paper:
-    # Kingma and Welling. Auto-Encoding Variational Bayes. ICLR, 2014
-    # https://arxiv.org/abs/1312.6114
-    # 0.5 * sum(1 + log(sigma^2) - mu^2 - sigma^2)
-    mu = torch.cat([mu_c, mu_g], dim=1)
-    logvar = torch.cat([logvar_c, logvar_g], dim=1)
-    kl_divergence = -0.5 * torch.mean(1 + logvar - mu.pow(2) - logvar.exp(),
-                                     dim=1)  # Mean(sum?) along latent size dim.
-    kl_divergence = torch.mean(kl_divergence)  # Mean along batch dim
+    # KL term
+    q = preds['env_h_stoch_logits']
+    p = preds['pred_env_h_stoch_logits']
+    alpha = KL_loss_hyperparams['KL_alpha']
+    kl_divergence_qp = compute_kl_div_categorical(q, p) * alpha
+    kl_divergence_pq = compute_kl_div_categorical(p, q) * (1-alpha)
+    kl_divergence = kl_divergence_qp + kl_divergence_pq
     train_info_bufs['KL'].append(kl_divergence.item())
-    kl_divergence *= args.loss_scale_kl
 
-    return loss + kl_divergence, train_info_bufs
+    return recon_loss + kl_divergence, train_info_bufs
 
 def demo_recon_quality(args, epoch, train_loader, optimizer, gen_model, logger,
           save_dir, device, use_true_h0=False, use_true_actions=True):
@@ -418,8 +431,8 @@ def demo_recon_quality(args, epoch, train_loader, optimizer, gen_model, logger,
 
         # Forward pass to get predicted observations
         optimizer.zero_grad()
-        mu_c, logvar_c, mu_g, logvar_g, preds = gen_model(full_obs, agent_h0, actions_all,
-                                      use_true_h0, use_true_actions)
+        preds = gen_model(full_obs, agent_h0, actions_all,
+                          use_true_actions=True)
 
         with torch.no_grad():
             pred_obs = torch.stack(preds['obs'], dim=1).squeeze()

@@ -10,7 +10,6 @@ from torch.nn import Parameter as P
 from .action_cond_lstm import ActionCondLSTMLayer, LSTMCell, ActionCondLSTMCell, ActionCondLayerNormLSTMCell, LSTMState
 import os
 from .layers import LayeredConvNet, LayeredResBlockUp, LayeredResBlockDown, NLayerPerceptron
-from rssm.rssm import RSSMCellDiscrete
 
 
 
@@ -23,16 +22,16 @@ class AgentEnvironmentSimulator(nn.Module): # TODO make agent optional.
         super(AgentEnvironmentSimulator, self).__init__()
 
         hyperparams = Namespace(
-            # Encoder
             num_initialization_obs=num_initialization_obs,
             num_obs_full=num_obs_full,
             num_sim_steps=num_obs_full-num_initialization_obs+1,  # Plus one is because the last obs of the init seq is the first obs of the simulated seq
             env_num_categs=32,
             env_categ_distribs=32,
-            #Decoder
+            env_h_stoch_size=32*32,
             agent_hidden_size=64,
             action_space_dim=agent.env.action_space.n,
             env_stepper_rnn_hidden_size=512,
+            initializer_rnn_hidden_size=256,
             layer_norm=True
         )
 
@@ -65,7 +64,7 @@ class AgentEnvironmentSimulator(nn.Module): # TODO make agent optional.
                                in directions]  # Normalise vecs
 
     def forward(self, full_obs, true_h0, true_actions, use_true_actions=True, imagine=False,
-                retain_grads=False, swap_directions=None):
+                retain_grads=True, swap_directions=None):
         """
         imagine: Whether or not to use the generated images as input to
         the env model or whether to use true images (true images will be used
@@ -78,7 +77,7 @@ class AgentEnvironmentSimulator(nn.Module): # TODO make agent optional.
         pred_dones = []
         env_h_determs = []
         env_h_stoch_logits = []
-        pred_env_h_stochs_logits = []
+        pred_env_h_stoch_logits = []
         env_h_stoch_samples = []
         pred_agent_hs = []
         pred_acts = []
@@ -88,7 +87,7 @@ class AgentEnvironmentSimulator(nn.Module): # TODO make agent optional.
         # Initialize env@t=0 and agent_h@t=0
         init_obs = full_obs[:, 0:self.init_seq_len]
         env_h_determ_init = self.env_stepper_initializer(init_obs)
-        env_h_determ = env_h_determ_init
+        env_h_determ = env_h_determ_init  # env_h_d_0
 
         agent_h = true_h0
 
@@ -99,25 +98,29 @@ class AgentEnvironmentSimulator(nn.Module): # TODO make agent optional.
         for i in range(self.num_sim_steps):
             # The first part of the for-loop happens only within t
 
-            pred_env_stoch_logits = \
-                self.env_stepper.transition_predictor(env_h_determ)
+            pred_env_stoch_logit, _ = \
+                self.env_stepper.transition_predictor(env_h_determ)  # w_hat@t
 
             if imagine and i > 0:
-                env_stoch_logits = pred_env_stoch_logits
+                env_stoch_logit = pred_env_stoch_logit
             else:
                 true_ob = full_obs[:, self.init_seq_len - 1 + i]
-                true_env_stoch_logits = \
-                    self.env_stepper.representation_model(env_h_determ, true_ob)
-                env_stoch_logits = true_env_stoch_logits
+                if true_ob.ndim != 4:
+                    print('boop')
+                true_env_stoch_logit = \
+                    self.env_stepper.representation_model(true_ob, env_h_determ)  # w@t
+                env_stoch_logit = true_env_stoch_logit
 
-            env_h_stoch = self.env_stepper.sample_w_STE(env_stoch_logits)
+            sample = self.env_stepper.sample_w_STE(env_stoch_logit)
+            sample = sample.view(sample.shape[0], -1)
+            env_h_stoch = self.env_stepper.sample_converter(sample)  # z@t
 
             # Save env stuff
             env_h_determs.append(env_h_determ)
-            env_h_stoch_logits.append(env_stoch_logits)
-            pred_env_h_stochs_logits.append(pred_env_stoch_logits)
+            env_h_stoch_logits.append(env_stoch_logit)
+            pred_env_h_stoch_logits.append(pred_env_stoch_logit)
             env_h_stoch_samples.append(env_h_stoch)
-            env_h_cat = torch.cat([env_h_determ, env_h_stoch])
+            env_h_cat = torch.cat([env_h_determ, env_h_stoch], dim=1)
 
             # Use the environment state to decode.
             pred_ob, pred_rew, pred_done = self.env_stepper.decode(env_h_cat)
@@ -126,7 +129,7 @@ class AgentEnvironmentSimulator(nn.Module): # TODO make agent optional.
             pred_dones.append(pred_done)
 
             # Code in the for loop following here spans t AND t+1
-            ## Step forward the agent to get act@t and logprobs@t, but
+            ## Step forward the agent to get act@t and value@t, but
             ## agent_h@t+1
             pred_agent_hs.append(agent_h)
             old_agent_h = agent_h.clone().detach()
@@ -149,8 +152,13 @@ class AgentEnvironmentSimulator(nn.Module): # TODO make agent optional.
                 act = true_actions[:, i]
                 act = torch.nn.functional.one_hot(act.long(), num_classes=self.action_space_dim)
                 act = act.float()
+                act.requires_grad = True
             env_h_determ = \
-                self.env_stepper.deterministic_part(act, env_h_determ, env_h_stoch) # env@t+1
+                self.env_stepper.transition_step(act, env_h_determ, env_h_stoch) # env@t+1
+
+            if env_h_determ.ndim == 3:
+                env_h_determ = torch.squeeze(env_h_determ)
+
 
             if retain_grads:
                 pred_ob.retain_grad()
@@ -163,10 +171,21 @@ class AgentEnvironmentSimulator(nn.Module): # TODO make agent optional.
             ## Get ready for new step
             self.agent.train_prev_recurrent_states = None
 
-        return pred_obs, pred_rews, pred_dones, env_h_determs, \
-               env_h_stoch_logits, pred_env_h_stochs_logits, \
-               env_h_stoch_samples, pred_agent_hs, pred_acts,\
-               pred_agent_logprobs, pred_agent_values,
+        preds_dict = {
+            'obs': pred_obs,
+            'reward': pred_rews,
+            'done': pred_dones,
+            'env_h_determs': env_h_determs,
+            'env_h_stoch_logits': env_h_stoch_logits,
+            'pred_env_h_stoch_logits': pred_env_h_stoch_logits,
+            'env_h_stoch_samples': env_h_stoch_samples,
+            'hx': pred_agent_hs,
+            'acts': pred_acts,
+            'act_log_probs': pred_agent_logprobs,
+            'agent_values': pred_agent_values
+        }
+
+        return preds_dict
 
     def swap_directions(self, swap_directions, old_agent_h, agent_h):
         delta = agent_h - old_agent_h
@@ -221,13 +240,13 @@ class EnvStepperInitializer(nn.Module):
         super(EnvStepperInitializer, self).__init__()
 
         self.init_seq_len = hyperparams.num_initialization_obs
-        self.rnn_hidden_size = hyperparams.initializer_rnn_hidden_size,
+        self.rnn_hidden_size = hyperparams.initializer_rnn_hidden_size
         self.env_dim = hyperparams.env_stepper_rnn_hidden_size
 
         self.image_embedder = LayeredResBlockDown(input_hw=64,
                                                   input_ch=3,
                                                   hidden_ch=64,
-                                                  output_hw=16,
+                                                  output_hw=8,
                                                   output_ch=32)
 
         self.rnn = nn.GRU(input_size=self.image_embedder.output_size,
@@ -278,19 +297,19 @@ class EnvStepper(nn.Module):
     def __init__(self, hyperparams):
         super(EnvStepper, self).__init__()
         layer_norm = hyperparams.layer_norm
-        self.env_h_determ_size = hyperparams.env_h_determ_size
+        self.env_h_determ_size = hyperparams.env_stepper_rnn_hidden_size
         self.env_h_stoch_size = hyperparams.env_h_stoch_size
-        env_h_size = self.env_h_determ_size + self.env_h_stoch_size
+        self.env_h_size = self.env_h_determ_size + self.env_h_stoch_size
         self.env_num_categs = hyperparams.env_num_categs
         self.env_categ_distribs = hyperparams.env_categ_distribs
-        assert env_h_size == self.env_num_categs * self.env_categ_distribs
+        assert self.env_h_stoch_size == self.env_num_categs * self.env_categ_distribs
 
         action_dim = hyperparams.action_space_dim
 
         # Image Encoder
         self.ob_encoder_conv_top_shape = [32, 8, 8]
-        self.ob_encoder_conv_top_size = np.prod(self.ob_conv_top_shape)
-        self.ob_encoder_conv = LayeredResBlockUp(input_hw=64,
+        self.ob_encoder_conv_top_size = np.prod(self.ob_encoder_conv_top_shape)
+        self.ob_encoder_conv = LayeredResBlockDown(input_hw=64,
                                                  input_ch=3,
                                                  hidden_ch=32,
                                                  output_hw=self.ob_encoder_conv_top_shape[1],
@@ -298,18 +317,21 @@ class EnvStepper(nn.Module):
         ob_encoder_fc_top_shape = self.env_h_stoch_size
         self.ob_encoder_fc = NLayerPerceptron([self.ob_encoder_conv_top_size,
                                                ob_encoder_fc_top_shape])
+        self.sample_converter = nn.Linear(self.env_h_stoch_size,
+                                          self.env_h_stoch_size)
 
         # Transition networks
-        self.transition_predictor = NLayerPerceptron([self.env_h_size,
-                                                      self.ob_conv_top_size])
+        self.transition_predictor = NLayerPerceptron([self.env_h_determ_size,
+                                                      self.env_h_stoch_size])
         self.env_rnn = nn.GRU(input_size=self.env_h_determ_size,
                               hidden_size=self.env_h_determ_size,
                               batch_first=True)
         self.input_feeder_net = nn.Linear(self.env_h_stoch_size+action_dim,
                                           self.env_h_determ_size)
         repr_model_inp_size = ob_encoder_fc_top_shape + self.env_h_determ_size
-        self.representation_model = NLayerPerceptron(repr_model_inp_size,
-                                                     self.env_h_stoch_size)
+        self.representation_model_fc = NLayerPerceptron([repr_model_inp_size,
+                                                     self.env_h_stoch_size])
+
 
         # Image Decoder
         self.ob_decoder_conv_top_shape = [32, 8, 8]
@@ -328,16 +350,55 @@ class EnvStepper(nn.Module):
         self.reward_decoder = NLayerPerceptron([self.env_h_size, 64, 1],
                                                layer_norm=layer_norm)
 
+    # def forward(self, env_h_determ, input_image, action, imagine=False):
+    #     batch_size = input_image.shape[0]
+    #
+    #     predicted_logits = self.transition_predictor(env_h_determ)
+    #     if imagine:
+    #         sample = self.sample_w_STE(predicted_logits)
+    #     else:
+    #         repr_inp_vec = torch.cat([input_image, env_h_determ])
+    #         true_logits = self.representation_model(repr_inp_vec)
+    #         sample = self.sample_w_STE(true_logits)
+    #
+    #     env_h_stoch = sample.reshape(batch_size, self.env_h_stoch_size)
+    #
+    #     env_h_determ, _ = self.transition_step(action,
+    #                                            env_h_determ,
+    #                                            env_h_determ)
+    #
+    #     # decode
+    #     env_h = torch.cat([env_h_determ, env_h_stoch])
+    #     ob, rew, done = self.decode(env_h)
+    #
+    #     return
 
+    def representation_model(self, image, env_h_determ):
+        b = image.shape[0]
+        embedding, _ = self.ob_encoder_conv(image)
+        embedding = embedding.view(b, -1)
+        embedding, _ = self.ob_encoder_fc(embedding)
+
+        if env_h_determ.ndim == 3:
+            env_h_determ = torch.squeeze(env_h_determ)
+
+        if env_h_determ.ndim != embedding.ndim:
+            print("Boop")
+        repr_inp_vec = torch.cat([embedding, env_h_determ], dim=1)
+        true_env_h_stoch_logits, _ = self.representation_model_fc(repr_inp_vec)
+        return true_env_h_stoch_logits
 
     def transition_step(self, act, env_h_deterministic, env_h_stochastic):
 
-        # Unsqueeze to create unitary time dimension
-        act = torch.unsqueeze(act, dim=1)
-
         # Just concat these together and pass through an MLP
-        in_vec = torch.cat([env_h_stochastic, act])
+        in_vec = torch.cat([env_h_stochastic, act], dim=1)
         in_vec = self.input_feeder_net(in_vec)
+
+        # Unsqueeze to create unitary time dimension
+        in_vec = torch.unsqueeze(in_vec, dim=1)
+        env_h_deterministic = torch.unsqueeze(env_h_deterministic, dim=0)
+        # N.B dim 0 instead of 1. Not sure why the 'batch first' doesn't apply
+        # also to the hidden state...
 
         # Step RNN (Time increments here)
         out, out_state = self.env_rnn(in_vec, env_h_deterministic)
@@ -345,10 +406,14 @@ class EnvStepper(nn.Module):
         return out_state
 
     def decode(self, env_h):
+        b = env_h.shape[0]
+        ch = self.ob_decoder_conv_top_shape[0]
+        h = self.ob_decoder_conv_top_shape[1]
+        w = self.ob_decoder_conv_top_shape[2]
 
         # Convert hidden state to image prediction
         x, _ = self.ob_decoder_fc(env_h)
-        x = x.view(x.shape[0], self.ob_conv_top_shape[0], self.ob_conv_top_shape[1], self.ob_conv_top_shape[2])
+        x = x.view(x.shape[0], ch, h, w)
         x, _ = self.ob_decoder_conv(x)
         ob = torch.sigmoid(x)
 
@@ -361,13 +426,27 @@ class EnvStepper(nn.Module):
 
         return ob, rew, done
 
-    def sample_w_STE(self, logits_vec):
-        # Reshape logits to (dimension, categories)
+    def sample_w_STE(self, logits_vec, modal=False):
 
-        # Sample using the logits
+        b = logits_vec.shape[0]
+        device = logits_vec.device
 
-        # Straight through estimator step
+        # Reshape logits to (batch, dimension, categories)
+        logits = logits_vec.view(b, self.env_categ_distribs,
+                                 self.env_num_categs)
 
+        if modal:
+            mode = logits.argmax(dim=2)
+            sample = \
+                torch.nn.functional.one_hot(
+                    mode, num_classes=self.env_num_categs).to(device)
+        else:
+            # Sample using the logits
+            sample = torch.distributions.OneHotCategorical(logits=logits).sample()
+
+        # Straight-Through-Estimator step
+        probs = torch.softmax(logits, dim=2)
+        sample = sample + probs - probs.detach()
 
         return sample
 
