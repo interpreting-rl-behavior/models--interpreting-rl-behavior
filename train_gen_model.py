@@ -13,6 +13,7 @@ import random
 import torch
 from generative.generative_models import AgentEnvironmentSimulator
 from generative.procgen_dataset import ProcgenDataset
+from overlay_image import overlay_actions
 
 from collections import deque
 import torchvision.io as tvio
@@ -238,7 +239,7 @@ def run():
 
         # Demonstrate reconsruction and prediction quality by comparing preds
         # with ground truth.
-        demo_recon_quality(args, epoch, train_loader, optimizer, gen_model,
+        visualize(args, epoch, train_loader, optimizer, gen_model,
                            logger, sess_dir, device)
 
 
@@ -267,7 +268,7 @@ def train(epoch, args, train_loader, optimizer, gen_model, agent, logger, save_d
         # Forward and backward pass and update generative model parameters
         optimizer.zero_grad()
         preds = gen_model(full_obs, agent_h0, actions_all,
-                          use_true_actions=True)
+                          use_true_actions=True, imagine=False)
         loss, train_info_bufs = loss_function(args, preds, data,
                                               train_info_bufs, device)
         loss.backward()
@@ -299,43 +300,19 @@ def train(epoch, args, train_loader, optimizer, gen_model, agent, logger, save_d
             logger.info('Generative model saved to {}'.format(model_path))
 
         # Visualize the predictions compared with the ground truth
-        if batch_idx % 10000 == 0 or (epoch < 1 and batch_idx % 5000 == 0):
-            # TODO add actions visualisation here
-            with torch.no_grad():
-                pred_obs = torch.stack(preds['obs'], dim=1).squeeze()
-
-                viz_batch_size = 20
-                viz_batch_size = min(int(pred_obs.shape[0]), viz_batch_size)
-
-                for b in range(viz_batch_size):
-                    # Put channel dim to the end
-                    pred_ob = pred_obs[b].permute(0, 2, 3, 1)
-                    full_ob = full_obs[b].permute(0, 2, 3, 1)
-
-                    # Make predictions and ground truth into right format for
-                    #  video saving
-                    pred_ob = pred_ob * 255
-                    full_ob = full_ob * 255
-
-                    pred_ob = pred_ob.clone().detach().type(torch.uint8)
-                    pred_ob = pred_ob.cpu().numpy()
-                    full_ob = full_ob.clone().detach().type(torch.uint8)
-                    full_ob = full_ob.cpu().numpy()[-args.num_sim_steps:]
-
-                    # Join the prediction and the true observation side-by-side
-                    combined_ob = np.concatenate([pred_ob, full_ob], axis=2)
-
-                    # Save vid
-                    save_str = save_dir + '/recons_v_preds' + '/sample_' + \
-                               str(epoch) + '_' + str(batch_idx) + '_' + \
-                               str(b) + '.mp4'
-                    tvio.write_video(save_str, combined_ob, fps=14)
+        if batch_idx % 10000 == 0 or (epoch < 1 and batch_idx % 20000 == 0):
+            visualize(args, epoch, train_loader, optimizer, gen_model,
+                               logger, batch_idx=batch_idx, save_dir=save_dir, device=device, data=data, preds=preds,
+                               use_true_actions=True, save_root='sample')
 
         # Demo recon quality without using true images
-        if batch_idx % 10000 == 0 or (epoch < 1 and batch_idx % 5000 == 0):
-            demo_recon_quality(args, epoch, train_loader, optimizer, gen_model,
-                               logger, save_dir, device, use_true_h0=True,
-                               use_true_actions=False)
+        if batch_idx % 40000 == 0:
+            visualize(args, epoch, train_loader, optimizer, gen_model,
+                               logger, batch_idx=batch_idx, save_dir=save_dir, device=device, data=None, preds=None,
+                               use_true_actions=True, save_root='demo_true_acts')
+            visualize(args, epoch, train_loader, optimizer, gen_model,
+                               logger, batch_idx=batch_idx, save_dir=save_dir, device=device, data=None, preds=None,
+                               use_true_actions=False, save_root='demo_sim_acts')
 
 
 def compute_kl_div_categorical(p_logits, q_logits, num_categ_distribs=32, num_categs=32):
@@ -419,61 +396,74 @@ def loss_function(args, preds, labels, train_info_bufs, device):
 
     return recon_loss + kl_divergence, train_info_bufs
 
-def demo_recon_quality(args, epoch, train_loader, optimizer, gen_model, logger,
-          save_dir, device, use_true_h0=False, use_true_actions=True):
+def visualize(args, epoch, train_loader, optimizer, gen_model, logger,
+              batch_idx, save_dir, device, data=None, preds=None, use_true_actions=True, save_root=''):
 
-    # Set up logging objects
     logger.info('Demonstrating reconstruction and prediction quality')
 
-    # Prepare for training cycle
     gen_model.train()
 
-    # Plot both the inputs and their reconstruction/prediction for one batch
-    for batch_idx, data in enumerate(train_loader):
-        if batch_idx > 0: # Just do one batch
-            break
+    if data is None:
+        for batch_idx_new, data in enumerate(train_loader):
+            if batch_idx_new > 0: # Just do one batch
+                break
         data = {k: v.to(device).float() for k,v in data.items()}
 
-        # Get input data for generative model
-        full_obs = data['obs']
-        agent_h0 = data['hx'][:, -args.num_sim_steps, :]
-        actions_all = data['action'][:, -args.num_sim_steps:]
+    # Get input data for generative model
+    full_obs = data['obs']
+    agent_h0 = data['hx'][:, -args.num_sim_steps, :]
+    actions_all = data['action'][:, -args.num_sim_steps:]
 
-        # Forward pass to get predicted observations
+    # Forward pass to get predicted observations if not already done
+    if preds is None:
         optimizer.zero_grad()
         preds = gen_model(full_obs, agent_h0, actions_all,
-                          use_true_actions=True, imagine=True)
+                          use_true_actions=use_true_actions, imagine=True)
 
-        with torch.no_grad():
-            pred_obs = torch.stack(preds['obs'], dim=1).squeeze()
-            pred_dones = torch.stack(preds['done'], dim=1).squeeze()
+    pred_obs = torch.stack(preds['obs'], dim=1).squeeze()
 
-            viz_batch_size = 20
-            viz_batch_size = min(int(pred_obs.shape[0]), viz_batch_size)
+    # Establish the right settings for visualisation
+    viz_batch_size = min(int(pred_obs.shape[0]), 20)
 
-            for b in range(viz_batch_size):
-                # Put channel dim to the end
-                pred_ob = pred_obs[b].permute(0, 2, 3, 1)
-                full_ob = full_obs[b].permute(0, 2, 3, 1)
+    true_actions = actions_all.clone().cpu().numpy()
 
-                # Make predictions and ground truth into right format for
-                #  video saving
-                pred_ob = pred_ob * 255
-                full_ob = full_ob * 255
+    if use_true_actions:
+        sim_actions = actions_all
+        sim_actions = sim_actions.clone().cpu().numpy()
+    else:
+        sim_actions = preds['acts']
+        sim_actions = torch.stack(sim_actions, dim=1).cpu().detach()
+        sim_actions = torch.argmax(sim_actions, dim=2).numpy()
+        # sim_actions = sim_actions.clone().cpu().numpy()
 
-                pred_ob = pred_ob.clone().detach().type(torch.uint8)
-                pred_ob = pred_ob.cpu().numpy()
-                full_ob = full_ob.clone().detach().type(torch.uint8)
-                full_ob = full_ob.cpu().numpy()[-args.num_sim_steps:]
+    with torch.no_grad():
+        for b in range(viz_batch_size):
+            # Put channel dim to the end
+            pred_ob = pred_obs[b].permute(0, 2, 3, 1)
+            full_ob = full_obs[b].permute(0, 2, 3, 1)
 
-                # Join the prediction and the true observation side-by-side
-                combined_ob = np.concatenate([pred_ob, full_ob], axis=2)
+            # Make predictions and ground truth into right format for
+            #  video saving
+            pred_ob = pred_ob * 255
+            full_ob = full_ob * 255
 
-                # Save vid
-                save_str = save_dir + '/recons_v_preds' + '/demo_' + \
-                           str(epoch) + '_' + str(batch_idx) + '_' + \
-                           str(b) + '.mp4'
-                tvio.write_video(save_str, combined_ob, fps=14)
+            pred_ob = pred_ob.clone().detach().type(torch.uint8)
+            pred_ob = pred_ob.cpu().numpy()
+            pred_ob = overlay_actions(pred_ob, sim_actions[b], size=16)
+
+            full_ob = full_ob.clone().detach().type(torch.uint8)
+            full_ob = full_ob.cpu().numpy()[-args.num_sim_steps:]
+            full_ob = overlay_actions(full_ob, true_actions[b], size=16)
+
+
+            # Join the prediction and the true observation side-by-side
+            combined_ob = np.concatenate([pred_ob, full_ob], axis=2)
+
+            # Save vid
+            save_str = save_dir + \
+                       f'/recons_v_preds/{save_root}_' + \
+                       f'{epoch:02d}_{batch_idx:06d}_{b:03d}.mp4'
+            tvio.write_video(save_str, combined_ob, fps=14)
 
 
 def safe_mean(xs):
