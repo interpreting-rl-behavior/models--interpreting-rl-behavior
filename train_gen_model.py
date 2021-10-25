@@ -219,29 +219,6 @@ def run():
         train(epoch, args, train_loader, optimizer, gen_model, agent,
               logger, sess_dir, device)
 
-        # Save visualized random samples
-        # if epoch % 10 == 0 and epoch >= 1:
-        #     with torch.no_grad():
-        #         viz_batch_size = 20
-        #         vae_latent_size = 128
-        #         samples = torch.randn(viz_batch_size, vae_latent_size)
-        #         samples = samples.to(device)
-        #         z_c, z_g = torch.split(samples, split_size_or_sections=64, dim=1)
-        #         samples = gen_model.decoder(z_c, z_g, true_actions=None)[0]
-        #         samples = torch.stack(samples, dim=1)
-        #         for b in range(viz_batch_size):
-        #             sample = samples[b].permute(0, 2, 3, 1)
-        #             sample = sample * 255
-        #             sample = sample.clone().detach().type(torch.uint8)
-        #             sample = sample.cpu().numpy()
-        #             save_str = sess_dir + '/generated_sample_' + str(epoch) + '_' + str(b) + '.mp4'
-        #             tvio.write_video(save_str, sample, fps=14)
-
-        # Demonstrate reconsruction and prediction quality by comparing preds
-        # with ground truth.
-        visualize(args, epoch, train_loader, optimizer, gen_model,
-                           logger, sess_dir, device)
-
 
 def train(epoch, args, train_loader, optimizer, gen_model, agent, logger, save_dir, device):
 
