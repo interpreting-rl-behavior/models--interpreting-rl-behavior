@@ -294,7 +294,7 @@ def train(epoch, args, train_loader, optimizer, gen_model, agent, logger, save_d
 
 def compute_kl_div_categorical(p_logits, q_logits, num_categ_distribs=32, num_categs=32):
 
-    episilon = 1e-7
+    # episilon = 1e-7
     ts = p_logits.shape[0]
     b = p_logits.shape[1]
     p_logits = p_logits.view(ts, b, num_categ_distribs, num_categs)
@@ -302,7 +302,8 @@ def compute_kl_div_categorical(p_logits, q_logits, num_categ_distribs=32, num_ca
 
     probs_p = torch.softmax(p_logits, dim=3)
     probs_q = torch.softmax(q_logits, dim=3)
-    kl_div = torch.sum(probs_p * torch.log(probs_p / probs_q + episilon) )
+    kl_div = torch.sum(probs_p * torch.log(probs_p / probs_q), dim=[0,2,3]) # sum over t and categoricals
+    kl_div = torch.mean(kl_div) # mean over batch
     return kl_div
 
 def loss_function(args, preds, labels, train_info_bufs, device):
