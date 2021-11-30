@@ -52,7 +52,7 @@ class CategoricalPolicy(nn.Module):
             logits[:,7] = 0.1 # make right quite likely so that agent doesn't get too stuck
         log_probs = F.log_softmax(logits, dim=1)
 
-        p = Categorical(logits=log_probs)
+        p = Categorical(logits=log_probs) # TODO LEE potentially need to make this StraightThrough
         v = self.fc_value(hidden).reshape(-1)
 
         if retain_grads:
