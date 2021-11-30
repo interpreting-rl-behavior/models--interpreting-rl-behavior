@@ -1,69 +1,37 @@
+from .rssm.encoders import *
+from .rssm.decoders import *
+from .rssm.functions import dclamp, insert_dim, terminal_labels_to_mask
 import torch
 import torch.nn as nn
-from . import layers as lyr
 import torch.nn.functional as F
-from torch.autograd import Variable
-import numpy as np
-from torch.nn import init
-import torch.optim as optim
-from torch.nn import Parameter as P
-from .action_cond_lstm import ActionCondLSTMLayer, LSTMCell, ActionCondLSTMCell, ActionCondLayerNormLSTMCell, LSTMState
-import os
 from .layers import LayeredConvNet, LayeredResBlockUp, LayeredResBlockDown, NLayerPerceptron
 
 
+# Note that dclamp is a custom clamp function to clip the values of the image
+#  to be in [0,1]. From https://discuss.pytorch.org/t/exluding-torch-clamp-from-backpropagation-as-tf-stop-gradient-in-tensorflow/52404/6
 
-class AgentEnvironmentSimulator(nn.Module): # TODO make agent optional.
-    """
-    Takes the VAE latent vector as input and simulates an agent-environment
-    rollout
-    """
-    def __init__(self, agent, device, num_initialization_obs, num_obs_full):
+class AgentEnvironmentSimulator(nn.Module):
+
+    def __init__(self, agent, device, hyperparams):
         super(AgentEnvironmentSimulator, self).__init__()
 
-        hyperparams = Namespace(
-            num_initialization_obs=num_initialization_obs,
-            num_obs_full=num_obs_full,
-            num_sim_steps=num_obs_full-num_initialization_obs+1,  # Plus one is because the last obs of the init seq is the first obs of the simulated seq
-            env_num_categs=32,
-            env_categ_distribs=32,
-            env_h_stoch_size=32*32,
-            agent_hidden_size=64,
-            action_space_dim=agent.env.action_space.n,
-            env_stepper_rnn_hidden_size=512,
-            initializer_rnn_hidden_size=256,
-            layer_norm=True
-        )
-
-        self.action_space_dim = hyperparams.action_space_dim
-        self.init_seq_len = hyperparams.num_initialization_obs
+        # Hyperparams
+        self.num_init_steps  = hyperparams.num_init_steps
         self.num_sim_steps = hyperparams.num_sim_steps
+        self.kl_balance    = hyperparams.kl_balance
+        self.kl_weight     = hyperparams.kl_weight
 
-        # Make EnvStepper
-        self.env_stepper = EnvStepper(hyperparams)
-        self.env_stepper_initializer = EnvStepperInitializer(hyperparams)
+        # Networks
+        self.conv_in = MultiEncoder(cnn_depth=32, image_channels=3)
+        hyperparams.__dict__.update({'embed_dim': self.conv_in.out_dim})
+        self.env_stepper_initializer = EnvStepperInitializer(hyperparams, device)
+        features_dim = hyperparams.deter_dim + hyperparams.stoch_dim * (hyperparams.stoch_discrete or 1)
+        self.conv_out = MultiDecoder(features_dim, hyperparams)
+        self.agent_env_stepper = AgentEnvStepper(hyperparams, agent)
+        self.action_size = agent.env.action_space.n
 
-        # Make agent into an attribute of the decoder class
-        self.agent = agent
 
-        # Get directions for directions swapping exps
-        hx_analysis_dir = os.path.join('analysis', 'hx_analysis_precomp')
-        directions_path = os.path.join(hx_analysis_dir, 'pcomponents_4000.npy')
-        hx_std_path = os.path.join(hx_analysis_dir, 'hx_std_4000.npy')
-
-        if os.path.exists(directions_path):
-            device = agent.device
-            self.hx_std = torch.tensor(np.load(hx_std_path)).to(device).requires_grad_()
-            directions = torch.tensor(np.load(
-                directions_path)).to(device).requires_grad_()
-            directions = directions.transpose(0, 1)
-            directions = directions * self.hx_std
-            directions = [directions[:,i] for i in
-                               range(directions.shape[1])]
-            self.directions = [direction/torch.norm(direction) for direction
-                               in directions]  # Normalise vecs
-
-    def forward(self, full_obs, true_h0, true_actions, use_true_actions=True, imagine=False,
+    def forward(self, data, use_true_actions=True, imagine=False, modal_sampling=False,
                 retain_grads=True, swap_directions=None):
         """
         imagine: Whether or not to use the generated images as input to
@@ -72,158 +40,259 @@ class AgentEnvironmentSimulator(nn.Module): # TODO make agent optional.
 
         """
 
-        pred_obs = []
-        pred_rews = []
-        pred_dones = []
-        env_h_determs = []
-        env_h_stoch_logits = []
-        pred_env_h_stoch_logits = []
-        env_h_stoch_samples = []
-        pred_agent_hs = []
-        pred_acts = []
-        pred_agent_logprobs = []
-        pred_agent_values = []
+        # Get input data for generative model
+        full_ims = data['ims']
+        true_agent_h0 = data['hx'][-self.num_sim_steps]
+        agent_h_labels = data['hx'][-self.num_sim_steps:]
+        true_actions_inds = data['action'][-self.num_sim_steps:]
+        true_actions_1hot = torch.nn.functional.one_hot(true_actions_inds.long(),
+                                                  self.action_size)
+        true_actions_1hot = true_actions_1hot.float()
 
-        # Initialize env@t=0 and agent_h@t=0
-        init_obs = full_obs[:, 0:self.init_seq_len]
-        env_h_determ_init = self.env_stepper_initializer(init_obs)
-        env_h_determ = env_h_determ_init  # env_h_d_0
+        reward_labels = data['reward'][-self.num_sim_steps:] # TODO get the right timesteps
+        terminal_labels = data['terminal'][-self.num_sim_steps:] # TODO get the right timesteps
+        terminal_labels = terminal_labels_to_mask(terminal_labels)
+        # Initialize env@t=0 and agent_h@t=0 # Later on, we're going to have to extract the initial steps here in order to make a VAE encoder from the initializer
+        B = full_ims.shape[1]
+        init_ims = full_ims[0:self.num_init_steps]
+        im_labels = full_ims[-self.num_sim_steps:]
 
-        agent_h = true_h0
+        if imagine:
+            embeds = [None] * self.num_sim_steps
+        else:
+            embeds = self.conv_in(im_labels)
+        env_h, env_z = self.env_stepper_initializer(init_ims)
+        agent_h = true_agent_h0
+        action = pred_action_1hot = true_actions_1hot[0]
+        # TODO confirm the actions are one-hotted
+        # TODO confirm whether you can get away without an action here
+        #  (because will be better for gen model without)
+        # TODO confirm the actions are aligned
 
-        if retain_grads:
-            # pred_agent_h0.retain_grad()
-            env_h_determ.retain_grad()
+        priors = []
+        posts = []
+        pred_actions = []
+        states_env_h = []
+        samples = []
+        agent_hs = []
+        recon_losses = []
+        metrics_list = []
+        tensors_list = []
 
         for i in range(self.num_sim_steps):
-            # The first part of the for-loop happens only within t
+            # Define the labels for the loss function because we calculate it
+            #  in here.
+            labels = {'image': im_labels[i],
+                      'reward':reward_labels[i],
+                      'terminal':terminal_labels[i],
+                      'agent_h':agent_h_labels[i]}
 
-            pred_env_stoch_logit, _ = \
-                self.env_stepper.transition_predictor(env_h_determ)  # w_hat@t
-
-            if imagine and i > 0:
-                env_stoch_logit = pred_env_stoch_logit
-            else:
-                true_ob = full_obs[:, self.init_seq_len - 1 + i]
-                true_env_stoch_logit = \
-                    self.env_stepper.representation_model(true_ob, env_h_determ)  # w@t
-                env_stoch_logit = true_env_stoch_logit
-
-            sample = self.env_stepper.sample_w_STE(env_stoch_logit)
-            sample = sample.view(sample.shape[0], -1)
-            env_h_stoch = self.env_stepper.sample_converter(sample)  # z@t
-
-            # Save env stuff
-            env_h_determs.append(env_h_determ)
-            env_h_stoch_logits.append(env_stoch_logit)
-            pred_env_h_stoch_logits.append(pred_env_stoch_logit)
-            env_h_stoch_samples.append(env_h_stoch)
-            env_h_cat = torch.cat([env_h_determ, env_h_stoch], dim=1)
-
-            # Use the environment state to decode.
-            pred_ob, pred_rew, pred_done = self.env_stepper.decode(env_h_cat)
-            pred_obs.append(pred_ob)
-            pred_rews.append(pred_rew)
-            pred_dones.append(pred_done)
-
-            # Code in the for loop following here spans t AND t+1
-            ## Step forward the agent to get act@t and value@t, but
-            ## agent_h@t+1
-            pred_agent_hs.append(agent_h)
-            old_agent_h = agent_h.clone().detach()
-            act, act_logits, value, agent_h = \
-                self.agent.predict_STE(pred_ob, agent_h, pred_done,
-                                       retain_grads=retain_grads) # TODO confirm dones/pred_dones isn't doing anything weird here via masking.
-            if swap_directions is not None:
-                agent_h = self.swap_directions(swap_directions,
-                                               old_agent_h,
-                                               agent_h)
-            pred_acts.append(act)
-            pred_agent_logprobs.append(act_logits)
-            pred_agent_values.append(value)
-
-            # Step forward the env using action@t and env_rnn_state@t and
-            # ob@t and return env_rnn_state@t+1
+            embed = embeds[i]
             if use_true_actions:
-                # If true, the decoder doesn't use true actions and uses the ones
-                # produced by the simulated agent instead.
-                act = true_actions[:, i]
-                act = torch.nn.functional.one_hot(act.long(), num_classes=self.action_space_dim)
-                act = act.float()
-                act.requires_grad = True
-            env_h_determ = \
-                self.env_stepper.transition_step(act, env_h_determ, env_h_stoch) # env@t+1
-
-            if env_h_determ.ndim == 3:
-                env_h_determ = torch.squeeze(env_h_determ)
-
-
-            if retain_grads:
-                pred_ob.retain_grad()
-                agent_h.retain_grad()
-                act.retain_grad()
-                act_logits.retain_grad()
-                env_h_determ.retain_grad()
-                env_h_stoch.retain_grad()
-
-            ## Get ready for new step
-            self.agent.train_prev_recurrent_states = None
-
-        preds_dict = {
-            'obs': pred_obs,
-            'reward': pred_rews,
-            'done': pred_dones,
-            'env_h_determs': env_h_determs,
-            'env_h_stoch_logits': env_h_stoch_logits,
-            'pred_env_h_stoch_logits': pred_env_h_stoch_logits,
-            'env_h_stoch_samples': env_h_stoch_samples,
-            'hx': pred_agent_hs,
-            'acts': pred_acts,
-            'act_log_probs': pred_agent_logprobs,
-            'agent_values': pred_agent_values
-        }
-
-        return preds_dict
-
-    def swap_directions(self, swap_directions, old_agent_h, agent_h):
-        delta = agent_h - old_agent_h
-        original_agent_h = agent_h - delta # for gradients
-        bs = agent_h.shape[0]
-
-        delta_subtract = torch.zeros_like(delta)
-        delta_add = torch.zeros_like(delta)
-
-        # Define the directions
-        from_dirs = swap_directions[0]
-        to_dirs = swap_directions[1]
-
-        # project the delta onto the directions that we're swapping out and
-        # keep the projection amounts. Also save the directions we want to
-        # remove from the delta (i.e. delta_subtract)
-        from_dirs_projection_amounts = []
-        for from_dir in from_dirs:
-            direction = self.directions[from_dir]
-            projection_amount = delta @ direction # inner product
-            direction = torch.stack([direction] * bs)
-            delta_subtract += (direction.transpose(0,1) * projection_amount
-                               ).transpose(0,1)
-            from_dirs_projection_amounts.append(projection_amount)
-
-        # Make a vector to add to the delta that has the same size of projection
-        # but in a different direction
-        null_dir = torch.zeros_like(self.directions[0])
-        for to_dir, projection_amount in zip(to_dirs,
-                                             from_dirs_projection_amounts):
-            if to_dir is not None:
-                direction = self.directions[from_dir]
+                action = true_actions_1hot[i]
             else:
-                direction = null_dir
-            direction = torch.stack([direction] * bs)
-            delta_add += (direction.transpose(0,1) * projection_amount
-                               ).transpose(0,1)
+                action = pred_action_1hot
 
-        delta = delta - delta_subtract + delta_add
-        return delta
+            post, pred_action_1hot, (env_h, env_z), agent_h, loss_reconstr, metrics, tensors = \
+                self.agent_env_stepper.forward(embed=embed,
+                                            action=action,
+                                            agent_h=agent_h,
+                                            in_state=(env_h, env_z),
+                                            imagine=imagine,
+                                            modal_sampling=modal_sampling,
+                                            labels=labels)  # imagine: post=prior
+
+            posts.append(post)
+            pred_actions.append(pred_action_1hot)
+            states_env_h.append(env_h)
+            samples.append(env_z)
+            agent_hs.append(agent_h)
+            recon_losses.append(loss_reconstr)
+            metrics_list.append(metrics)
+            tensors_list.append(tensors)
+
+        posts = torch.stack(posts)                  # (T,B,2S)
+        pred_actions = torch.stack(pred_actions)
+        states_env_h = torch.stack(states_env_h)    # (T,B,D)
+        samples = torch.stack(samples)              # (T,B,S)
+        agent_hs = torch.stack(agent_hs)
+        priors = self.agent_env_stepper.batch_prior(states_env_h)  # (T,B,2S)
+        features = torch.cat([states_env_h, samples], dim=-1)   # (T,B,D+S)
+        env_states = (states_env_h, samples)
+        recon_losses = torch.stack(recon_losses).squeeze()
+
+        # KL loss
+        d = self.agent_env_stepper.zdistr
+        dprior = d(priors)
+        dpost = d(posts)
+        loss_kl_exact = D.kl.kl_divergence(dpost, dprior)  # (T,B)
+
+        # Analytic KL loss, standard for VAE
+        if not self.kl_balance:
+            loss_kl = loss_kl_exact
+        else:
+            loss_kl_postgrad = D.kl.kl_divergence(dpost, d(priors.detach()))
+            loss_kl_priograd = D.kl.kl_divergence(d(posts.detach()), dprior)
+            loss_kl = (1 - self.kl_balance) * loss_kl_postgrad + \
+                      self.kl_balance       * loss_kl_priograd
+
+        # Total loss
+        assert loss_kl.shape == recon_losses.shape
+        loss_model = self.kl_weight * loss_kl + recon_losses
+
+        return (
+            loss_model,
+            priors,                      # tensor(T,B,2S)
+            posts,                       # tensor(T,B,2S)
+            samples,                     # tensor(T,B,S)
+            features,                    # tensor(T,B,D+S)
+            env_states,
+            (env_h.detach(), env_z.detach()),
+            metrics_list,
+            tensors_list,
+            pred_actions,
+            agent_hs
+        )
+
+
+class AgentEnvStepper(nn.Module):
+    """
+
+    """
+    def __init__(self, hyperparams, agent):
+        super(AgentEnvStepper, self).__init__()
+
+        # Hyperparams
+        self.image_range_min, self.image_range_max = (0, 1)
+        self.stoch_dim = hyperparams.stoch_dim
+        self.stoch_discrete = hyperparams.stoch_discrete
+        self.deter_dim = hyperparams.deter_dim
+        norm = nn.LayerNorm if hyperparams.layer_norm else NoNorm
+
+        # Networks
+        self.z_mlp = nn.Linear(hyperparams.stoch_dim * (hyperparams.stoch_discrete or 1), hyperparams.hidden_dim)
+        self.a_mlp = nn.Linear(hyperparams.action_dim, hyperparams.hidden_dim, bias=False)  # No bias, because outputs are added
+        self.in_norm = norm(hyperparams.hidden_dim, eps=1e-3)
+
+        self.gru = GRUCellStack(hyperparams.hidden_dim, hyperparams.deter_dim, 1, 'gru_layernorm')
+
+        self.prior_mlp_h = nn.Linear(hyperparams.deter_dim, hyperparams.hidden_dim)
+        self.prior_norm = norm(hyperparams.hidden_dim, eps=1e-3)
+        self.prior_mlp = nn.Linear(hyperparams.hidden_dim, hyperparams.stoch_dim * (hyperparams.stoch_discrete or 2))
+
+        self.post_mlp_h = nn.Linear(hyperparams.deter_dim, hyperparams.hidden_dim)
+        self.post_mlp_e = nn.Linear(hyperparams.embed_dim, hyperparams.hidden_dim, bias=False)
+        self.post_norm = norm(hyperparams.hidden_dim, eps=1e-3)
+        self.post_mlp = nn.Linear(hyperparams.hidden_dim, hyperparams.stoch_dim * (hyperparams.stoch_discrete or 2))
+
+        features_dim = hyperparams.deter_dim + hyperparams.stoch_dim * (hyperparams.stoch_discrete or 1)
+        self.decoder = MultiDecoder(features_dim, hyperparams)
+
+        self.agent = agent
+        self.device = agent.device
+
+    def forward(self,
+                embed: Tensor,                    # tensor(B,E)
+                action: Tensor,                   # tensor(B,A)
+                in_state: Tuple[Tensor, Tensor],
+                agent_h,
+                imagine,
+                modal_sampling,
+                labels,
+                ):
+
+        in_h, in_z = in_state
+        B = action.shape[0]
+
+        x = self.z_mlp(in_z) + self.a_mlp(action)  # (B,H)
+        x = self.in_norm(x)
+        za = F.elu(x)
+        h = self.gru(za, in_h)              # (B, D)
+
+        if imagine:
+            x = self.prior_mlp_h(h)
+            x = self.prior_norm(x)
+            x = F.elu(x)
+            prior = self.prior_mlp(x)       # (B,2S)
+            prior_distr = self.zdistr(prior)
+            if modal_sampling:
+                # Uses Straight Through Gradients
+                inds = prior_distr.mean.argmax(dim=2)
+                mode_one_hot = torch.nn.functional.one_hot(inds, num_classes=self.stoch_discrete).to(self.agent.device)
+                sample = prior_distr.mean + \
+                      (mode_one_hot - prior_distr.mean).detach()
+                sample = sample.reshape(B, -1)
+            else:
+                sample = prior_distr.rsample().reshape(B, -1)
+            post_or_prior = prior
+        else:
+            x = self.post_mlp_h(h) + self.post_mlp_e(embed)
+            x = self.post_norm(x)
+            post_in = F.elu(x)
+            post = self.post_mlp(post_in)   # (B, S*S)
+            post_distr = self.zdistr(post)
+            sample = post_distr.rsample().reshape(B, -1)
+            post_or_prior = post
+
+        feature = torch.cat([h, sample], dim=-1)
+        BF_to_TBIF = lambda x: torch.unsqueeze(torch.unsqueeze(x, 1), 0)
+        BF_to_TBF = lambda x: torch.unsqueeze(x, 0)
+        feature = BF_to_TBIF(feature)
+        labels = {k: BF_to_TBF(v) for k, v in labels.items()}
+        # Now decode the env into ims
+        loss_reconstr, metrics, tensors, image_rec = \
+            self.decoder.training_step(feature, labels)
+        # Note that image_rec has grads but tensors['image_rec'] does not
+
+        # Then use ims and agent_h to step the agent forward and produce an action
+        image_rec = image_rec.squeeze()
+        image_rec = dclamp(image_rec, self.image_range_min, self.image_range_max)
+        pred_action, pred_action_logits, pred_value, agent_h = \
+            self.agent.predict_STE(image_rec, agent_h, labels['terminal'],
+                                   retain_grads=True) # Lee: I'm ignorant of whether the terminal-masks are doing anything potentially dangerous
+        loss_reconstr_agent_h = self.agent_hx_loss(agent_h, labels['agent_h'], labels['terminal']) # TODO appropriate masking using terminal. We don't want agent hx to be trained after the episode is done
+        loss_reconstr = loss_reconstr # + loss_reconstr_agent_h # TODO try without this loss first because I'm not sure it's aligned or otherwise working properly
+        return (
+            post_or_prior,    # tensor(B, 2*S)
+            pred_action,
+            (h, sample),      # tensor(B, D+S+G)
+            agent_h,
+            loss_reconstr,
+            metrics,
+            tensors
+        )
+
+    def agent_hx_loss(self, pred_agent_h, label_agent_h, mask):
+        """Based on jurgisp's 'vecobs_decoder'. To be honest I don't understand
+         why the std is pre-specified like this. But it's unlikely to be hugely
+         important; the agent_h_loss is auxiliary."""
+        std = 0.3989422804
+        var = std ** 2 # var cancels denominator, which makes loss = 0.5 (target-output)^2
+        p = D.Normal(loc=pred_agent_h, scale=torch.ones_like(pred_agent_h) * std)
+        p = D.independent.Independent(p, 1)  # Makes p.logprob() sum over last dim
+        loss = -p.log_prob(label_agent_h) * var
+        loss = loss * mask
+        loss = loss.unsqueeze(-1)
+        return loss
+
+    def batch_prior(self,
+                    h: Tensor,     # tensor(T, B, D)
+                    ) -> Tensor:
+        x = self.prior_mlp_h(h)
+        x = self.prior_norm(x)
+        x = F.elu(x)
+        prior = self.prior_mlp(x)  # tensor(B,2S)
+        return prior
+
+    def zdistr(self, pp: Tensor) -> D.Distribution:
+        # pp = post or prior
+        if self.stoch_discrete:
+            logits = pp.reshape(pp.shape[:-1] + (self.stoch_dim, self.stoch_discrete))
+            distr = D.OneHotCategoricalStraightThrough(logits=logits.float())  # NOTE: .float() needed to force float32 on AMP
+            distr = D.independent.Independent(distr, 1)  # This makes d.entropy() and d.kl() sum over stoch_dim
+            return distr
+        else:
+            return diag_normal(pp)
 
 
 class EnvStepperInitializer(nn.Module):
@@ -234,12 +303,13 @@ class EnvStepperInitializer(nn.Module):
     an FC network. It outputs the initial state of the environment simulator.
 
     """
-    def __init__(self, hyperparams):
+    def __init__(self, hyperparams, device):
         super(EnvStepperInitializer, self).__init__()
-
-        self.init_seq_len = hyperparams.num_initialization_obs
+        self.device = device
+        self.num_init_steps = hyperparams.num_init_steps
         self.rnn_hidden_size = hyperparams.initializer_rnn_hidden_size
-        self.env_dim = hyperparams.env_stepper_rnn_hidden_size
+        self.env_dim = hyperparams.deter_dim
+        self.env_h_stoch_size = hyperparams.env_h_stoch_size
 
         self.image_embedder = LayeredResBlockDown(input_hw=64,
                                                   input_ch=3,
@@ -250,7 +320,7 @@ class EnvStepperInitializer(nn.Module):
         self.rnn = nn.GRU(input_size=self.image_embedder.output_size,
                            hidden_size=self.rnn_hidden_size,
                            num_layers=1,
-                           batch_first=True)
+                           batch_first=False)
 
         self.mlp_out = nn.Sequential(
                                 nn.Linear(self.rnn_hidden_size,
@@ -260,299 +330,31 @@ class EnvStepperInitializer(nn.Module):
                                           self.env_dim)
                                             )
 
-    def forward(self, init_obs):
+    def forward(self, init_ims):
         """"""
         # Flatten inp seqs along time dimension to pass all to conv nets
         # along batch dim
-        x = init_obs
-        batches = x.shape[0]
-        ts = x.shape[1]
+        x = init_ims
+        ts = x.shape[0]
+        batches = x.shape[1]
         h = x.shape[2]
         w = x.shape[3]
         ch = x.shape[4]
 
-        images = [x[:, i] for i in range(ts)]  # split along time dim
+        images = [x[i] for i in range(ts)]  # split along time dim
         embeddings = [self.image_embedder(im) for im in images]
         embeddings = [im for (im, _) in embeddings]
-        x = torch.stack(embeddings, dim=1)  # stack along time dim
+        x = torch.stack(embeddings, dim=0)  # stack along time dim
 
         # Flatten conv outputs to size (H*W*CH) to get rnn input vecs
-        x = x.view(batches, ts, -1)
+        x = x.view(ts, batches,  -1)
 
         # Pass seq of vecs to initializer RNN
         x, _ = self.rnn(x)
 
         # Concat RNN output to agent h0 and then pass to Converter nets
         # to get mu_g and sigma_g
-        x = x[:, -1]  # get last ts
-        init_env_state = self.mlp_out(x)
-        return init_env_state
-
-class EnvStepper(nn.Module):
-    """
-
-    """
-    def __init__(self, hyperparams):
-        super(EnvStepper, self).__init__()
-        layer_norm = hyperparams.layer_norm
-        self.env_h_determ_size = hyperparams.env_stepper_rnn_hidden_size
-        self.env_h_stoch_size = hyperparams.env_h_stoch_size
-        self.env_h_size = self.env_h_determ_size + self.env_h_stoch_size
-        self.env_num_categs = hyperparams.env_num_categs
-        self.env_categ_distribs = hyperparams.env_categ_distribs
-        assert self.env_h_stoch_size == self.env_num_categs * self.env_categ_distribs
-
-        action_dim = hyperparams.action_space_dim
-
-        # Image Encoder
-        self.ob_encoder_conv_top_shape = [32, 8, 8]
-        self.ob_encoder_conv_top_size = np.prod(self.ob_encoder_conv_top_shape)
-        self.ob_encoder_conv = LayeredResBlockDown(input_hw=64,
-                                                 input_ch=3,
-                                                 hidden_ch=32,
-                                                 output_hw=self.ob_encoder_conv_top_shape[1],
-                                                 output_ch=self.ob_encoder_conv_top_shape[0],)
-        ob_encoder_fc_top_shape = self.env_h_stoch_size
-        self.ob_encoder_fc = NLayerPerceptron([self.ob_encoder_conv_top_size,
-                                               ob_encoder_fc_top_shape])
-        self.sample_converter = nn.Linear(self.env_h_stoch_size,
-                                          self.env_h_stoch_size)
-
-        # Transition networks
-        self.transition_predictor = NLayerPerceptron([self.env_h_determ_size,
-                                                      self.env_h_stoch_size])
-        self.env_rnn = nn.GRU(input_size=self.env_h_determ_size,
-                              hidden_size=self.env_h_determ_size,
-                              batch_first=True)
-        self.input_feeder_net = nn.Linear(self.env_h_stoch_size+action_dim,
-                                          self.env_h_determ_size)
-        repr_model_inp_size = ob_encoder_fc_top_shape + self.env_h_determ_size
-        self.representation_model_fc = NLayerPerceptron([repr_model_inp_size,
-                                                     self.env_h_stoch_size])
-
-
-        # Image Decoder
-        self.ob_decoder_conv_top_shape = [32, 8, 8]
-        self.ob_decoder_conv_top_size = np.prod(self.ob_decoder_conv_top_shape)
-        self.ob_decoder_conv = LayeredResBlockUp(input_hw=self.ob_decoder_conv_top_shape[1],
-                                                 input_ch=self.ob_decoder_conv_top_shape[0],
-                                                 hidden_ch=32,
-                                                 output_hw=64,
-                                                 output_ch=3)
-        self.ob_decoder_fc = NLayerPerceptron([self.env_h_size,
-                                               self.ob_decoder_conv_top_size])
-
-        # Other decoders
-        self.done_decoder = NLayerPerceptron([self.env_h_size, 64, 1],
-                                             layer_norm=layer_norm)
-        self.reward_decoder = NLayerPerceptron([self.env_h_size, 64, 1],
-                                               layer_norm=layer_norm)
-
-    # def forward(self, env_h_determ, input_image, action, imagine=False):
-    #     batch_size = input_image.shape[0]
-    #
-    #     predicted_logits = self.transition_predictor(env_h_determ)
-    #     if imagine:
-    #         sample = self.sample_w_STE(predicted_logits)
-    #     else:
-    #         repr_inp_vec = torch.cat([input_image, env_h_determ])
-    #         true_logits = self.representation_model(repr_inp_vec)
-    #         sample = self.sample_w_STE(true_logits)
-    #
-    #     env_h_stoch = sample.reshape(batch_size, self.env_h_stoch_size)
-    #
-    #     env_h_determ, _ = self.transition_step(action,
-    #                                            env_h_determ,
-    #                                            env_h_determ)
-    #
-    #     # decode
-    #     env_h = torch.cat([env_h_determ, env_h_stoch])
-    #     ob, rew, done = self.decode(env_h)
-    #
-    #     return
-
-    def representation_model(self, image, env_h_determ):
-        b = image.shape[0]
-        embedding, _ = self.ob_encoder_conv(image)
-        embedding = embedding.view(b, -1)
-        embedding, _ = self.ob_encoder_fc(embedding)
-
-        if env_h_determ.ndim == 3:
-            env_h_determ = torch.squeeze(env_h_determ)
-
-        if env_h_determ.ndim != embedding.ndim:
-            print("Boop")
-        repr_inp_vec = torch.cat([embedding, env_h_determ], dim=1)
-        true_env_h_stoch_logits, _ = self.representation_model_fc(repr_inp_vec)
-        return true_env_h_stoch_logits
-
-    def transition_step(self, act, env_h_deterministic, env_h_stochastic):
-
-        # Just concat these together and pass through an MLP
-        in_vec = torch.cat([env_h_stochastic, act], dim=1)
-        in_vec = self.input_feeder_net(in_vec)
-
-        # Unsqueeze to create unitary time dimension
-        in_vec = torch.unsqueeze(in_vec, dim=1)
-        env_h_deterministic = torch.unsqueeze(env_h_deterministic, dim=0)
-        # N.B dim 0 instead of 1. Not sure why the 'batch first' doesn't apply
-        # also to the hidden state...
-
-        # Step RNN (Time increments here)
-        out, out_state = self.env_rnn(in_vec, env_h_deterministic)
-
-        return out_state
-
-    def decode(self, env_h):
-        b = env_h.shape[0]
-        ch = self.ob_decoder_conv_top_shape[0]
-        h = self.ob_decoder_conv_top_shape[1]
-        w = self.ob_decoder_conv_top_shape[2]
-
-        # Convert hidden state to image prediction
-        x, _ = self.ob_decoder_fc(env_h)
-        x = x.view(x.shape[0], ch, h, w)
-        x, _ = self.ob_decoder_conv(x)
-        ob = torch.sigmoid(x)
-
-        # Convert hidden state to reward prediction
-        rew, _ = self.reward_decoder(env_h)
-
-        # Conver hidden state to done prediction
-        done, _ = self.done_decoder(env_h)
-        done = torch.sigmoid(done)
-
-        return ob, rew, done
-
-    def sample_w_STE(self, logits_vec, modal=False):
-
-        b = logits_vec.shape[0]
-        device = logits_vec.device
-
-        # Reshape logits to (batch, dimension, categories)
-        logits = logits_vec.view(b, self.env_categ_distribs,
-                                 self.env_num_categs)
-
-        if modal:
-            mode = logits.argmax(dim=2)
-            sample = \
-                torch.nn.functional.one_hot(
-                    mode, num_classes=self.env_num_categs).to(device)
-        else:
-            # Sample using the logits
-            sample = torch.distributions.OneHotCategorical(logits=logits).sample()
-
-        # Straight-Through-Estimator step
-        probs = torch.softmax(logits, dim=2)
-        sample = sample + probs - probs.detach()
-
-        return sample
-
-# class GenericClass(nn.Module):
-#     """Template class
-#
-#     Note:
-#         Some notes
-#
-#     Args:
-#         param1 (str): Description of `param1`.
-#         param2 (:obj:`int`, optional): Description of `param2`. Multiple
-#             lines are supported.
-#         param3 (:obj:`list` of :obj:`str`): Description of `param3`.
-#
-#     Attributes:
-#         attr1 (str): Description of `attr1`.
-#         attr2 (:obj:`int`, optional): Description of `attr2`.
-#
-#     """
-#     def __init__(self, insize=256, outsize=256):
-#         super(TwoLayerPerceptron, self).__init__()
-#         self.net = \
-#             nn.Sequential(nn.Linear(insize, insize),
-#                           nn.ReLU(),
-#                           nn.Linear(insize, outsize))
-#
-#     def forward(self, x):
-#         return self.net(x)
-
-class Namespace:
-    """
-    Because they're nicer to work with than dictionaries
-    """
-    def __init__(self, **kwargs):
-        self.__dict__.update(kwargs)
-
-
-
-### For deletion once RSSM is working:
-
-# class GlobalContextEncoder(nn.Module):
-#     """
-#     Encodes global latent variable by observing whole sequence
-#     """
-#     def __init__(self, embedding_size, sample_dim):
-#         super(GlobalContextEncoder, self).__init__()
-#
-#         self.image_conv_embedder = LayeredResBlockDown(input_hw=64,
-#                                                   input_ch=3,
-#                                                   hidden_ch=32,
-#                                                   output_hw=8,
-#                                                   output_ch=16)
-#         self.image_fc_embedder = nn.Linear(in_features=self.image_conv_embedder.output_size,
-#                                            out_features=embedding_size)
-#
-#         t_layer = torch.nn.TransformerEncoderLayer(d_model=embedding_size, nhead=1,
-#                                              dim_feedforward=embedding_size,
-#                                              dropout=0.0).to(torch.device('cuda:0'))
-#         norm = nn.LayerNorm(normalized_shape=embedding_size, eps=1e-5)
-#         self.seq_enc = torch.nn.TransformerEncoder(t_layer, num_layers=2, norm=norm).to(torch.device('cuda:0'))
-#
-#
-#
-#         self.converter_base = nn.Sequential(nn.Linear(embedding_size,
-#                                                       embedding_size),
-#                                             nn.ReLU())
-#         self.converter_split_mu = nn.Linear(embedding_size,
-#                                             sample_dim)
-#         self.converter_split_lv = nn.Linear(embedding_size,
-#                                             sample_dim) # log var
-#
-#     def forward(self, x):
-#
-#         # Flatten inp seqs along time dimension to pass all to conv nets
-#         # along batch dim
-#         batches = x.shape[0]
-#         ts = x.shape[1]
-#         h = x.shape[2]
-#         w = x.shape[3]
-#         ch = x.shape[4]
-#
-#         # Get only the timesteps at intervals (because it's wasteful that a
-#         # global context encoder should see every single frame)
-#         midpoint_intervals = np.arange(0, ts, step=4)
-#         midpoint_intervals_rand = midpoint_intervals[1:-1]
-#         random_interval_diffs = np.random.randint(-2, 2, len(midpoint_intervals_rand))
-#         chosen_ts = [t+rand for t, rand in zip(midpoint_intervals_rand, random_interval_diffs)]
-#         midpoint_intervals[1:-1] = chosen_ts
-#         chosen_ts = midpoint_intervals
-#         num_chosen_ts = len(chosen_ts)
-#         x = x[:,chosen_ts]
-#
-#         # Embed images into vectors for the sequence encoder
-#         embeddings = [self.image_conv_embedder(x[:,i]) for i in range(num_chosen_ts)]
-#         embeddings = [x.reshape(batches, -1) for (x, _) in embeddings]
-#         embeddings = [self.image_fc_embedder(x) for x in embeddings]
-#         embeddings = torch.stack(embeddings, dim=1)  # Stack along time dim
-#         embeddings = embeddings.permute([1,0,2])  # Swap batch and time dim for transformer.  -> [t, b, etc]
-#
-#         #Attn
-#         x = self.seq_enc(embeddings)
-#         x = x.permute([1,0,2]) # swap batch and t axis back again -> [b, t, etc]
-#         x = torch.mean(x, dim=1)
-#
-#         # Convert transformer output into global vector sampling params
-#         x = self.converter_base(x)
-#         mu = self.converter_split_mu(x)
-#         logvar = self.converter_split_lv(x)
-#
-#         return mu, logvar
+        x = x[-1]  # get last ts
+        init_env_determ_state = self.mlp_out(x)
+        init_env_stoch_state = torch.zeros(batches, self.env_h_stoch_size, device=self.device)
+        return init_env_determ_state, init_env_stoch_state # TODO confirm that it's okay that this is actually 0s

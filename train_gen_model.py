@@ -1,6 +1,5 @@
 from common.env.procgen_wrappers import *
 import util.logger as logger  # from common.logger import Logger
-from util.parallel import DataParallel
 from common.storage import Storage
 from common.model import NatureModel, ImpalaModel
 from common.policy import CategoricalPolicy
@@ -19,8 +18,6 @@ from collections import deque
 import torchvision.io as tvio
 from datetime import datetime
 
-
-# TODO sort out hyperparameters (incl archi) - put them all in one namespace.
 
 def run():
     parser = argparse.ArgumentParser()
@@ -59,7 +56,7 @@ def run():
     parser.add_argument('--log_interval', type=int, default=100)
     parser.add_argument('--lr', type=float, default=5e-4)
     parser.add_argument('--batch_size', type=int, default=128)
-    parser.add_argument('--num_initializing_steps', type=int, default=8)
+    parser.add_argument('--num_init_steps', type=int, default=8)
     parser.add_argument('--num_sim_steps', type=int, default=22)
     parser.add_argument('--layer_norm', type=int, default=0)
 
@@ -67,16 +64,16 @@ def run():
     parser.add_argument('--num_threads', type=int, default=8)
 
     # Loss function hyperparams
-    parser.add_argument('--loss_scale_obs', type=float, default=1.)
+    parser.add_argument('--loss_scale_ims', type=float, default=1.)
     parser.add_argument('--loss_scale_hx', type=float, default=1.)
     parser.add_argument('--loss_scale_reward', type=float, default=1.)
-    parser.add_argument('--loss_scale_done', type=float, default=1.)
+    parser.add_argument('--loss_scale_terminal', type=float, default=1.)
     parser.add_argument('--loss_scale_act_log_probs', type=float, default=1.)
     parser.add_argument('--loss_scale_gen_adv', type=float, default=1.)
     parser.add_argument('--loss_scale_kl', type=float, default=1.)
 
 
-    # Set hyperparameters
+    # Collect hyperparams from arguments
     args = parser.parse_args()
     param_name = args.param_name
     device = args.device
@@ -85,23 +82,23 @@ def run():
     log_level = args.log_level
     num_checkpoints = args.num_checkpoints
     batch_size = args.batch_size
-    num_initializing_steps = args.num_initializing_steps
+    num_init_steps = args.num_init_steps
     num_sim_steps = args.num_sim_steps
-    total_seq_len = num_initializing_steps + num_sim_steps - 1
-    # minus one because the first simulated observation is the last
-    # initializing context obs.
+    num_steps_full = num_init_steps + num_sim_steps - 1
+    # minus one because the first simulated image is the last
+    # initializing context ims.
 
     set_global_seeds(seed)
     set_global_log_levels(log_level)
 
-    print('[LOADING HYPERPARAMETERS...]')
+    print('[LOADING AGENT HYPERPARAMETERS...]')
     with open('hyperparams/procgen/config.yml', 'r') as f:
-        hyperparameters = yaml.safe_load(f)[param_name]
-    for key, value in hyperparameters.items():
+        agent_hyperparams = yaml.safe_load(f)[param_name]
+    for key, value in agent_hyperparams.items():
         print(key, ':', value)
 
     n_steps = 1
-    n_envs = hyperparameters.get('n_envs', 64)
+    n_envs = agent_hyperparams.get('n_envs', 64)
 
     # Device
     os.environ["CUDA_VISIBLE_DEVICES"] = str(gpu_device)
@@ -112,7 +109,7 @@ def run():
 
     # Set up environment (Only used for initializing agent)
     print('INITIALIZING ENVIRONMENTS...')
-    env = create_venv(args, hyperparameters)
+    env = create_venv(args, agent_hyperparams)
 
     # Make save dirs
     print('INITIALIZING LOGGER...')
@@ -140,7 +137,7 @@ def run():
     print('INTIALIZING AGENT MODEL...')
     observation_space = env.observation_space
     observation_shape = observation_space.shape
-    architecture = hyperparameters.get('architecture', 'impala')
+    architecture = agent_hyperparams.get('architecture', 'impala')
     in_channels = observation_shape[0]
     action_space = env.action_space
 
@@ -151,9 +148,9 @@ def run():
         model = ImpalaModel(in_channels=in_channels)
 
     ## Agent's discrete action space
-    recurrent = hyperparameters.get('recurrent', False)
+    recurrent = agent_hyperparams.get('recurrent', False)
+    action_size = action_space.n
     if isinstance(action_space, gym.spaces.Discrete):
-        action_size = action_space.n
         policy = CategoricalPolicy(model, recurrent, action_size)
     else:
         raise NotImplementedError
@@ -167,13 +164,13 @@ def run():
 
     ## And, finally, the agent itself
     print('INTIALIZING AGENT...')
-    algo = hyperparameters.get('algo', 'ppo')
+    algo = agent_hyperparams.get('algo', 'ppo')
     if algo == 'ppo':
         from agents.ppo import PPO as AGENT
     else:
         raise NotImplementedError
     agent = AGENT(env, policy, logger, storage, device, num_checkpoints,
-                  **hyperparameters)
+                  **agent_hyperparams)
     if args.agent_file is not None:
         logger.info("Loading agent from %s" % args.agent_file)
         checkpoint = torch.load(args.agent_file, map_location=device)
@@ -185,21 +182,39 @@ def run():
     # Set up generative model
     ## Make dataset
     train_dataset = ProcgenDataset(args.data_dir,
-                                   initializer_seq_len=num_initializing_steps,
-                                   total_seq_len=total_seq_len,)
+                                   initializer_seq_len=num_init_steps,
+                                   num_steps_full=num_steps_full,)
     train_loader = torch.utils.data.DataLoader(train_dataset,
                                                batch_size=batch_size,
                                                shuffle=True,
                                                drop_last=True,
                                                num_workers=2)
 
+    gen_model_hyperparams = Namespace(
+        num_init_steps=num_init_steps,
+        num_steps_full=num_steps_full,
+        num_sim_steps=num_sim_steps,
+        stoch_discrete=32,
+        stoch_dim=32,
+        env_h_stoch_size=32 * 32,
+        agent_hidden_size=64,
+        action_dim=action_size,
+        deter_dim=512,  # 2048
+        initializer_rnn_hidden_size=256,
+        layer_norm=True,
+        hidden_dim=1000,
+        image_channels=3,
+        cnn_depth=48,
+        reward_decoder_layers=4,
+        terminal_decoder_layers=4,
+        kl_weight=0.1,
+        kl_balance=0.8,
+    )
+
     ## Make or load generative model and optimizer
     # gen_model = VAE(agent, device, num_initializing_steps, total_seq_len)
-    gen_model = AgentEnvironmentSimulator(agent, device, num_initializing_steps, total_seq_len)
-
-    gen_model = DataParallel(gen_model)
+    gen_model = AgentEnvironmentSimulator(agent, device, gen_model_hyperparams)
     gen_model = gen_model.to(device)
-
     optimizer = torch.optim.Adam(gen_model.parameters(), lr=args.lr)
 
     if args.model_file is not None:
@@ -211,11 +226,9 @@ def run():
     else:
         logger.info('Training generative model from scratch.')
 
-    # Training
-    ## Epoch cycle (Train, Save visualized random samples, Demonstrate
-    ##     reconstruction quality)
+    # Training cycle (Train, Save visualized random samples, Demonstrate
+    #  reconstruction quality)
     for epoch in range(0, args.epochs + 1):
-
         train(epoch, args, train_loader, optimizer, gen_model, agent,
               logger, sess_dir, device)
 
@@ -223,7 +236,7 @@ def run():
 def train(epoch, args, train_loader, optimizer, gen_model, agent, logger, save_dir, device):
 
     # Set up logging queue objects
-    loss_keys = ['obs', 'hx', 'done', 'reward', 'act_log_probs', 'KL',
+    loss_keys = ['ims', 'hx', 'terminal', 'reward', 'act_log_probs', 'KL',
                  'total recon w/o KL']
     train_info_bufs = {k:deque(maxlen=100) for k in loss_keys}
     logger.info('Start training epoch {}'.format(epoch))
@@ -236,59 +249,64 @@ def train(epoch, args, train_loader, optimizer, gen_model, agent, logger, save_d
 
         # Make all data into floats and put on the right device
         data = {k: v.to(device).float() for k, v in data.items()}
-
-        # Get input data for generative model
-        full_obs = data['obs']
-        agent_h0 = data['hx'][:, -args.num_sim_steps, :]
-        actions_all = data['action'][:, -args.num_sim_steps:]
+        data = {k: torch.swapaxes(v, 0, 1) for k, v in data.items()}  # (B, T, :...) --> (T, B, :...)
 
         # Forward and backward pass and update generative model parameters
         optimizer.zero_grad()
-        preds = gen_model(full_obs, agent_h0, actions_all,
-                          use_true_actions=True, imagine=False)
-        loss, train_info_bufs = loss_function(args, preds, data,
-                                              train_info_bufs, device)
+        (loss_model, priors, posts, samples, features, env_states,
+        env_state, metrics_list, tensors_list, pred_actions_1hot, pred_agent_hs) = \
+            gen_model(data=data, use_true_actions=True, imagine=False)
+
+        loss = torch.mean(torch.sum(loss_model, dim=0))  # sum over T, mean over B
+        # TODO confirm that masking of losses works as required
         loss.backward()
-        torch.nn.utils.clip_grad_norm_(gen_model.parameters(), 0.001)
-        for p in gen_model.agent.policy.parameters():
+        torch.nn.utils.clip_grad_norm_(gen_model.parameters(), 100.)
+        for p in gen_model.agent_env_stepper.agent.policy.parameters():
             if p.grad is not None:  # freeze agent parameters but not model's.
                 p.grad.data = torch.zeros_like(p.grad.data)
         optimizer.step()
 
         # Logging and saving info
-        if batch_idx % args.log_interval == 0:
+        if batch_idx % 1 == 0:#args.log_interval == 0:
             loss.item()
             logger.logkv('epoch', epoch)
             logger.logkv('batches', batch_idx)
-            for key in loss_keys:
-                logger.logkv('loss/%s' % key,
-                            safe_mean([loss for loss in train_info_bufs[key]]))
+            logger.logkv('loss total', loss)
             logger.dumpkvs()
 
         # Saving model
-        if batch_idx % args.save_interval == 0:
-            model_path = os.path.join(
-                save_dir,
-                'model_epoch{}_batch{}.pt'.format(epoch, batch_idx))
-            torch.save(
-                {'gen_model_state_dict': gen_model.state_dict(),
-                 'optimizer_state_dict': optimizer.state_dict()},
-                model_path)
-            logger.info('Generative model saved to {}'.format(model_path))
+        # if batch_idx % args.save_interval == 0:
+        #     model_path = os.path.join(
+        #         save_dir,
+        #         'model_epoch{}_batch{}.pt'.format(epoch, batch_idx))
+        #     torch.save(
+        #         {'gen_model_state_dict': gen_model.state_dict(),
+        #          'optimizer_state_dict': optimizer.state_dict()},
+        #         model_path)
+        #     logger.info('Generative model saved to {}'.format(model_path))
 
         # Visualize the predictions compared with the ground truth
-        if batch_idx % 10000 == 0 or (epoch < 1 and batch_idx % 20000 == 0):
+        pred_images = torch.cat(
+            [tensors_list[t]['image_rec'] for t in range(args.num_sim_steps)],
+            dim=0)
+
+        preds = {'ims': pred_images, 'actions': pred_actions_1hot}
+        if batch_idx % 100 == 0 or (epoch < 1 and batch_idx % 20000 == 0):
+        # if batch_idx % 10000 == 0 or (epoch < 1 and batch_idx % 20000 == 0):
             visualize(args, epoch, train_loader, optimizer, gen_model,
-                               logger, batch_idx=batch_idx, save_dir=save_dir, device=device, data=data, preds=preds,
+                               logger, batch_idx=batch_idx, save_dir=save_dir,
+                               device=device, data=data, preds=preds,
                                use_true_actions=True, save_root='sample')
 
         # Demo recon quality without using true images
-        if batch_idx % 40000 == 0:
+        if batch_idx % 100 == 0 or (epoch < 1 and batch_idx % 20000 == 0):
             visualize(args, epoch, train_loader, optimizer, gen_model,
-                               logger, batch_idx=batch_idx, save_dir=save_dir, device=device, data=None, preds=None,
+                               logger, batch_idx=batch_idx, save_dir=save_dir,
+                               device=device, data=None, preds=None,
                                use_true_actions=True, save_root='demo_true_acts')
             visualize(args, epoch, train_loader, optimizer, gen_model,
-                               logger, batch_idx=batch_idx, save_dir=save_dir, device=device, data=None, preds=None,
+                               logger, batch_idx=batch_idx, save_dir=save_dir,
+                               device=device, data=None, preds=None,
                                use_true_actions=False, save_root='demo_sim_acts')
 
 
@@ -308,19 +326,19 @@ def compute_kl_div_categorical(p_logits, q_logits, num_categ_distribs=32, num_ca
 
 def loss_function(args, preds, labels, train_info_bufs, device):
 
-    recon_loss_hyperparams = {'obs': args.loss_scale_obs,
-                            'hx': args.loss_scale_hx,
-                            'reward': args.loss_scale_reward,
-                            'done': args.loss_scale_done,
-                            'act_log_probs': args.loss_scale_act_log_probs
+    recon_loss_hyperparams = {'ims': args.loss_scale_ims,
+                              'hx': args.loss_scale_hx,
+                              'reward': args.loss_scale_reward,
+                              'terminal': args.loss_scale_terminal,
+                              'act_log_probs': args.loss_scale_act_log_probs
                               }
     KL_loss_hyperparams = {
         'pp_KL': 1.0,
         'KL_alpha': 0.8,
     }
 
-    dones = labels['done'][:, -args.num_sim_steps:]
-    before_dones = done_labels_to_mask(dones)
+    terminals = labels['terminal'][:, -args.num_sim_steps:]
+    before_terminals = terminal_labels_to_mask(terminals)
 
     # Reconstruction loss
     recon_losses = []
@@ -337,7 +355,7 @@ def loss_function(args, preds, labels, train_info_bufs, device):
             # mask
 
             unsqz_lastdim = lambda x: x.unsqueeze(dim=-1)
-            mask = before_dones
+            mask = before_terminals
             for d in range(num_dims):
                 # Applies unsqueeze enough times to produce a tensor of the same
                 # order as the loss tensor. It can therefore be broadcast to the
@@ -380,88 +398,98 @@ def visualize(args, epoch, train_loader, optimizer, gen_model, logger,
     logger.info('Demonstrating reconstruction and prediction quality')
 
     gen_model.train()
+    action_size = gen_model.agent_env_stepper.agent.env.action_space.n
 
     if data is None:
+        # Get a single batch from the train_loader
         for batch_idx_new, data in enumerate(train_loader):
-            if batch_idx_new > 0: # Just do one batch
+            if batch_idx_new > 0:
                 break
-        data = {k: v.to(device).float() for k,v in data.items()}
+        # Make all data into floats, put on the right device, and swap B and T axes
+        data = {k: v.to(device).float() for k, v in data.items()}
+        data = {k: torch.swapaxes(v, 0, 1) for k, v in data.items()}  # (B, T, :...) --> (T, B, :...)
 
     # Get input data for generative model
-    full_obs = data['obs']
-    agent_h0 = data['hx'][:, -args.num_sim_steps, :]
-    actions_all = data['action'][:, -args.num_sim_steps:]
+    full_ims = data['ims']
+    true_actions_inds = data['action'][-args.num_sim_steps:]
 
-    # Forward pass to get predicted observations if not already done
+    # Forward pass to get predictions if not already done
     if preds is None:
         optimizer.zero_grad()
-        preds = gen_model(full_obs, agent_h0, actions_all,
-                          use_true_actions=use_true_actions, imagine=True)
-
-    pred_obs = torch.stack(preds['obs'], dim=1).squeeze()
+        (loss_model, priors, posts, samples, features, env_states,
+         env_state, metrics_list, tensors_list, pred_actions_1hot, pred_agent_hs) = \
+            gen_model(data=data,
+                      use_true_actions=use_true_actions,
+                      imagine=True,
+                      modal_sampling=True)
+        # Extract predictions from model output
+        pred_images = torch.cat(
+            [tensors_list[t]['image_rec'] for t in range(args.num_sim_steps)],
+            dim=0)
+    else:
+        pred_images, pred_actions_1hot = preds['ims'], preds['actions']
 
     # Establish the right settings for visualisation
-    viz_batch_size = min(int(pred_obs.shape[0]), 20)
+    viz_batch_size = min(int(pred_images.shape[1]), 20)
+    pred_actions_inds = torch.argmax(pred_actions_1hot, dim=2)
 
-    true_actions = actions_all.clone().cpu().numpy()
+    # (T, B) --> (B, T)
+    pred_actions_inds = pred_actions_inds.permute(1, 0)
+    true_actions_inds = true_actions_inds.permute(1, 0)
+
+    true_actions_inds = true_actions_inds.clone().cpu().numpy()
+    pred_actions_inds = pred_actions_inds.cpu().detach().numpy()
 
     if use_true_actions:
-        sim_actions = actions_all
-        sim_actions = sim_actions.clone().cpu().numpy()
+        viz_actions_inds = true_actions_inds
     else:
-        sim_actions = preds['acts']
-        sim_actions = torch.stack(sim_actions, dim=1).cpu().detach()
-        sim_actions = torch.argmax(sim_actions, dim=2).numpy()
-        # sim_actions = sim_actions.clone().cpu().numpy()
+        viz_actions_inds = pred_actions_inds
 
     with torch.no_grad():
+        # (T,B,C,H,W) --> (B,T,H,W,C)
+        pred_images = pred_images.permute(1,0,3,4,2)
+        full_ims = full_ims.permute(1,0,3,4,2)
+
         for b in range(viz_batch_size):
-            # Put channel dim to the end
-            pred_ob = pred_obs[b].permute(0, 2, 3, 1)
-            full_ob = full_obs[b].permute(0, 2, 3, 1)
+            pred_im = pred_images[b]
+            full_im = full_ims[b]
 
             # Make predictions and ground truth into right format for
             #  video saving
-            pred_ob = pred_ob * 255
-            full_ob = full_ob * 255
+            pred_im = pred_im * 255
+            full_im = full_im * 255
 
-            pred_ob = pred_ob.clone().detach().type(torch.uint8)
-            pred_ob = pred_ob.cpu().numpy()
-            pred_ob = overlay_actions(pred_ob, sim_actions[b], size=16)
+            pred_im = torch.clip(pred_im, 0, 255)
 
-            full_ob = full_ob.clone().detach().type(torch.uint8)
-            full_ob = full_ob.cpu().numpy()[-args.num_sim_steps:]
-            full_ob = overlay_actions(full_ob, true_actions[b], size=16)
+            pred_im = pred_im.clone().detach().type(torch.uint8).cpu().numpy()
+            pred_im = overlay_actions(pred_im, viz_actions_inds[b], size=16)
+
+            full_im = full_im.clone().detach().type(torch.uint8).cpu().numpy()
+            full_im = full_im[-args.num_sim_steps:]
+            full_im = overlay_actions(full_im, true_actions_inds[b], size=16)
 
 
-            # Join the prediction and the true observation side-by-side
-            combined_ob = np.concatenate([pred_ob, full_ob], axis=2)
+            # Join the prediction and the true image side-by-side
+            combined_im = np.concatenate([pred_im, full_im], axis=2)
 
             # Save vid
             save_str = save_dir + \
                        f'/recons_v_preds/{save_root}_' + \
                        f'{epoch:02d}_{batch_idx:06d}_{b:03d}.mp4'
-            tvio.write_video(save_str, combined_ob, fps=14)
+            tvio.write_video(save_str, combined_im, fps=14)
 
 
 def safe_mean(xs):
     return np.nan if len(xs) == 0 else np.mean(xs)
 
-def done_labels_to_mask(dones, num_unsqueezes=0):
-    argmax_dones = torch.argmax(dones, dim=1)
-    before_dones = torch.ones_like(dones)
-    for batch, argmax_done in enumerate(argmax_dones):
-        if argmax_done > 0:
-            before_dones[batch, argmax_done + 1:] = 0
 
-    # Applies unsqueeze enough times to produce a tensor of the same
-    # order as the masked tensor. It can therefore be broadcast to the
-    # same shape as the masked tensor
-    unsqz_lastdim = lambda x: x.unsqueeze(dim=-1)
-    for _ in range(num_unsqueezes):
-        before_dones = unsqz_lastdim(before_dones)
 
-    return before_dones
+class Namespace:
+    """
+    Because they're nicer to work with than dictionaries
+    """
+    def __init__(self, **kwargs):
+        self.__dict__.update(kwargs)
 
 
 if __name__ == "__main__":
