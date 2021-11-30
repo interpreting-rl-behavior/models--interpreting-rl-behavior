@@ -27,40 +27,6 @@ def arrow_images(size=100):
     # Note that we need to indent by 1 pixel otherwise we get index errors
     size_diag = int((size//2) * ((size//2) / ((size//2)**2 + (size//2)**2)**0.5))
 
-    # arrow_points = {
-    #     "down": {
-    #         "tip": (size-1, size//2), "left": (size-1-offset, size//2-offset),
-    #         "right": (size-1-offset, size//2+offset)
-    #     },
-    #     "downleft": {
-    #         "tip": (size-1, 1), "left": (size-1-int(offset*1.41), 1),
-    #         "right": (size-1, 1+int(offset*1.41))
-    #     },
-    #     "left": {
-    #         "tip": (size//2, 1), "left": (size//2+offset, 1+offset),
-    #         "right": (size//2-offset, 1+offset)
-    #     },
-    #     "upleft": {
-    #         "tip": (1, 1), "left": (1, 1+int(offset*1.41)),
-    #         "right": (1+int(offset*1.41), 1)
-    #     },
-    #     "up": {
-    #         "tip": (1, size//2), "left": (1+offset, size//2-offset),
-    #         "right": (1+offset, size//2+offset)
-    #     },
-    #     "upright": {
-    #         "tip": (1, size-1), "left": (1, size-1-int(offset*1.41)),
-    #         "right": (1+int(offset*1.41), size-1)
-    #     },
-    #     "right": {
-    #         "tip": (size//2, size-1), "left": (size//2-offset, size-1-offset),
-    #         "right": (size//2+offset, size-1-offset)
-    #     },
-    #     "downright": {
-    #         "tip": (size-1, size-1), "left": (size-1, size-1-int(offset*1.41)),
-    #         "right": (size-1-int(offset*1.41), size-1)
-    #     },
-    # }
     arrow_points = {
         "down": {
             "tip": (size-1, size//2), "left": (size-1-offset, size//2-offset),
