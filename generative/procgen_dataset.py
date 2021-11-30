@@ -8,26 +8,26 @@ from torch.utils.data import Dataset
 class ProcgenDataset(Dataset):
     """Coinrun dataset."""
 
-    def __init__(self, data_dir='generative/data/', initializer_seq_len=None, total_seq_len=None):
+    def __init__(self, data_dir='generative/data/', initializer_seq_len=None, num_steps_full=None):
         """
         Args:
             csv_file (string): Path to the csv file with annotations.
         """
         self.idx_to_epi_table = pd.read_csv(
             os.path.join(data_dir, 'idx_to_episode.csv'))
-        self.seq_len = total_seq_len
+        self.seq_len = num_steps_full
         self.dataset_len = len(self.idx_to_epi_table)
         self.data_dir = data_dir
         self.init_seq_len = initializer_seq_len
         self.hx_size = 64
-        self.obs_hw = 64
-        self.obs_ch = 3
+        self.ims_hw = 64
+        self.ims_ch = 3
         self.act_space_size = 15
         self.null_element = {'done': np.zeros(self.seq_len),
                              'reward': np.zeros(self.seq_len),
                              'value': np.zeros(self.seq_len),
                              'action': np.zeros(self.seq_len),
-                             'obs': np.zeros((self.seq_len, self.obs_ch, self.obs_hw, self.obs_hw)),
+                             'ims': np.zeros((self.seq_len, self.ims_ch, self.ims_hw, self.ims_hw)),
                              'hx': np.zeros((self.seq_len, self.hx_size)),
                              'act_log_probs': np.zeros((self.seq_len, self.act_space_size)),
                              }
@@ -68,7 +68,7 @@ class ProcgenDataset(Dataset):
         csv_load_path = os.path.join(self.data_dir, f'data_gen_model_{episode_number:05d}.csv')
         data = pd.read_csv(csv_load_path)
         vecs_load_path = os.path.join(self.data_dir, f'episode_{episode_number:05d}')
-        obs = np.load(vecs_load_path + '/ob.npy')
+        ims = np.load(vecs_load_path + '/ob.npy')
         hx  = np.load(vecs_load_path + '/hx.npy')
         lp  = np.load(vecs_load_path + '/lp.npy')
 
@@ -95,7 +95,7 @@ class ProcgenDataset(Dataset):
         ## Make data_dict and put the parts you want in the batch element.
         data = data[self.data_keys[:4]]
         data = data.to_numpy().T.tolist()
-        vec_list = [obs, hx, lp]
+        vec_list = [ims, hx, lp]
         data.extend(vec_list)
         data_dict = {k: v for k, v in zip(self.data_keys, data)}
 
@@ -104,7 +104,7 @@ class ProcgenDataset(Dataset):
                      'reward': np.zeros(self.seq_len),
                      'value': np.zeros(self.seq_len),
                      'action': np.zeros(self.seq_len),
-                     'obs': np.zeros((self.seq_len, self.obs_ch, self.obs_hw, self.obs_hw)),
+                     'ims': np.zeros((self.seq_len, self.ims_ch, self.ims_hw, self.ims_hw)),
                      'hx': np.zeros((self.seq_len, self.hx_size)),
                      'act_log_probs': np.zeros((self.seq_len, self.act_space_size)),
                      }
@@ -115,10 +115,13 @@ class ProcgenDataset(Dataset):
                                   full_segment_last_step)))
             data_array = np.array(data_dict[key][full_segment_init_step:
                                                  full_segment_last_step])
-            if key == 'obs':
+            if key == 'ims':
                 data_array = data_array / 255.
                 # TODO consider copying the last frame after 'done' instead
                 #  of leaving as all zeros.
             batch_ele[key][element_first_step:element_last_step] = data_array
+
+        # Rename done (from RL repo) to terminal (from rssm/gen_model repo)
+        batch_ele['terminal'] = batch_ele.pop('done')
 
         return batch_ele
