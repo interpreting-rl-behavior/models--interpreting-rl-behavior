@@ -277,12 +277,12 @@ if __name__=='__main__':
 
         # End recording loop if max num recorded episodes OR time-limit has
         # been reached
-        if (np.min(episode_number) > max_episodes) or \
-                ((time.time() - start_time) > max_time_recording):
+        if (np.min(episode_number) > max_episodes):# or ((time.time() - start_time) > max_time_recording):
             break
 
     # Delete superfluous data episodes
     for e in range(max_episodes, np.max(episode_number)):
+        print(f"Deleting superfluous episode {e}")
         superfluous_dir = os.path.join(logdir, f'episode_{e:05d}')
         superfluous_file = os.path.join(logdir, f'data_gen_model_{e:05d}.csv')
         superfluous_vid = os.path.join(logdir, f'sample_{e:05d}.mp4')
@@ -303,7 +303,7 @@ if __name__=='__main__':
     # # so that each data step has a unique global step.
     max_global_step = 0
     for e in range(max_episodes):
-        print(e)
+        print(f"Creating indices for episode {e}")
         ref_df_e = pd.DataFrame(columns=['global_step', 'episode'])
         ref_df_e['global_step'] = \
             np.arange(max_global_step, max_global_step+episode_lens[e])
@@ -312,14 +312,17 @@ if __name__=='__main__':
         max_global_step = max_global_step + episode_lens[e]
     reference_df = pd.concat(list_of_ref_dfs)
     reference_df_name = os.path.join(logdir, f'idx_to_episode.csv')
+    print("Saving idx csv...")
     reference_df.to_csv(reference_df_name, index=False)
+    print("Saved")
 
     # Then go through all the individual episodes and fix the global step data
     for e in range(max_episodes):
-        print(e)
+        print(f"Fixing global step in episode {e}")
         epi_filename = os.path.join(logdir, f'data_gen_model_{e:05d}.csv')
         data_e = pd.read_csv(epi_filename)
         glob_steps_e = reference_df[reference_df['episode'] == e]['global_step']
         data_e['global_step'] = glob_steps_e
         data_e.to_csv(epi_filename)
 
+    print("Done recording and processing data.")
