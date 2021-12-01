@@ -267,7 +267,7 @@ def train(epoch, args, train_loader, optimizer, gen_model, agent, logger, save_d
         optimizer.step()
 
         # Logging and saving info
-        if batch_idx % 1 == 0:#args.log_interval == 0:
+        if args.log_interval == 0:
             loss.item()
             logger.logkv('epoch', epoch)
             logger.logkv('batches', batch_idx)
@@ -275,15 +275,15 @@ def train(epoch, args, train_loader, optimizer, gen_model, agent, logger, save_d
             logger.dumpkvs()
 
         # Saving model
-        # if batch_idx % args.save_interval == 0:
-        #     model_path = os.path.join(
-        #         save_dir,
-        #         'model_epoch{}_batch{}.pt'.format(epoch, batch_idx))
-        #     torch.save(
-        #         {'gen_model_state_dict': gen_model.state_dict(),
-        #          'optimizer_state_dict': optimizer.state_dict()},
-        #         model_path)
-        #     logger.info('Generative model saved to {}'.format(model_path))
+        if batch_idx % args.save_interval == 0:
+            model_path = os.path.join(
+                save_dir,
+                'model_epoch{}_batch{}.pt'.format(epoch, batch_idx))
+            torch.save(
+                {'gen_model_state_dict': gen_model.state_dict(),
+                 'optimizer_state_dict': optimizer.state_dict()},
+                model_path)
+            logger.info('Generative model saved to {}'.format(model_path))
 
         # Visualize the predictions compared with the ground truth
         pred_images = torch.cat(
@@ -291,7 +291,7 @@ def train(epoch, args, train_loader, optimizer, gen_model, agent, logger, save_d
             dim=0)
 
         preds = {'ims': pred_images, 'actions': pred_actions_1hot}
-        if batch_idx % 100 == 0 or (epoch < 1 and batch_idx % 20000 == 0):
+        if (epoch > 1 and batch_idx % 20000 == 0) or (epoch < 1 and batch_idx % 5000 == 0):
         # if batch_idx % 10000 == 0 or (epoch < 1 and batch_idx % 20000 == 0):
             visualize(args, epoch, train_loader, optimizer, gen_model,
                                logger, batch_idx=batch_idx, save_dir=save_dir,
@@ -299,7 +299,7 @@ def train(epoch, args, train_loader, optimizer, gen_model, agent, logger, save_d
                                use_true_actions=True, save_root='sample')
 
         # Demo recon quality without using true images
-        if batch_idx % 100 == 0 or (epoch < 1 and batch_idx % 20000 == 0):
+        if (epoch > 1 and batch_idx % 20000 == 0) or (epoch < 1 and batch_idx % 5000 == 0):
             visualize(args, epoch, train_loader, optimizer, gen_model,
                                logger, batch_idx=batch_idx, save_dir=save_dir,
                                device=device, data=None, preds=None,
