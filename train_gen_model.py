@@ -267,7 +267,7 @@ def train(epoch, args, train_loader, optimizer, gen_model, agent, logger, save_d
         optimizer.step()
 
         # Logging and saving info
-        if args.log_interval == 0:
+        if batch_idx % args.log_interval == 0:
             loss.item()
             logger.logkv('epoch', epoch)
             logger.logkv('batches', batch_idx)
