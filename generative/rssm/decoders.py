@@ -83,8 +83,10 @@ class ConvDecoder(nn.Module):
                  ):
         super().__init__()
         self.in_dim = in_dim
-        kernels = (5, 5, 6, 6)
-        stride = 2
+        deconv_kernels = (3,4)
+        upspl_kernels = (3,3) # upsampling layers
+        upspl_stride = 1
+        deconv_stride = 2
         d = cnn_depth
         if mlp_layers == 0:
             layers = [
@@ -104,18 +106,27 @@ class ConvDecoder(nn.Module):
                     norm(hidden_dim, eps=1e-3),
                     activation()]
 
+        def define_upsample_conv(in_ch, out_ch, k, s, p):
+            return nn.Sequential(
+                nn.Conv2d(in_ch, out_ch, kernel_size=k, stride=s, padding=p),
+                nn.UpsamplingNearest2d(scale_factor=2))
+
         self.model = nn.Sequential(
             # FC
             *layers,
             nn.Unflatten(-1, (d * 32, 1, 1)),  # type: ignore
             # Deconv
-            nn.ConvTranspose2d(d * 32, d * 4, kernels[0], stride),
+            nn.ConvTranspose2d(d * 32, d * 4, deconv_kernels[0], deconv_stride),
             activation(),
-            nn.ConvTranspose2d(d * 4, d * 2, kernels[1], stride),
+            nn.ConvTranspose2d(d * 4, d * 2, deconv_kernels[1], deconv_stride),
+            activation(),  # (B, 2d, 8, 8) by this layer
+            define_upsample_conv(2 * d, 2 * d, upspl_kernels[0], upspl_stride, 1),
             activation(),
-            nn.ConvTranspose2d(d * 2, d, kernels[2], stride),
+            define_upsample_conv(2 * d, d, upspl_kernels[0], upspl_stride, 1),
             activation(),
-            nn.ConvTranspose2d(d, out_channels, kernels[3], stride))
+            define_upsample_conv(d, d, upspl_kernels[0], upspl_stride, 1),
+            activation(),
+            nn.Conv2d(d, out_channels, kernel_size=3, stride=1, padding=1))
 
     def forward(self, x: Tensor) -> Tensor:
         x, bd = flatten_batch(x)
