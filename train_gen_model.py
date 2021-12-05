@@ -271,7 +271,7 @@ def train(epoch, args, train_loader, optimizer, gen_model, agent, logger, save_d
             loss.item()
             logger.logkv('epoch', epoch)
             logger.logkv('batches', batch_idx)
-            logger.logkv('loss total', loss)
+            logger.logkv('loss total', loss.item())
             logger.dumpkvs()
 
         # Saving model
