@@ -193,7 +193,7 @@ if __name__=='__main__':
         act, log_prob_act, value, next_hidden_state = agent.predict_record(obs, hidden_state, done)
         next_obs, rew, done, info = agent.env.step(act)
 
-        # Store non-array variables
+        # Store variables
         for i in range(n_envs):
             data[i] = data[i].append({'level_seed': info[i]['level_seed'], # TODO for some reason seed is misaligned for the first step of each episode except the 0th episode.
                                      'episode': episode_number[i],
