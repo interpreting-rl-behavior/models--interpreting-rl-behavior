@@ -62,9 +62,9 @@ class AgentEnvironmentSimulator(nn.Module):
             embeds = [None] * self.num_sim_steps
         else:
             embeds = self.conv_in(im_labels)
-        env_h, env_z = self.env_stepper_initializer(init_ims)
-        agent_h = true_agent_h0
-        action = pred_action_1hot = true_actions_1hot[0]
+        env_h_prev, env_z_prev = self.env_stepper_initializer(init_ims)
+        agent_h_prev = true_agent_h0
+        action_prev = pred_action_1hot = true_actions_1hot[0]
         # TODO confirm the actions are one-hotted
         # TODO confirm whether you can get away without an action here
         #  (because will be better for gen model without)
@@ -73,6 +73,8 @@ class AgentEnvironmentSimulator(nn.Module):
         priors = []
         posts = []
         pred_actions = []
+        pred_action_log_probs = []
+        pred_values = []
         states_env_h = []
         samples = []
         agent_hs = []
@@ -89,22 +91,30 @@ class AgentEnvironmentSimulator(nn.Module):
                       'agent_h':agent_h_labels[i+1]} # +1 because ag_h_{t-1} is input to stepper and to agent, but it outputs ag_h_t(hat). We want the label to be ag_h_t.
 
             embed = embeds[i]
-            if use_true_actions:
-                action = true_actions_1hot[i]
-            else:
-                action = pred_action_1hot
 
-            post, pred_action_1hot, (env_h, env_z), agent_h, loss_reconstr, metrics, tensors = \
+            (post,    # tensor(B, 2*S)
+            pred_action_1hot,
+            pred_action_log_prob,
+            pred_value,
+            image_rec, # _pred for predicted, _rec for reconstructed, i.e. basically the same thing.
+            rew_rec,
+            terminal_rec,
+            (env_h, env_z),      # tensor(B, D+S+G)
+            agent_h,
+            loss_reconstr,
+            metrics,
+            tensors) = \
                 self.agent_env_stepper.forward(embed=embed,
-                                            action=action,
-                                            agent_h=agent_h,
-                                            in_state=(env_h, env_z),
+                                            action_prev=action_prev,
+                                            agent_h_prev=agent_h_prev,
+                                            env_state_prev=(env_h_prev, env_z_prev),
                                             imagine=imagine,
                                             modal_sampling=modal_sampling,
-                                            labels=labels)  # imagine: post=prior
-
+                                            labels=labels)
             posts.append(post)
             pred_actions.append(pred_action_1hot)
+            pred_action_log_probs.append(pred_action_log_prob)
+            pred_values.append(pred_value)
             states_env_h.append(env_h)
             samples.append(env_z)
             agent_hs.append(agent_h)
@@ -112,8 +122,17 @@ class AgentEnvironmentSimulator(nn.Module):
             metrics_list.append(metrics)
             tensors_list.append(tensors)
 
+            if use_true_actions:
+                action_prev = true_actions_1hot[i + 1]  # +1 because index0 is a_{t-1}
+            else:
+                action_prev = pred_action_1hot
+            agent_h_prev = agent_h
+            env_h_prev, env_z_prev = (env_h, env_z)
+
         posts = torch.stack(posts)                  # (T,B,2S)
         pred_actions = torch.stack(pred_actions)
+        pred_action_log_probs = torch.stack(pred_action_log_probs)
+        pred_values = torch.stack(pred_values)
         states_env_h = torch.stack(states_env_h)    # (T,B,D)
         samples = torch.stack(samples)              # (T,B,S)
         agent_hs = torch.stack(agent_hs)
@@ -140,6 +159,18 @@ class AgentEnvironmentSimulator(nn.Module):
         # Total loss
         assert loss_kl.shape == recon_losses.shape
         loss_model = self.kl_weight * loss_kl + recon_losses
+
+        # Make preds_dict
+        pred_images, pred_terminals, pred_rews = extract_preds_from_tensors(
+            self.num_sim_steps, tensors_list)
+        preds_dict = {'obs': pred_images,
+                      'hx': agent_hs,
+                      'reward': pred_rews,
+                      'done': pred_terminals,
+                      'act_log_probs': pred_action_log_probs,
+                      'value': pred_values,
+                      # 'sample_vecs': sample_vecs,
+                      'env_h': states_env_h}
 
         return (
             loss_model,
@@ -194,18 +225,18 @@ class AgentEnvStepper(nn.Module):
 
     def forward(self,
                 embed: Tensor,                    # tensor(B,E)
-                action: Tensor,                   # tensor(B,A)
-                in_state: Tuple[Tensor, Tensor],
-                agent_h,
+                action_prev: Tensor,                   # tensor(B,A)
+                env_state_prev: Tuple[Tensor, Tensor],
+                agent_h_prev,
                 imagine,
                 modal_sampling,
                 labels,
                 ):
 
-        in_h, in_z = in_state
-        B = action.shape[0]
+        in_h, in_z = env_state_prev
+        B = action_prev.shape[0]
 
-        x = self.z_mlp(in_z) + self.a_mlp(action)  # (B,H)
+        x = self.z_mlp(in_z) + self.a_mlp(action_prev)  # (B,H)
         x = self.in_norm(x)
         za = F.elu(x)
         h = self.gru(za, in_h)              # (B, D)
@@ -241,22 +272,27 @@ class AgentEnvStepper(nn.Module):
         feature = BF_to_TBIF(feature)
         labels = {k: BF_to_TBF(v) for k, v in labels.items()}
         # Now decode the env into ims
-        loss_reconstr, metrics, tensors, image_rec = \
+        loss_reconstr, metrics, tensors, image_rec, rew_rec, terminal_rec = \
             self.decoder.training_step(feature, labels)
-        # Note that image_rec has grads but tensors['image_rec'] does not
+        # Note that XXX_rec has grads but tensors['XXX_rec'] does not
 
         # Then use ims and agent_h to step the agent forward and produce an action
         image_rec = image_rec.squeeze()
         image_rec = dclamp(image_rec, self.image_range_min, self.image_range_max)
         no_masks = torch.zeros_like(labels['terminal'])
         pred_action, pred_action_logits, pred_value, agent_h = \
-            self.agent.predict_STE(image_rec, agent_h, no_masks,
+            self.agent.predict_STE(image_rec, agent_h_prev, no_masks,
                                    retain_grads=True) # Lee: I'm ignorant of whether the terminal-masks are doing anything potentially dangerous
         loss_reconstr_agent_h = self.agent_hx_loss(agent_h, labels['agent_h'], labels['terminal']) # TODO appropriate masking using terminal. We don't want agent hx to be trained after the episode is done
         loss_reconstr = loss_reconstr + loss_reconstr_agent_h # TODO try without this loss first because I'm not sure it's aligned or otherwise working properly
         return (
             post_or_prior,    # tensor(B, 2*S)
             pred_action,
+            pred_action_logits,
+            pred_value,
+            image_rec, # _pred for predicted, _rec for reconstructed, i.e. basically the same thing.
+            rew_rec,
+            terminal_rec,
             (h, sample),      # tensor(B, D+S+G)
             agent_h,
             loss_reconstr,
@@ -360,3 +396,15 @@ class EnvStepperInitializer(nn.Module):
         init_env_determ_state = self.mlp_out(x)
         init_env_stoch_state = torch.zeros(batches, self.env_h_stoch_size, device=self.device)
         return init_env_determ_state, init_env_stoch_state # TODO confirm that it's okay that this is actually 0s
+
+def extract_preds_from_tensors(num_sim_steps, tensors_list): # TODO duplicated in gen_model_experiment.py class
+    pred_images = torch.cat(
+        [tensors_list[t]['image_rec'] for t in range(num_sim_steps)],
+        dim=0)
+    pred_terminals = torch.cat(
+        [tensors_list[t]['terminal_rec'] for t in range(num_sim_steps)],
+        dim=0)
+    pred_rews = torch.cat(
+        [tensors_list[t]['reward_rec'] for t in range(num_sim_steps)],
+        dim=0)
+    return pred_images, pred_terminals, pred_rews

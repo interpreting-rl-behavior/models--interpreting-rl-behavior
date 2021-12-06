@@ -68,7 +68,7 @@ class MultiDecoder(nn.Module):
             metrics.update(loss_terminal1=nanmean(loss_terminal1))
             tensors.update(loss_terminal1=loss_terminal1)
 
-        return loss_reconstr, metrics, tensors, image_rec
+        return loss_reconstr, metrics, tensors, image_rec, reward_rec, terminal_rec
 
 
 class ConvDecoder(nn.Module):
