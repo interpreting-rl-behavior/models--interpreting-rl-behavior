@@ -266,20 +266,20 @@ def record_gen_samples(epoch, args, gen_model, batch_size, agent, data, logger, 
         if args.swap_directions_from is not None:
             assert len(args.swap_directions_from) == \
                    len(args.swap_directions_to)
-            from_dirs = []
-            to_dirs = []
+            from_dircs = []
+            to_dircs = []
             # Convert from strings into the right type (int or None)
-            for from_dir, to_dir in zip(args.swap_directions_from,
+            for from_dirc, to_dirc in zip(args.swap_directions_from,
                                         args.swap_directions_to):
-                if from_dir == 'None':
-                    from_dirs.append(None)
+                if from_dirc == 'None':
+                    from_dircs.append(None)
                 else:
-                    from_dirs.append(int(from_dir))
-                if to_dir == 'None':
-                    to_dirs.append(None)
+                    from_dircs.append(int(from_dirc))
+                if to_dirc == 'None':
+                    to_dircs.append(None)
                 else:
-                    to_dirs.append(int(to_dir))
-            swap_directions = [from_dirs, to_dirs]
+                    to_dircs.append(int(to_dirc))
+            swap_directions = [from_dircs, to_dircs]
         else:
             swap_directions = None
         # Forward pass of generative model
@@ -298,11 +298,6 @@ def record_gen_samples(epoch, args, gen_model, batch_size, agent, data, logger, 
         pred_agent_values = preds['values']
         env_rnn_states = preds['env_hx']
         sample_latent_vecs = preds['latent_vecs_c_and_g']
-
-        # Generate samples
-        # pred_obs, pred_rews, pred_dones, pred_agent_hxs, \
-        # pred_agent_logprobs, pred_agent_values,\
-        # env_rnn_states = gen_model.decoder(z_c, z_g, true_actions=None)
 
         # Stack samples into single tensors and convert to numpy arrays
         pred_obs = np.array(torch.stack(pred_obs, dim=1).cpu().numpy() * 255, dtype=np.uint8)
