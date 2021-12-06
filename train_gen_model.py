@@ -274,22 +274,22 @@ def train(epoch, args, train_loader, optimizer, gen_model, agent, logger, save_d
             logger.logkv('loss total', loss.item())
             logger.dumpkvs()
 
-        # # Saving model
-        # if batch_idx % args.save_interval == 0:
-        #     model_path = os.path.join(
-        #         save_dir,
-        #         'model_epoch{}_batch{}.pt'.format(epoch, batch_idx))
-        #     torch.save(
-        #         {'gen_model_state_dict': gen_model.state_dict(),
-        #          'optimizer_state_dict': optimizer.state_dict()},
-        #         model_path)
-        #     logger.info('Generative model saved to {}'.format(model_path))
+        # Saving model
+        if batch_idx % args.save_interval == 0:
+            model_path = os.path.join(
+                save_dir,
+                'model_epoch{}_batch{}.pt'.format(epoch, batch_idx))
+            torch.save(
+                {'gen_model_state_dict': gen_model.state_dict(),
+                 'optimizer_state_dict': optimizer.state_dict()},
+                model_path)
+            logger.info('Generative model saved to {}'.format(model_path))
 
         # Visualize the predictions compared with the ground truth
         pred_images, pred_terminals, pred_rews = extract_preds_from_tensors(args, tensors_list)
 
         preds = {'ims': pred_images, 'actions': pred_actions_1hot, 'terminals': pred_terminals, 'rews': pred_rews}
-        if (epoch > 1 and batch_idx % 20000 == 0) or (epoch < 1 and batch_idx % 5000 == 0):
+        if (epoch >= 1 and batch_idx % 20000 == 0) or (epoch < 1 and batch_idx % 5000 == 0):
         # if batch_idx % 1 == 0 :
             visualize(args, epoch, train_loader, optimizer, gen_model,
                                logger, batch_idx=batch_idx, save_dir=save_dir,
@@ -297,7 +297,7 @@ def train(epoch, args, train_loader, optimizer, gen_model, agent, logger, save_d
                                use_true_actions=True, save_root='sample')
 
         # Demo recon quality without using true images
-        if (epoch > 1 and batch_idx % 20000 == 0) or (epoch < 1 and batch_idx % 5000 == 0):
+        if (epoch >= 1 and batch_idx % 20000 == 0) or (epoch < 1 and batch_idx % 5000 == 0):
             visualize(args, epoch, train_loader, optimizer, gen_model,
                                logger, batch_idx=batch_idx, save_dir=save_dir,
                                device=device, data=None, preds=None,
