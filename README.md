@@ -13,14 +13,6 @@ Overview of steps:
 - Run analyses on the recorded simulated rollouts. 
 - Analysis of the prediction quality over time
 
-
-_N.B. During development, some of the below commands are prefixed with terms that
-are for submitting jobs on ETHZ's clusters, which use IBM Spectrum LSF e.g.:_
-> python script.py
-
-_These are kept here for convenience but will be removed in the published README.
-You will need to ignore them when running locally._
-
 All scripts should be run from the root dir.
 
 To train the agent on coinrun:
