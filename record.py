@@ -1,4 +1,16 @@
-"""Makes a dataset for the generative model."""
+"""Makes a dataset for the generative model.
+
+A note on timestep indexing and saving:
+
+Each timestep's variables consist of the same variables as in the Deletang
+diagram (augmented with rew and done info) and the PREVIOUS hidden state. We
+use the previous hx because that is what is input to the agent at this timestep.
+ But the agent uses the (current) hidden_state to produce the action. But we
+ still save the (current) hidden_state at the end. This means that we need to
+ be careful about indexing when visualising. The (current) hidden state should
+ be aligned with the action and the obs at the current timestep. Just be careful
+  when taking gradients that you know what you're actually taking grads wrt.
+"""
 import random
 
 import numpy as np
@@ -165,10 +177,12 @@ if __name__=='__main__':
 
     # Init agent and env
     obs = agent.env.reset()
-    hidden_state = np.stack(
+    hidden_state_prev = np.stack(
         [agent.policy.init_hx.clone().detach().cpu().numpy()] \
         * agent.n_envs)     # init with hx param
+    prev_act = np.ones(agent.n_envs) * 4  # Because in Coinrun, 4==null_action.
     done = np.zeros(agent.n_envs)
+    rew = np.zeros(agent.n_envs)
 
     # Timestep trackers
     global_steps = 0
@@ -190,8 +204,11 @@ if __name__=='__main__':
         agent.policy.eval()
 
         # Step agent and environment
-        act, log_prob_act, value, next_hidden_state = agent.predict_record(obs, hidden_state, done)
-        next_obs, rew, done, info = agent.env.step(act)
+        act, log_prob_act, value, hidden_state = agent.predict_record(obs, hidden_state_prev, done)
+        obs_next, rew_next, done_next, info = agent.env.step(act)
+        #if done, append the final hidden state (even though it's never input to the
+        # agent) and the last obs (in order to black it out, and it also is
+        # never input to agent)
 
         # Store variables
         for i in range(n_envs):
@@ -205,18 +222,17 @@ if __name__=='__main__':
                                      'action': act[i],
                                      }, ignore_index=True)
 
-            obs_lists[i].append(obs[i])
-            hx_lists[i].append(hidden_state[i])
-            logprob_lists[i].append(log_prob_act[i])
+            if done[i]:
+                    black_obs = np.zeros_like(obs[i])
+                    obs_lists[i].append(black_obs)
+                    hx_lists[i].append(hidden_state_prev[i])
+                    hx_lists[i].append(hidden_state[i])
+                    logprob_lists[i].append(log_prob_act[i])
+            else:
+                obs_lists[i].append(obs[i])
+                hx_lists[i].append(hidden_state_prev[i])
+                logprob_lists[i].append(log_prob_act[i])
 
-        # Increment for next step
-        obs = next_obs
-        hidden_state = next_hidden_state
-        global_steps += 1
-        episode_steps += 1
-        print("Episode number: ", episode_number)
-        print("Episode len: ", episode_steps)
-        print("Done:        ", done + 0)
         # At end of episode
         if np.any(done):
             done_idxs = np.where(done)[0] # [0] is because np.where returns a tuple
@@ -224,7 +240,7 @@ if __name__=='__main__':
                 done_epi_idx = episode_number[idx]
 
                 if episode_number[idx] < max_episodes: # save episode len
-                    episode_lens[done_epi_idx] = episode_steps[idx]
+                    episode_lens[done_epi_idx] = episode_steps[idx] + 1
 
                 data[idx].to_csv(os.path.join(logdir,
                     f'data_gen_model_{done_epi_idx:05d}.csv'),
@@ -272,8 +288,20 @@ if __name__=='__main__':
                 logprob_lists[idx] = []
 
                 # Reset hidden state
-                hidden_state[idx,:] = np.stack(
+                hidden_state_prev[idx,:] = np.stack(
                     agent.policy.init_hx.clone().detach().cpu().numpy())
+
+
+        # Increment for next step
+        obs = obs_next
+        rew = rew_next
+        done = done_next
+        hidden_state_prev = hidden_state
+        global_steps += 1
+        episode_steps += 1
+        print("Episode number: ", episode_number)
+        print("Episode len: ", episode_steps)
+        print("Done:        ", done + 0)
 
         # End recording loop if max num recorded episodes OR time-limit has
         # been reached
@@ -295,12 +323,7 @@ if __name__=='__main__':
     print("Combining datasets")
     data = pd.DataFrame(columns=['global_step', 'episode'])
     list_of_ref_dfs = []
-    # for e in range(max_episodes):
-    #     epi_filename = os.path.join(logdir, f'data_gen_model_{e:05d}.csv')
-    #     data_e = pd.read_csv(epi_filename)
-    #     data = data.append(data_e[['global_step', 'episode']])
-    # data['global_step'] = np.arange(len(data['global_step'])) # Set global step
-    # # so that each data step has a unique global step.
+
     max_global_step = 0
     for e in range(max_episodes):
         print(f"Creating indices for episode {e}")

@@ -34,14 +34,15 @@ class ProcgenDataset(Dataset):
         self.data_keys = list(self.null_element.keys())
 
     def __len__(self):
-        # note: - self.seq_len to avoid sampling the end of the dataset where
-        # the remaining sequence is too short.
+        """ N.b. We subtract self.seq_len here to avoid sampling the end of the dataset where
+        # the remaining sequence is too short."""
         return len(self.idx_to_epi_table) - self.seq_len
 
 
     def __getitem__(self, idx):
-        """It's kind of complicated, but it's as simple as I could make it so
-        that it could fetch all the types of edge cases we should expect:
+        """This getter is kind of complicated, but it's as simple as I could
+        make it so that it could fetch all the types of edge cases we should
+        expect:
             - normal - init seq same as main seq and NOT close to end of epi
             - normal end - init seq same as main seq and epi ends during main seq
             - last epi - init seq or main seq extends beyond last epi
@@ -86,6 +87,7 @@ class ProcgenDataset(Dataset):
                 data['episode_step'].loc[data['global_step'] == \
                                          full_segment_init_global_step]
             full_segment_init_step = int(full_segment_init_step)
+            assert full_segment_init_step >= 0
             element_first_step = 0
 
         full_segment_len = sum(frames['episode'] == episode_number)
@@ -93,11 +95,12 @@ class ProcgenDataset(Dataset):
         element_last_step = element_first_step + full_segment_len
 
         ## Make data_dict and put the parts you want in the batch element.
-        data = data[self.data_keys[:4]]
-        data = data.to_numpy().T.tolist()
+        labels_done_rew_v_a = self.data_keys[:4]
+        data_np = data[labels_done_rew_v_a]
+        data_np = data_np.to_numpy().T.tolist()
         vec_list = [ims, hx, lp]
-        data.extend(vec_list)
-        data_dict = {k: v for k, v in zip(self.data_keys, data)}
+        data_np.extend(vec_list)
+        data_dict = {k: v for k, v in zip(self.data_keys, data_np)}
 
         ## Insert data into null vecs
         batch_ele = {'done': np.zeros(self.seq_len),
@@ -105,7 +108,7 @@ class ProcgenDataset(Dataset):
                      'value': np.zeros(self.seq_len),
                      'action': np.zeros(self.seq_len),
                      'ims': np.zeros((self.seq_len, self.ims_ch, self.ims_hw, self.ims_hw)),
-                     'hx': np.zeros((self.seq_len, self.hx_size)),
+                     'hx': np.zeros((self.seq_len+1, self.hx_size)),
                      'act_log_probs': np.zeros((self.seq_len, self.act_space_size)),
                      }
         for key, val in data_dict.items():
@@ -113,15 +116,20 @@ class ProcgenDataset(Dataset):
                                   element_last_step))) == \
                    len(list(range(full_segment_init_step,
                                   full_segment_last_step)))
-            data_array = np.array(data_dict[key][full_segment_init_step:
-                                                 full_segment_last_step])
+            if key == 'hx':
+                # We get an extra hx because we need hx_{t-1} as input
+                #  to the agent at t, but we need hx_t to compare with hx_t_hat.
+                data_array = np.array(data_dict[key][full_segment_init_step:
+                                                     full_segment_last_step+1])
+            else:
+                data_array = np.array(data_dict[key][full_segment_init_step:
+                                                     full_segment_last_step])
             if key == 'ims':
                 data_array = data_array / 255.
-                # TODO consider copying the last frame after 'done' instead
-                #  of leaving as all zeros.
-            batch_ele[key][element_first_step:element_last_step] = data_array
+            batch_ele[key][element_first_step:
+                           element_first_step+data_array.shape[0]] = data_array
 
-        # Rename done (from RL repo) to terminal (from rssm/gen_model repo)
+        # Rename 'done' (from RL repo) to 'terminal' (from rssm/gen_model repo)
         batch_ele['terminal'] = batch_ele.pop('done')
 
         return batch_ele

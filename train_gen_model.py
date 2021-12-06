@@ -12,7 +12,7 @@ import random
 import torch
 from generative.generative_models import AgentEnvironmentSimulator
 from generative.procgen_dataset import ProcgenDataset
-from overlay_image import overlay_actions
+from overlay_image import overlay_actions, overlay_box_var
 
 from collections import deque
 import torchvision.io as tvio
@@ -274,25 +274,23 @@ def train(epoch, args, train_loader, optimizer, gen_model, agent, logger, save_d
             logger.logkv('loss total', loss.item())
             logger.dumpkvs()
 
-        # Saving model
-        if batch_idx % args.save_interval == 0:
-            model_path = os.path.join(
-                save_dir,
-                'model_epoch{}_batch{}.pt'.format(epoch, batch_idx))
-            torch.save(
-                {'gen_model_state_dict': gen_model.state_dict(),
-                 'optimizer_state_dict': optimizer.state_dict()},
-                model_path)
-            logger.info('Generative model saved to {}'.format(model_path))
+        # # Saving model
+        # if batch_idx % args.save_interval == 0:
+        #     model_path = os.path.join(
+        #         save_dir,
+        #         'model_epoch{}_batch{}.pt'.format(epoch, batch_idx))
+        #     torch.save(
+        #         {'gen_model_state_dict': gen_model.state_dict(),
+        #          'optimizer_state_dict': optimizer.state_dict()},
+        #         model_path)
+        #     logger.info('Generative model saved to {}'.format(model_path))
 
         # Visualize the predictions compared with the ground truth
-        pred_images = torch.cat(
-            [tensors_list[t]['image_rec'] for t in range(args.num_sim_steps)],
-            dim=0)
+        pred_images, pred_terminals, pred_rews = extract_preds_from_tensors(args, tensors_list)
 
-        preds = {'ims': pred_images, 'actions': pred_actions_1hot}
+        preds = {'ims': pred_images, 'actions': pred_actions_1hot, 'terminals': pred_terminals, 'rews': pred_rews}
         if (epoch > 1 and batch_idx % 20000 == 0) or (epoch < 1 and batch_idx % 5000 == 0):
-        # if batch_idx % 10000 == 0 or (epoch < 1 and batch_idx % 20000 == 0):
+        # if batch_idx % 1 == 0 :
             visualize(args, epoch, train_loader, optimizer, gen_model,
                                logger, batch_idx=batch_idx, save_dir=save_dir,
                                device=device, data=data, preds=preds,
@@ -309,88 +307,6 @@ def train(epoch, args, train_loader, optimizer, gen_model, agent, logger, save_d
                                device=device, data=None, preds=None,
                                use_true_actions=False, save_root='demo_sim_acts')
 
-
-def compute_kl_div_categorical(p_logits, q_logits, num_categ_distribs=32, num_categs=32):
-
-    # episilon = 1e-7
-    ts = p_logits.shape[0]
-    b = p_logits.shape[1]
-    p_logits = p_logits.view(ts, b, num_categ_distribs, num_categs)
-    q_logits = q_logits.view(ts, b, num_categ_distribs, num_categs)
-
-    probs_p = torch.softmax(p_logits, dim=3)
-    probs_q = torch.softmax(q_logits, dim=3)
-    kl_div = torch.sum(probs_p * torch.log(probs_p / probs_q), dim=[0,2,3]) # sum over t and categoricals
-    kl_div = torch.mean(kl_div) # mean over batch
-    return kl_div
-
-def loss_function(args, preds, labels, train_info_bufs, device):
-
-    recon_loss_hyperparams = {'ims': args.loss_scale_ims,
-                              'hx': args.loss_scale_hx,
-                              'reward': args.loss_scale_reward,
-                              'terminal': args.loss_scale_terminal,
-                              'act_log_probs': args.loss_scale_act_log_probs
-                              }
-    KL_loss_hyperparams = {
-        'pp_KL': 1.0,
-        'KL_alpha': 0.8,
-    }
-
-    terminals = labels['terminal'][:, -args.num_sim_steps:]
-    before_terminals = terminal_labels_to_mask(terminals)
-
-    # Reconstruction loss
-    recon_losses = []
-    for key in recon_loss_hyperparams.keys():
-        pred  = torch.stack(preds[key], dim=1).squeeze()
-
-        label = labels[key].to(device).float().squeeze()
-        label = label[:, -args.num_sim_steps:]
-
-        # Calculate masks for hx & logprobs
-        if key in ['hx', 'act_log_probs']:
-            num_dims = len(label.shape) - 2
-            # subtract 2 is because batch and time dim are already present in the
-            # mask
-
-            unsqz_lastdim = lambda x: x.unsqueeze(dim=-1)
-            mask = before_terminals
-            for d in range(num_dims):
-                # Applies unsqueeze enough times to produce a tensor of the same
-                # order as the loss tensor. It can therefore be broadcast to the
-                # same shape as the loss tensor
-                mask = unsqz_lastdim(mask)
-
-            # Calculate loss
-            loss = (pred - label) * mask
-            loss = torch.mean(loss ** 2)
-        else:
-            # Calculate loss
-            loss = (pred - label)
-            loss = torch.mean(loss ** 2)
-
-        train_info_bufs[key].append(loss.item())
-        loss = loss * recon_loss_hyperparams[key]
-        recon_losses.append(loss)
-
-    recon_loss = sum(recon_losses)
-    train_info_bufs['total recon w/o KL'].append(recon_loss.item())
-
-    # KL term
-    alpha = KL_loss_hyperparams['KL_alpha']
-
-    q = preds['env_h_stoch_logits']  # approx posterior
-    p = preds['pred_env_h_stoch_logits']  # prior
-    q = torch.stack(q)
-    p = torch.stack(p)
-
-    kl_divergence_q = compute_kl_div_categorical(q.detach(), p) * alpha
-    kl_divergence_p = compute_kl_div_categorical(q, p.detach()) * (1-alpha)
-    kl_divergence = kl_divergence_q + kl_divergence_p
-    train_info_bufs['KL'].append(kl_divergence.item())
-
-    return recon_loss + kl_divergence, train_info_bufs
 
 def visualize(args, epoch, train_loader, optimizer, gen_model, logger,
               batch_idx, save_dir, device, data=None, preds=None, use_true_actions=True, save_root=''):
@@ -412,6 +328,8 @@ def visualize(args, epoch, train_loader, optimizer, gen_model, logger,
     # Get input data for generative model
     full_ims = data['ims']
     true_actions_inds = data['action'][-args.num_sim_steps:]
+    true_terminals = data['terminal'][-args.num_sim_steps:]
+    true_rews = data['reward'][-args.num_sim_steps:]
 
     # Forward pass to get predictions if not already done
     if preds is None:
@@ -423,11 +341,13 @@ def visualize(args, epoch, train_loader, optimizer, gen_model, logger,
                       imagine=True,
                       modal_sampling=True)
         # Extract predictions from model output
-        pred_images = torch.cat(
-            [tensors_list[t]['image_rec'] for t in range(args.num_sim_steps)],
-            dim=0)
+        pred_images, pred_terminals, pred_rews = extract_preds_from_tensors(args, tensors_list)
+
     else:
-        pred_images, pred_actions_1hot = preds['ims'], preds['actions']
+        pred_images = preds['ims']
+        pred_terminals = preds['terminals']
+        pred_rews = preds['rews']
+        pred_actions_1hot = preds['actions']
 
     # Establish the right settings for visualisation
     viz_batch_size = min(int(pred_images.shape[1]), 20)
@@ -449,10 +369,21 @@ def visualize(args, epoch, train_loader, optimizer, gen_model, logger,
         # (T,B,C,H,W) --> (B,T,H,W,C)
         pred_images = pred_images.permute(1,0,3,4,2)
         full_ims = full_ims.permute(1,0,3,4,2)
+        pred_terminals = pred_terminals.permute(1,0)
+        pred_rews = pred_rews.permute(1,0)
+        true_terminals = true_terminals.permute(1,0)
+        true_rews = true_rews.permute(1,0)
 
         for b in range(viz_batch_size):
             pred_im = pred_images[b]
             full_im = full_ims[b]
+            full_im = full_im[-args.num_sim_steps:]
+
+            # Overlay Done and Reward
+            pred_im = overlay_box_var(pred_im, pred_terminals[b], 'left')
+            pred_im = overlay_box_var(pred_im, pred_rews[b], 'right')
+            full_im = overlay_box_var(full_im, true_terminals[b], 'left')
+            full_im = overlay_box_var(full_im, true_rews[b], 'right')
 
             # Make predictions and ground truth into right format for
             #  video saving
@@ -465,8 +396,9 @@ def visualize(args, epoch, train_loader, optimizer, gen_model, logger,
             pred_im = overlay_actions(pred_im, viz_actions_inds[b], size=16)
 
             full_im = full_im.clone().detach().type(torch.uint8).cpu().numpy()
-            full_im = full_im[-args.num_sim_steps:]
+
             full_im = overlay_actions(full_im, true_actions_inds[b], size=16)
+
 
 
             # Join the prediction and the true image side-by-side
@@ -478,10 +410,17 @@ def visualize(args, epoch, train_loader, optimizer, gen_model, logger,
                        f'{epoch:02d}_{batch_idx:06d}_{b:03d}.mp4'
             tvio.write_video(save_str, combined_im, fps=14)
 
-
-def safe_mean(xs):
-    return np.nan if len(xs) == 0 else np.mean(xs)
-
+def extract_preds_from_tensors(args, tensors_list):
+    pred_images = torch.cat(
+        [tensors_list[t]['image_rec'] for t in range(args.num_sim_steps)],
+        dim=0)
+    pred_terminals = torch.cat(
+        [tensors_list[t]['terminal_rec'] for t in range(args.num_sim_steps)],
+        dim=0)
+    pred_rews = torch.cat(
+        [tensors_list[t]['reward_rec'] for t in range(args.num_sim_steps)],
+        dim=0)
+    return pred_images, pred_terminals, pred_rews
 
 
 class Namespace:

@@ -1,5 +1,6 @@
 import numpy as np
 from skimage.draw import line_aa
+import torch
 
 
 def add_line(img, start_pos, end_pos):
@@ -92,6 +93,21 @@ def overlay_actions(obs, actions, size=16):
         half_ob_size = obs.shape[1] //2
         obs[timestep][:action_img_size, half_ob_size-action_img_size//2:half_ob_size+action_img_size//2] = action_img
     return obs
+
+def overlay_box_var(im_seq, indicator_variable, left_right='left'):
+    box_dim = 4
+    t = im_seq.shape[0]
+    b = im_seq.shape[1]
+    c = im_seq.shape[-1]
+    box = torch.ones(t, box_dim, box_dim, 3, device=im_seq.device) * indicator_variable.unsqueeze(-1).unsqueeze(-1).unsqueeze(-1)
+    box = box.squeeze()
+    if left_right == 'left':
+        im_seq[:, 0:box_dim, 0:box_dim, :] = 0.
+        im_seq[:, 0:box_dim, 0:box_dim, :] = box
+    elif left_right == 'right':
+        im_seq[:, 0:box_dim, -box_dim-1:-1, :] = 0.
+        im_seq[:, 0:box_dim, -box_dim-1:-1, :] = box
+    return im_seq
 
 if __name__ == "__main__":
     arrow_images()

@@ -42,16 +42,17 @@ class AgentEnvironmentSimulator(nn.Module):
 
         # Get input data for generative model
         full_ims = data['ims']
-        true_agent_h0 = data['hx'][-self.num_sim_steps]
-        agent_h_labels = data['hx'][-self.num_sim_steps:]
-        true_actions_inds = data['action'][-self.num_sim_steps:]
+        true_agent_h0 = data['hx'][self.num_init_steps-1] # -1 because 1st sim step is last init step
+        agent_h_labels = data['hx'][self.num_init_steps-1:]
+        true_actions_inds = data['action'][self.num_init_steps-2:] # -2 because we have to use a_{t-1} in combo with env_t to get o_t
         true_actions_1hot = torch.nn.functional.one_hot(true_actions_inds.long(),
                                                   self.action_size)
         true_actions_1hot = true_actions_1hot.float()
 
-        reward_labels = data['reward'][-self.num_sim_steps:] # TODO get the right timesteps
-        terminal_labels = data['terminal'][-self.num_sim_steps:] # TODO get the right timesteps
-        terminal_labels = terminal_labels_to_mask(terminal_labels)
+        reward_labels = data['reward'][self.num_init_steps-1:]
+        terminal_labels = data['terminal'][self.num_init_steps-1:]
+        # terminal_labels = terminal_labels_to_mask(terminal_labels)
+
         # Initialize env@t=0 and agent_h@t=0 # Later on, we're going to have to extract the initial steps here in order to make a VAE encoder from the initializer
         B = full_ims.shape[1]
         init_ims = full_ims[0:self.num_init_steps]
@@ -85,7 +86,7 @@ class AgentEnvironmentSimulator(nn.Module):
             labels = {'image': im_labels[i],
                       'reward':reward_labels[i],
                       'terminal':terminal_labels[i],
-                      'agent_h':agent_h_labels[i]}
+                      'agent_h':agent_h_labels[i+1]} # +1 because ag_h_{t-1} is input to stepper and to agent, but it outputs ag_h_t(hat). We want the label to be ag_h_t.
 
             embed = embeds[i]
             if use_true_actions:
@@ -247,11 +248,12 @@ class AgentEnvStepper(nn.Module):
         # Then use ims and agent_h to step the agent forward and produce an action
         image_rec = image_rec.squeeze()
         image_rec = dclamp(image_rec, self.image_range_min, self.image_range_max)
+        no_masks = torch.zeros_like(labels['terminal'])
         pred_action, pred_action_logits, pred_value, agent_h = \
-            self.agent.predict_STE(image_rec, agent_h, labels['terminal'],
+            self.agent.predict_STE(image_rec, agent_h, no_masks,
                                    retain_grads=True) # Lee: I'm ignorant of whether the terminal-masks are doing anything potentially dangerous
         loss_reconstr_agent_h = self.agent_hx_loss(agent_h, labels['agent_h'], labels['terminal']) # TODO appropriate masking using terminal. We don't want agent hx to be trained after the episode is done
-        loss_reconstr = loss_reconstr # + loss_reconstr_agent_h # TODO try without this loss first because I'm not sure it's aligned or otherwise working properly
+        loss_reconstr = loss_reconstr + loss_reconstr_agent_h # TODO try without this loss first because I'm not sure it's aligned or otherwise working properly
         return (
             post_or_prior,    # tensor(B, 2*S)
             pred_action,
@@ -262,7 +264,7 @@ class AgentEnvStepper(nn.Module):
             tensors
         )
 
-    def agent_hx_loss(self, pred_agent_h, label_agent_h, mask):
+    def agent_hx_loss(self, pred_agent_h, label_agent_h, terminals):
         """Based on jurgisp's 'vecobs_decoder'. To be honest I don't understand
          why the std is pre-specified like this. But it's unlikely to be hugely
          important; the agent_h_loss is auxiliary."""
@@ -271,7 +273,7 @@ class AgentEnvStepper(nn.Module):
         p = D.Normal(loc=pred_agent_h, scale=torch.ones_like(pred_agent_h) * std)
         p = D.independent.Independent(p, 1)  # Makes p.logprob() sum over last dim
         loss = -p.log_prob(label_agent_h) * var
-        loss = loss * mask
+        loss = loss * terminal_labels_to_mask(terminals)
         loss = loss.unsqueeze(-1)
         return loss
 
