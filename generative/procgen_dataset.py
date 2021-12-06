@@ -108,7 +108,7 @@ class ProcgenDataset(Dataset):
                      'value': np.zeros(self.seq_len),
                      'action': np.zeros(self.seq_len),
                      'ims': np.zeros((self.seq_len, self.ims_ch, self.ims_hw, self.ims_hw)),
-                     'hx': np.zeros((self.seq_len+1, self.hx_size)),
+                     'hx': np.zeros((self.seq_len + 1, self.hx_size)),  # See below comment justifying this extra 1
                      'act_log_probs': np.zeros((self.seq_len, self.act_space_size)),
                      }
         for key, val in data_dict.items():
