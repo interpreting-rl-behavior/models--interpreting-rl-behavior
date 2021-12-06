@@ -16,7 +16,6 @@ Overview of steps:
 
 _N.B. During development, some of the below commands are prefixed with terms that
 are for submitting jobs on ETHZ's clusters, which use IBM Spectrum LSF e.g.:_
-> bsub -W 23:59 -R "rusage[mem=32768,ngpus_excl_p=1]" -R "select[gpu_model0==GeForceGTX1080Ti]" 
 > python script.py
 
 _These are kept here for convenience but will be removed in the published README.
@@ -26,7 +25,6 @@ All scripts should be run from the root dir.
 
 To train the agent on coinrun:
 
-> bsub -W 23:59 -R "rusage[mem=32768,ngpus_excl_p=1]" -R "select[gpu_model0==GeForceGTX1080Ti]" 
 > python train.py --exp_name [agent_training_experiment_name] --env_name coinrun --param_name hard-rec --num_levels 1000000 --distribution_mode hard --num_timesteps 200000000 --num_checkpoints 500
 
 This will save training data and a model in a directory in
@@ -53,7 +51,6 @@ interpreting it.
 To begin interpretation, we need to record a bunch of agent-environment 
 rollouts in order to train the generative model:
 
->  bsub -W 47:59 -R "rusage[mem=32768,ngpus_excl_p=1]" -R "select[gpu_model0==GeForceGTX1080Ti]" 
 > python record.py --exp_name [recording_experiment_name] --env_name coinrun --param_name hard-rec --num_levels 1000000 --distribution_mode hard --num_checkpoints 200 --model_file="logs/procgen/coinrun/[agent_training_experiment_name]/[agent_training_unique_seed]/[agent_name].pth" --logdir="[path_to_rollout_data_save_dir]"
 
 Note that ``--logdir`` should have plenty of storage space (100's of GB).
@@ -61,19 +58,17 @@ Note that ``--logdir`` should have plenty of storage space (100's of GB).
 With this recorded data, we can start to train the generative model on 
 agent-environment rollouts:
 
-> bsub -W 71:59 -R "rusage[mem=32768,ngpus_excl_p=1]" -R "select[gpu_model0==GeForceGTX1080Ti]" 
-> python train_gen_model.py --agent_file="logs/procgen/coinrun/[agent_training_experiment_name]/[agent_training_unique_seed]/[agent_name].pth" --param_name=hard-rec --log_interval=10 --batch_size=28 --num_sim_steps=28 --num_initializing_steps=3 --save_interval=10000 --lr=1e-4 --env_name=coinrun --loss_scale_obs=1000.0 --loss_scale_hx=1.0 --loss_scale_reward=0.01 --loss_scale_done=0.1 --loss_scale_act_log_probs=0.00001 --loss_scale_gen_adv=0. --loss_scale_kl=1.0 --tgm_exp_name=[generative_model_training_experiment_name] --data_dir=[path_to_real_rollout_data_save_dir]
+[comment]: <> (> python train_gen_model.py --agent_file="logs/procgen/coinrun/[agent_training_experiment_name]/[agent_training_unique_seed]/[agent_name].pth" --param_name=hard-rec --log_interval=10 --batch_size=28 --num_sim_steps=28 --num_initializing_steps=3 --save_interval=10000 --lr=1e-4 --env_name=coinrun --loss_scale_obs=1000.0 --loss_scale_hx=1.0 --loss_scale_reward=0.01 --loss_scale_done=0.1 --loss_scale_act_log_probs=0.00001 --loss_scale_gen_adv=0. --loss_scale_kl=1.0 --tgm_exp_name=[generative_model_training_experiment_name] --data_dir=[path_to_real_rollout_data_save_dir])
+> python train_gen_model.py --agent_file=./logs/procgen/coinrun/trainhx_1Mlvls/seed_498_07-06-2021_23-26-27/model_80412672.pth --param_name=hard-rec --log_interval=10 --batch_size=32 --num_sim_steps=40 --num_init_steps=3 --save_interval=10000 --lr=5e-4 --env_name=coinrun --loss_scale_ims=1.0 --loss_scale_hx=0.0 --loss_scale_reward=1.0 --loss_scale_terminal=1.0 --loss_scale_act_log_probs=0.0 --loss_scale_gen_adv=0. --loss_scale_kl=1.0 --data_dir=./data/ --tgm_exp_name=dev
 
-That'll take a while to train (a few days/weeks). Once it's trained, we'll record some agent-
+That'll take a 1-4 days to train on a single GPU. Once it's trained, we'll record some agent-
 environment rollouts from the model. This will enable us to compare the 
 simulations to the true rollouts and will help us understand our generative 
-model (which includes the a3gent that we want to interpret) better. This is how
+model (which includes the agent that we want to interpret) better. This is how
 we record samples from the generative model:
 
-> bsub -W 23:59 -R "rusage[mem=32768,ngpus_excl_p=1]" -R "select[gpu_model0==GeForceGTX1080Ti]" 
 > python record_informinit_gen_samples.py --agent_file="logs/procgen/coinrun/[agent_training_experiment_name]/[agent_training_unique_seed]/[agent_name].pth" --param_name=hard-rec --log_interval=10 --batch_size=16 --num_sim_steps=28 --num_initializing_steps=3 --save_interval=10000 --lr=1e-4 --env_name=coinrun --model_file="generative/results/[generative_model_training_experiment_name]/[date_time_of_gen_model_training]/[gen_model_name].pt" --data_dir=[path_to_real_rollout_data_save_dir]/data --data_save_dir=[path_to_sim_rollout_data_save_dir]/recorded_informinit_gen_samples
 
-> bsub -W 23:59 -R "rusage[mem=32768,ngpus_excl_p=1]" -R "select[gpu_model0==GeForceGTX1080Ti]" 
 > python record_random_gen_samples.py --agent_file="logs/procgen/coinrun/[agent_training_experiment_name]/[agent_training_unique_seed]/[agent_name].pth" --param_name=hard-rec --log_interval=10 --batch_size=16 --num_sim_steps=28 --num_initializing_steps=3 --save_interval=10000 --lr=1e-4 --env_name=coinrun --model_file="generative/results/[generative_model_training_experiment_name]/[date_time_of_gen_model_training]/[gen_model_name].pt" --data_save_dir=[path_to_sim_rollout_data_save_dir]/recorded_randinit_gen_samples
 
 Now we're ready to start some analysis. 
@@ -94,10 +89,8 @@ divergence never reaches zero so the distribution of the latent vector never
 becomes a perfectly Gaussian We produce PCA and and tSNE plots of the VAE
 latent vectors to observe the structure of the distribution. 
 
-> bsub -W 23:59 -R "rusage[mem=32768]" 
 > python latent_vec_analysis_precompute.py --agent_env_data_dir=[path_to_real_rollout_data_save_dir]/data --generated_data_dir_inf=[path_to_sim_rollout_data_save_dir]/recorded_informinit_gen_samples --generated_data_dir_rand=[path_to_sim_rollout_data_save_dir]/recorded_randinit_gen_samples
 > 
-> bsub -W 23:59 -R "rusage[mem=32768]" 
 > python latent_vec_analysis_plotting.py --agent_env_data_dir=[path_to_real_rollout_data_save_dir]/data --precomputed_analysis_data_path=analysis/latent_vec_analysis_precomp/
 
 ## Analysis of agent's hidden state
@@ -107,7 +100,6 @@ methods. First we precompute the dimensionality reduction analyses:
 
 or on the cluster
 
-> bsub -W 23:59 -R "rusage[mem=65536]" 
 > python hidden_analysis_precompute.py --agent_env_data_dir=[path_to_real_rollout_data_save_dir]/data --generated_data_dir=[path_to_sim_rollout_data_save_dir]/recorded_informinit_gen_samples
 
 with 10'000 episodes (not samples). Increase request for memory and compute time to cope with more episodes.  
@@ -123,20 +115,17 @@ using several different dimensionality reduction and clustering methods.
 
 ## Analysis of environment hidden states
 
-> bsub -W 23:59 -R "rusage[mem=65536]" 
 > python env_h_analysis_precompute.py --agent_env_data_dir=[path_to_real_rollout_data_save_dir]/data --generated_data_dir=[path_to_sim_rollout_data_save_dir]/recorded_informinit_gen_samples
 
 with 20'000 samples of len 24.  Increase request for memory and compute time to cope with more samples.  
 
 then
 
-> bsub -W 23:59 -R "rusage[mem=32768]" 
 > python env_h_analysis_plotting.py --agent_env_data_dir=[path_to_real_rollout_data_save_dir]/data --precomputed_analysis_data_path=analysis/env_analysis_precomp --generated_data_dir=[path_to_sim_rollout_data_save_dir]/recorded_informinit_gen_samples
 
 
 ## Analysis of SensoriMotorLoop space
 
-> bsub -W 23:59 -R "rusage[mem=65536]" 
 > python sml_analysis_precompute.py --agent_env_data_dir=[path_to_real_rollout_data_save_dir]/data --generated_data_dir=[path_to_sim_rollout_data_save_dir]/recorded_informinit_gen_samples
 
 ## Analysis of the prediction quality over time
