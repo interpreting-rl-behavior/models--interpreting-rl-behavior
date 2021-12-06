@@ -99,6 +99,7 @@ def overlay_box_var(im_seq, indicator_variable, left_right='left'):
     t = im_seq.shape[0]
     b = im_seq.shape[1]
     c = im_seq.shape[-1]
+    indicator_variable = indicator_variable / torch.max(indicator_variable)
     box = torch.ones(t, box_dim, box_dim, 3, device=im_seq.device) * indicator_variable.unsqueeze(-1).unsqueeze(-1).unsqueeze(-1)
     box = box.squeeze()
     if left_right == 'left':

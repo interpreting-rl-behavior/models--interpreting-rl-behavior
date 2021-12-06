@@ -223,6 +223,8 @@ if __name__=='__main__':
                                      }, ignore_index=True)
 
             if done[i]:
+                    # Therefore done and rew signal should only appear on
+                    #  black frames
                     black_obs = np.zeros_like(obs[i])
                     obs_lists[i].append(black_obs)
                     hx_lists[i].append(hidden_state_prev[i])
