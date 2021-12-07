@@ -355,10 +355,10 @@ class GenerativeModelExperiment():
                 full_im = full_ims[b]
 
                 # Overlay Done and Reward
-                pred_im = overlay_box_var(pred_im, pred_terminals[b], 'left')
-                pred_im = overlay_box_var(pred_im, pred_rews[b], 'right')
-                full_im = overlay_box_var(full_im, true_terminals[b], 'left')
-                full_im = overlay_box_var(full_im, true_rews[b], 'right')
+                pred_im = overlay_box_var(pred_im, pred_terminals[b], 'left', max=1.)
+                pred_im = overlay_box_var(pred_im, pred_rews[b], 'right', max=10.)
+                full_im = overlay_box_var(full_im, true_terminals[b], 'left', max=1.)
+                full_im = overlay_box_var(full_im, true_rews[b], 'right', max=10.)
 
                 # Make predictions and ground truth into right format for
                 #  video saving

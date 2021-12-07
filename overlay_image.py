@@ -94,12 +94,12 @@ def overlay_actions(obs, actions, size=16):
         obs[timestep][:action_img_size, half_ob_size-action_img_size//2:half_ob_size+action_img_size//2] = action_img
     return obs
 
-def overlay_box_var(im_seq, indicator_variable, left_right='left'):
+def overlay_box_var(im_seq, indicator_variable, left_right='left', max=1.):
     box_dim = 4
     t = im_seq.shape[0]
     b = im_seq.shape[1]
     c = im_seq.shape[-1]
-    indicator_variable = torch.clamp(indicator_variable, 1, 0)
+    indicator_variable = indicator_variable / max
     box = torch.ones(t, box_dim, box_dim, 3, device=im_seq.device) * indicator_variable.unsqueeze(-1).unsqueeze(-1).unsqueeze(-1)
     box = box.squeeze()
     if left_right == 'left':
