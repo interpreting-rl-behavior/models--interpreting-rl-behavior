@@ -50,7 +50,7 @@ class TrainingExperiment(GenerativeModelExperiment):
             # Forward and backward pass and update generative model parameters
             self.optimizer.zero_grad()
             (loss_model, priors, posts, samples, features, env_states,
-            env_state, metrics_list, tensors_list, pred_actions_1hot, pred_agent_hs) = \
+            env_state, metrics_list, tensors_list, preds_dict) = \
                 self.gen_model(data=data, use_true_actions=True, imagine=False)
 
             loss = torch.mean(torch.sum(loss_model, dim=0))  # sum over T, mean over B
@@ -61,7 +61,6 @@ class TrainingExperiment(GenerativeModelExperiment):
                 if p.grad is not None:  # freeze agent parameters but not model's.
                     p.grad.data = torch.zeros_like(p.grad.data)
             self.optimizer.step()
-
             # Logging and saving info
             if batch_idx % self.args.log_interval == 0:
                 loss.item()
@@ -82,20 +81,20 @@ class TrainingExperiment(GenerativeModelExperiment):
                 logger.info('Generative model saved to {}'.format(model_path))
 
             # Visualize the predictions compared with the ground truth
-            pred_images, pred_terminals, pred_rews = self.extract_preds_from_tensors(tensors_list)
-
-            preds = {'ims': pred_images, 'actions': pred_actions_1hot, 'terminals': pred_terminals, 'rews': pred_rews}
+            # pred_images, pred_terminals, pred_rews = self.extract_preds_from_tensors(tensors_list)
+            #
+            # preds = {'ims': pred_images, 'actions': pred_actions_1hot, 'terminals': pred_terminals, 'rews': pred_rews}
             if (epoch >= 1 and batch_idx % 20000 == 0) or (epoch < 1 and batch_idx % 5000 == 0):
             # if batch_idx % 1 == 0 :
-                self.visualize(epoch, batch_idx=batch_idx, data=data, preds=preds,
-                               use_true_actions=True, save_root='sample')
+                self.visualize(epoch, batch_idx=batch_idx, data=data, preds=preds_dict,
+                               use_true_actions=True, save_root='sample_true_ims_true_acts')
 
             # Demo recon quality without using true images
             if (epoch >= 1 and batch_idx % 20000 == 0) or (epoch < 1 and batch_idx % 5000 == 0):
                 self.visualize(epoch, batch_idx=batch_idx, data=None, preds=None,
-                               use_true_actions=True, save_root='demo_true_acts')
+                               use_true_actions=True, save_root='sample_sim_ims_true_acts')
                 self.visualize(epoch, batch_idx=batch_idx, data=None, preds=None,
-                               use_true_actions=False, save_root='demo_sim_acts')
+                               use_true_actions=False, save_root='sample_sim_ims_sim_acts')
 
 
 if __name__ == "__main__":

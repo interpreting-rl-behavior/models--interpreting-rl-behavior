@@ -303,24 +303,32 @@ class GenerativeModelExperiment():
         true_rews = true_rews.permute(1, 0)
 
         # Forward pass to get predictions if not already done
-        if preds is None:
+        if preds is None: #TODO fix this code, wrong returns
             self.optimizer.zero_grad()
-            (loss_model, priors, posts, samples, features, env_states,
-             env_state, metrics_list, tensors_list, pred_actions_1hot,
-             pred_agent_hs) = \
+            (
+                loss_model,
+                priors,  # tensor(T,B,2S)
+                posts,  # tensor(T,B,2S)
+                samples,  # tensor(T,B,S)
+                features,  # tensor(T,B,D+S)
+                env_states,
+                (env_h, env_z),
+                metrics_list,
+                tensors_list,
+                preds,
+            ) = \
                 self.gen_model(data=data,
                           use_true_actions=use_true_actions,
                           imagine=True,
                           modal_sampling=True)
-            # Extract predictions from model output
-            pred_images, pred_terminals, pred_rews = self.extract_preds_from_tensors(
-                tensors_list)
+            # # Extract predictions from model output
+            # pred_images, pred_terminals, pred_rews = self.extract_preds_from_tensors(
+            #     tensors_list)
 
-        else:
-            pred_images = preds['ims']
-            pred_terminals = preds['terminals']
-            pred_rews = preds['rews']
-            pred_actions_1hot = preds['actions']
+        pred_images = preds['ims']
+        pred_terminals = preds['terminal']
+        pred_rews = preds['reward']
+        pred_actions_1hot = preds['action']
 
         # Establish the right settings for visualisation
         viz_batch_size = min(int(pred_images.shape[1]), 20)

@@ -12,7 +12,10 @@ from .layers import LayeredConvNet, LayeredResBlockUp, LayeredResBlockDown, NLay
 
 class AgentEnvironmentSimulator(nn.Module):
 
-    def __init__(self, agent, device, hyperparams):
+    def __init__(self,
+                 agent,
+                 device,
+                 hyperparams):
         super(AgentEnvironmentSimulator, self).__init__()
 
         # Hyperparams
@@ -31,7 +34,11 @@ class AgentEnvironmentSimulator(nn.Module):
         self.action_size = agent.env.action_space.n
 
 
-    def forward(self, data, use_true_actions=True, imagine=False, modal_sampling=False,
+    def forward(self,
+                data,
+                use_true_actions=True,
+                imagine=False,
+                modal_sampling=False,
                 retain_grads=True, swap_directions=None):
         """
         imagine: Whether or not to use the generated images as input to
@@ -51,7 +58,7 @@ class AgentEnvironmentSimulator(nn.Module):
 
         reward_labels = data['reward'][self.num_init_steps-1:]
         terminal_labels = data['terminal'][self.num_init_steps-1:]
-        # terminal_labels = terminal_labels_to_mask(terminal_labels)
+        before_terminal_labels = terminal_labels_to_mask(terminal_labels)
 
         # Initialize env@t=0 and agent_h@t=0 # Later on, we're going to have to extract the initial steps here in order to make a VAE encoder from the initializer
         B = full_ims.shape[1]
@@ -72,9 +79,12 @@ class AgentEnvironmentSimulator(nn.Module):
 
         priors = []
         posts = []
-        pred_actions = []
+        pred_actions_1hot = []
         pred_action_log_probs = []
         pred_values = []
+        pred_ims = []
+        pred_rews = []
+        pred_terminals = []
         states_env_h = []
         samples = []
         agent_hs = []
@@ -85,9 +95,10 @@ class AgentEnvironmentSimulator(nn.Module):
         for i in range(self.num_sim_steps):
             # Define the labels for the loss function because we calculate it
             #  in here.
-            labels = {'image': im_labels[i],
+            labels = {'image': im_labels[i], #TODO make these keys consistent with the rest of the codebase, i.e. use 'ims', 'hx',
                       'reward':reward_labels[i],
                       'terminal':terminal_labels[i],
+                      'before_terminal':before_terminal_labels[i],
                       'agent_h':agent_h_labels[i+1]} # +1 because ag_h_{t-1} is input to stepper and to agent, but it outputs ag_h_t(hat). We want the label to be ag_h_t.
 
             embed = embeds[i]
@@ -112,9 +123,12 @@ class AgentEnvironmentSimulator(nn.Module):
                                             modal_sampling=modal_sampling,
                                             labels=labels)
             posts.append(post)
-            pred_actions.append(pred_action_1hot)
+            pred_actions_1hot.append(pred_action_1hot)
             pred_action_log_probs.append(pred_action_log_prob)
             pred_values.append(pred_value)
+            pred_ims.append(image_rec)
+            pred_rews.append(rew_rec)
+            pred_terminals.append(terminal_rec)
             states_env_h.append(env_h)
             samples.append(env_z)
             agent_hs.append(agent_h)
@@ -130,9 +144,12 @@ class AgentEnvironmentSimulator(nn.Module):
             env_h_prev, env_z_prev = (env_h, env_z)
 
         posts = torch.stack(posts)                  # (T,B,2S)
-        pred_actions = torch.stack(pred_actions)
+        pred_actions_1hot = torch.stack(pred_actions_1hot)
         pred_action_log_probs = torch.stack(pred_action_log_probs)
         pred_values = torch.stack(pred_values)
+        pred_ims = torch.stack(pred_ims)
+        pred_rews = torch.stack(pred_rews).squeeze()
+        pred_terminals = torch.stack(pred_terminals).squeeze()
         states_env_h = torch.stack(states_env_h)    # (T,B,D)
         samples = torch.stack(samples)              # (T,B,S)
         agent_hs = torch.stack(agent_hs)
@@ -160,15 +177,17 @@ class AgentEnvironmentSimulator(nn.Module):
         assert loss_kl.shape == recon_losses.shape
         loss_model = self.kl_weight * loss_kl + recon_losses
 
-        # Make preds_dict
-        pred_images, pred_terminals, pred_rews = extract_preds_from_tensors(
-            self.num_sim_steps, tensors_list)
-        preds_dict = {'obs': pred_images,
+        # Make preds_dict # TODO this won't do because tensors doesn't have gradients!! which we need in order to do saliency functions etc
+        # pred_images, _, _ = extract_preds_from_tensors(
+        #     self.num_sim_steps, tensors_list)
+        preds_dict = {'action': pred_actions_1hot,
+                      'act_log_prob': pred_action_log_probs,
+                      'value': pred_values,
+                      'ims': pred_ims, # TODO go through whole codebase converting from 'obs' 'ob' 'ims' to 'im', for consistency with other labels
                       'hx': agent_hs,
                       'reward': pred_rews,
-                      'done': pred_terminals,
-                      'act_log_probs': pred_action_log_probs,
-                      'value': pred_values,
+                      'terminal': pred_terminals,
+
                       # 'sample_vecs': sample_vecs,
                       'env_h': states_env_h}
 
@@ -182,8 +201,7 @@ class AgentEnvironmentSimulator(nn.Module):
             (env_h.detach(), env_z.detach()),
             metrics_list,
             tensors_list,
-            pred_actions,
-            agent_hs
+            preds_dict,
         )
 
 
@@ -191,7 +209,9 @@ class AgentEnvStepper(nn.Module):
     """
 
     """
-    def __init__(self, hyperparams, agent):
+    def __init__(self,
+                 hyperparams,
+                 agent):
         super(AgentEnvStepper, self).__init__()
 
         # Hyperparams
@@ -283,7 +303,7 @@ class AgentEnvStepper(nn.Module):
         pred_action, pred_action_logits, pred_value, agent_h = \
             self.agent.predict_STE(image_rec, agent_h_prev, no_masks,
                                    retain_grads=True) # Lee: I'm ignorant of whether the terminal-masks are doing anything potentially dangerous
-        loss_reconstr_agent_h = self.agent_hx_loss(agent_h, labels['agent_h'], labels['terminal']) # TODO appropriate masking using terminal. We don't want agent hx to be trained after the episode is done
+        loss_reconstr_agent_h = self.agent_hx_loss(agent_h, labels['agent_h'], labels['before_terminal']) # TODO appropriate masking using terminal. We don't want agent hx to be trained after the episode is done
         loss_reconstr = loss_reconstr + loss_reconstr_agent_h # TODO try without this loss first because I'm not sure it's aligned or otherwise working properly
         return (
             post_or_prior,    # tensor(B, 2*S)
@@ -300,7 +320,10 @@ class AgentEnvStepper(nn.Module):
             tensors
         )
 
-    def agent_hx_loss(self, pred_agent_h, label_agent_h, terminals):
+    def agent_hx_loss(self,
+                      pred_agent_h,
+                      label_agent_h,
+                      before_terminals):
         """Based on jurgisp's 'vecobs_decoder'. To be honest I don't understand
          why the std is pre-specified like this. But it's unlikely to be hugely
          important; the agent_h_loss is auxiliary."""
@@ -308,8 +331,9 @@ class AgentEnvStepper(nn.Module):
         var = std ** 2 # var cancels denominator, which makes loss = 0.5 (target-output)^2
         p = D.Normal(loc=pred_agent_h, scale=torch.ones_like(pred_agent_h) * std)
         p = D.independent.Independent(p, 1)  # Makes p.logprob() sum over last dim
+
         loss = -p.log_prob(label_agent_h) * var
-        loss = loss * terminal_labels_to_mask(terminals)
+        loss = loss * before_terminals
         loss = loss.unsqueeze(-1)
         return loss
 
@@ -341,7 +365,9 @@ class EnvStepperInitializer(nn.Module):
     an FC network. It outputs the initial state of the environment simulator.
 
     """
-    def __init__(self, hyperparams, device):
+    def __init__(self,
+                 hyperparams,
+                 device):
         super(EnvStepperInitializer, self).__init__()
         self.device = device
         self.num_init_steps = hyperparams.num_init_steps
@@ -368,7 +394,8 @@ class EnvStepperInitializer(nn.Module):
                                           self.env_dim)
                                             )
 
-    def forward(self, init_ims):
+    def forward(self,
+                init_ims):
         """"""
         # Flatten inp seqs along time dimension to pass all to conv nets
         # along batch dim
@@ -395,9 +422,10 @@ class EnvStepperInitializer(nn.Module):
         x = x[-1]  # get last ts
         init_env_determ_state = self.mlp_out(x)
         init_env_stoch_state = torch.zeros(batches, self.env_h_stoch_size, device=self.device)
-        return init_env_determ_state, init_env_stoch_state # TODO confirm that it's okay that this is actually 0s
+        return init_env_determ_state, init_env_stoch_state  # TODO confirm that it's okay that this is actually 0s
 
-def extract_preds_from_tensors(num_sim_steps, tensors_list): # TODO duplicated in gen_model_experiment.py class
+def extract_preds_from_tensors(num_sim_steps,
+                               tensors_list): # TODO duplicated in gen_model_experiment.py class
     pred_images = torch.cat(
         [tensors_list[t]['image_rec'] for t in range(num_sim_steps)],
         dim=0)
