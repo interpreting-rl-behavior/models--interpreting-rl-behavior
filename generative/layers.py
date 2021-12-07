@@ -223,7 +223,7 @@ class NLayerPerceptron(nn.Module):
             if i < len(sizes)-2:  # Doesn't add activation (or LN) to final layer
                 if layer_norm:
                     self.nets.append(nn.LayerNorm(sizes[i+1]))
-                self.nets.append(nn.LeakyReLU())
+                self.nets.append(nn.ELU())
 
     def forward(self, x):
         outs = []

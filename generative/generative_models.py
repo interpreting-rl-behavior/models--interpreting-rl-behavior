@@ -19,19 +19,26 @@ class AgentEnvironmentSimulator(nn.Module):
         super(AgentEnvironmentSimulator, self).__init__()
 
         # Hyperparams
-        self.num_init_steps  = hyperparams.num_init_steps
-        self.num_sim_steps = hyperparams.num_sim_steps
-        self.kl_balance    = hyperparams.kl_balance
-        self.kl_weight     = hyperparams.kl_weight
+        self.num_init_steps = hyperparams.num_init_steps
+        self.num_sim_steps  = hyperparams.num_sim_steps
+        self.kl_balance     = hyperparams.kl_balance
+        self.kl_weight      = hyperparams.kl_weight
+        self.action_size = agent.env.action_space.n
+        self.env_h_stoch_size = hyperparams.env_h_stoch_size
 
         # Networks
         self.conv_in = MultiEncoder(cnn_depth=32, image_channels=3)
         hyperparams.__dict__.update({'embed_dim': self.conv_in.out_dim})
-        self.env_stepper_initializer = EnvStepperInitializer(hyperparams, device)
+        self.encoder = VAEEncoder(hyperparams, device)
+        self.sample_vec_converter = NLayerPerceptron(
+            [hyperparams.sample_vec_size,
+             int((hyperparams.sample_vec_size + hyperparams.deter_dim)/2),
+             hyperparams.deter_dim],
+        )
         features_dim = hyperparams.deter_dim + hyperparams.stoch_dim * (hyperparams.stoch_discrete or 1)
         self.conv_out = MultiDecoder(features_dim, hyperparams)
         self.agent_env_stepper = AgentEnvStepper(hyperparams, agent)
-        self.action_size = agent.env.action_space.n
+        self.device = device
 
 
     def forward(self,
@@ -39,7 +46,61 @@ class AgentEnvironmentSimulator(nn.Module):
                 use_true_actions=True,
                 imagine=False,
                 modal_sampling=False,
-                retain_grads=True, swap_directions=None):
+                retain_grads=True,
+                swap_directions=None):
+
+        init_ims = data['ims'][0:self.num_init_steps]
+        sample_vec, mu, sigma = self.encoder(init_ims)
+
+        # Get true agent h0 and true actions as aux vars for decoder
+        true_agent_h0 = data['hx'][self.num_init_steps-1] # -1 because 1st sim step is last init step
+        true_actions_inds = data['action'][self.num_init_steps-2:] # -2 because we have to use a_{t-1} in combo with env_t to get o_t
+        true_actions_1hot = torch.nn.functional.one_hot(true_actions_inds.long(),
+                                                  self.action_size)
+        true_actions_1hot = true_actions_1hot.float()
+
+        (
+            loss_model,
+            priors,  # tensor(T,B,2S)
+            posts,  # tensor(T,B,2S)
+            samples,  # tensor(T,B,S)
+            features,  # tensor(T,B,D+S)
+            env_states,
+            (env_h, env_z),
+            metrics_list,
+            tensors_list,
+            preds_dict,
+        ) = self.vae_decode(sample_vec,
+                             data,
+                             true_actions_1hot=true_actions_1hot,
+                             true_agent_h0=true_agent_h0,
+                             imagine=imagine,
+                             modal_sampling=modal_sampling,
+                             retain_grads=True,)
+
+        return (
+            loss_model,
+            priors,                      # tensor(T,B,2S)
+            posts,                       # tensor(T,B,2S)
+            samples,                     # tensor(T,B,S)
+            features,                    # tensor(T,B,D+S)
+            env_states,
+            (env_h.detach(), env_z.detach()),
+            metrics_list,
+            tensors_list,
+            preds_dict,
+        )
+
+    def vae_decode(self,
+                sample_vec,
+                data,
+                true_actions_1hot=None,
+                true_agent_h0=None,
+                imagine=False,
+                modal_sampling=False,
+                retain_grads=True,
+                ):
+
         """
         imagine: Whether or not to use the generated images as input to
         the env model or whether to use true images (true images will be used
@@ -47,35 +108,27 @@ class AgentEnvironmentSimulator(nn.Module):
 
         """
 
-        # Get input data for generative model
-        full_ims = data['ims']
-        true_agent_h0 = data['hx'][self.num_init_steps-1] # -1 because 1st sim step is last init step
+        # Get labels for loss function #TODO loss should be optional
         agent_h_labels = data['hx'][self.num_init_steps-1:]
-        true_actions_inds = data['action'][self.num_init_steps-2:] # -2 because we have to use a_{t-1} in combo with env_t to get o_t
-        true_actions_1hot = torch.nn.functional.one_hot(true_actions_inds.long(),
-                                                  self.action_size)
-        true_actions_1hot = true_actions_1hot.float()
-
         reward_labels = data['reward'][self.num_init_steps-1:]
         terminal_labels = data['terminal'][self.num_init_steps-1:]
         before_terminal_labels = terminal_labels_to_mask(terminal_labels)
+        B = data['ims'].shape[1]
+        im_labels = data['ims'][-self.num_sim_steps:]
 
-        # Initialize env@t=0 and agent_h@t=0 # Later on, we're going to have to extract the initial steps here in order to make a VAE encoder from the initializer
-        B = full_ims.shape[1]
-        init_ims = full_ims[0:self.num_init_steps]
-        im_labels = full_ims[-self.num_sim_steps:]
+        # Convert sample_vec to env_prev states
+        env_h_prev, _ = self.sample_vec_converter(sample_vec)
+        env_z_prev = torch.zeros(B,
+                               self.env_h_stoch_size,
+                               device=self.device)
 
         if imagine:
             embeds = [None] * self.num_sim_steps
         else:
             embeds = self.conv_in(im_labels)
-        env_h_prev, env_z_prev = self.env_stepper_initializer(init_ims)
+
         agent_h_prev = true_agent_h0
         action_prev = pred_action_1hot = true_actions_1hot[0]
-        # TODO confirm the actions are one-hotted
-        # TODO confirm whether you can get away without an action here
-        #  (because will be better for gen model without)
-        # TODO confirm the actions are aligned
 
         priors = []
         posts = []
@@ -95,11 +148,11 @@ class AgentEnvironmentSimulator(nn.Module):
         for i in range(self.num_sim_steps):
             # Define the labels for the loss function because we calculate it
             #  in here.
-            labels = {'image': im_labels[i], #TODO make these keys consistent with the rest of the codebase, i.e. use 'ims', 'hx',
+            labels = {'image': im_labels[i],  #TODO make these keys consistent with the rest of the codebase, i.e. use 'ims', 'hx',
                       'reward':reward_labels[i],
                       'terminal':terminal_labels[i],
                       'before_terminal':before_terminal_labels[i],
-                      'agent_h':agent_h_labels[i+1]} # +1 because ag_h_{t-1} is input to stepper and to agent, but it outputs ag_h_t(hat). We want the label to be ag_h_t.
+                      'agent_h':agent_h_labels[i+1]}  #  +1 because ag_h_{t-1} is input to stepper and to agent, but it outputs ag_h_t(hat). We want the label to be ag_h_t.
 
             embed = embeds[i]
 
@@ -136,7 +189,7 @@ class AgentEnvironmentSimulator(nn.Module):
             metrics_list.append(metrics)
             tensors_list.append(tensors)
 
-            if use_true_actions:
+            if true_actions_1hot is not None:
                 action_prev = true_actions_1hot[i + 1]  # +1 because index0 is a_{t-1}
             else:
                 action_prev = pred_action_1hot
@@ -357,7 +410,7 @@ class AgentEnvStepper(nn.Module):
             return diag_normal(pp)
 
 
-class EnvStepperInitializer(nn.Module):
+class VAEEncoder(nn.Module):
     """
 
     Recurrent network that takes a seq of frames from t=-k to t=0 as input.
@@ -368,12 +421,13 @@ class EnvStepperInitializer(nn.Module):
     def __init__(self,
                  hyperparams,
                  device):
-        super(EnvStepperInitializer, self).__init__()
+        super(VAEEncoder, self).__init__()
         self.device = device
         self.num_init_steps = hyperparams.num_init_steps
         self.rnn_hidden_size = hyperparams.initializer_rnn_hidden_size
         self.env_dim = hyperparams.deter_dim
         self.env_h_stoch_size = hyperparams.env_h_stoch_size
+        self.sample_vec_size = hyperparams.sample_vec_size
 
         self.image_embedder = LayeredResBlockDown(input_hw=64,
                                                   input_ch=3,
@@ -382,17 +436,24 @@ class EnvStepperInitializer(nn.Module):
                                                   output_ch=32)
 
         self.rnn = nn.GRU(input_size=self.image_embedder.output_size,
-                           hidden_size=self.rnn_hidden_size,
-                           num_layers=1,
-                           batch_first=False)
+                          hidden_size=self.rnn_hidden_size,
+                          num_layers=1,
+                          batch_first=False)
 
         self.mlp_out = nn.Sequential(
                                 nn.Linear(self.rnn_hidden_size,
                                           self.rnn_hidden_size),
                                 nn.ELU(),
                                 nn.Linear(self.rnn_hidden_size,
-                                          self.env_dim)
-                                            )
+                                          self.rnn_hidden_size),
+                                nn.ELU())
+
+        self.mu_mlp = nn.Linear(self.rnn_hidden_size,
+                                self.sample_vec_size)
+        self.sigma_mlp = nn.Linear(self.rnn_hidden_size,
+                                self.sample_vec_size)
+
+
 
     def forward(self,
                 init_ims):
@@ -420,19 +481,7 @@ class EnvStepperInitializer(nn.Module):
         # Concat RNN output to agent h0 and then pass to Converter nets
         # to get mu_g and sigma_g
         x = x[-1]  # get last ts
-        init_env_determ_state = self.mlp_out(x)
-        init_env_stoch_state = torch.zeros(batches, self.env_h_stoch_size, device=self.device)
-        return init_env_determ_state, init_env_stoch_state  # TODO confirm that it's okay that this is actually 0s
-
-def extract_preds_from_tensors(num_sim_steps,
-                               tensors_list): # TODO duplicated in gen_model_experiment.py class
-    pred_images = torch.cat(
-        [tensors_list[t]['image_rec'] for t in range(num_sim_steps)],
-        dim=0)
-    pred_terminals = torch.cat(
-        [tensors_list[t]['terminal_rec'] for t in range(num_sim_steps)],
-        dim=0)
-    pred_rews = torch.cat(
-        [tensors_list[t]['reward_rec'] for t in range(num_sim_steps)],
-        dim=0)
-    return pred_images, pred_terminals, pred_rews
+        pre_vec = self.mlp_out(x)
+        mu, sigma = self.mu_mlp(pre_vec), self.sigma_mlp(pre_vec)
+        sample = mu + (sigma * torch.randn_like(mu, device=self.device))
+        return sample, mu, sigma

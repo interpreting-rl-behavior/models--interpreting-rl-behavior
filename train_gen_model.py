@@ -54,7 +54,6 @@ class TrainingExperiment(GenerativeModelExperiment):
                 self.gen_model(data=data, use_true_actions=True, imagine=False)
 
             loss = torch.mean(torch.sum(loss_model, dim=0))  # sum over T, mean over B
-            # TODO confirm that masking of losses works as required
             loss.backward()
             torch.nn.utils.clip_grad_norm_(self.gen_model.parameters(), 100.)
             for p in self.gen_model.agent_env_stepper.agent.policy.parameters():

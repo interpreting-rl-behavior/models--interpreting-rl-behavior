@@ -182,6 +182,7 @@ class GenerativeModelExperiment():
             terminal_decoder_layers=4,
             kl_weight=0.1,
             kl_balance=0.8,
+            sample_vec_size=256,
         )
 
         gen_model = AgentEnvironmentSimulator(agent, device, gen_model_hyperparams)
@@ -252,6 +253,7 @@ class GenerativeModelExperiment():
         parser.add_argument('--num_init_steps', type=int, default=8)
         parser.add_argument('--num_sim_steps', type=int, default=22)
         parser.add_argument('--layer_norm', type=int, default=0)
+
 
         # multi threading
         parser.add_argument('--num_threads', type=int, default=8)
