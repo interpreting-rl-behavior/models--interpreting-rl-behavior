@@ -306,7 +306,7 @@ class GenerativeModelExperiment():
         true_rews = true_rews.permute(1, 0)
 
         # Forward pass to get predictions if not already done
-        if preds is None: #TODO fix this code, wrong returns
+        if preds is None:
             self.optimizer.zero_grad()
             (
                 loss_model,
@@ -324,9 +324,6 @@ class GenerativeModelExperiment():
                           use_true_actions=use_true_actions,
                           imagine=True,
                           modal_sampling=True)
-            # # Extract predictions from model output
-            # pred_images, pred_terminals, pred_rews = self.extract_preds_from_tensors(
-            #     tensors_list)
 
         pred_images = preds['ims']
         pred_terminals = preds['terminal']
@@ -387,17 +384,18 @@ class GenerativeModelExperiment():
                            f'{epoch:02d}_{batch_idx:06d}_{b:03d}.mp4'
                 tvio.write_video(save_str, combined_im, fps=14)
 
-    def extract_preds_from_tensors(self, tensors_list):
-        pred_images = torch.cat(
-            [tensors_list[t]['image_rec'] for t in range(self.args.num_sim_steps)],
-            dim=0)
-        pred_terminals = torch.cat(
-            [tensors_list[t]['terminal_rec'] for t in range(self.args.num_sim_steps)],
-            dim=0)
-        pred_rews = torch.cat(
-            [tensors_list[t]['reward_rec'] for t in range(self.args.num_sim_steps)],
-            dim=0)
-        return pred_images, pred_terminals, pred_rews
+    # def extract_preds_from_tensors(self, tensors_list):
+    #     """Note that the tensors_list contains tensors without gradients"""
+    #     pred_images = torch.cat(
+    #         [tensors_list[t]['image_rec'] for t in range(self.args.num_sim_steps)],
+    #         dim=0)
+    #     pred_terminals = torch.cat(
+    #         [tensors_list[t]['terminal_rec'] for t in range(self.args.num_sim_steps)],
+    #         dim=0)
+    #     pred_rews = torch.cat(
+    #         [tensors_list[t]['reward_rec'] for t in range(self.args.num_sim_steps)],
+    #         dim=0)
+    #     return pred_images, pred_terminals, pred_rews
 
     def get_swap_directions(self):
         if self.args.swap_directions_from is not None:
