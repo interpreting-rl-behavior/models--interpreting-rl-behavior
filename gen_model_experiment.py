@@ -171,7 +171,7 @@ class GenerativeModelExperiment():
             stoch_dim=32,
             env_h_stoch_size=32 * 32,
             agent_hidden_size=64,
-            action_dim=action_size,
+            action_dim=action_size, #TODO go through making action_dim and _size consistent
             deter_dim=512,  # 2048
             initializer_rnn_hidden_size=256,
             layer_norm=True,
@@ -255,7 +255,6 @@ class GenerativeModelExperiment():
         parser.add_argument('--num_sim_steps', type=int, default=22)
         parser.add_argument('--layer_norm', type=int, default=0)
 
-
         # multi threading
         parser.add_argument('--num_threads', type=int, default=8)
 
@@ -273,13 +272,17 @@ class GenerativeModelExperiment():
         args = parser.parse_args()
         return args
 
-    def visualize(self, epoch, batch_idx, data=None, preds=None,
-                  use_true_actions=True, save_root=''):
+    def visualize(self,
+                  epoch,
+                  batch_idx,
+                  data=None,
+                  preds=None,
+                  use_true_actions=True,
+                  save_root=''):
 
         self.logger.info('Demonstrating reconstruction and prediction quality')
 
         self.gen_model.train()
-        action_size = self.gen_model.agent_env_stepper.agent.env.action_space.n
 
         if data is None:
             # Get a single batch from the train_loader
@@ -308,8 +311,9 @@ class GenerativeModelExperiment():
         # Forward pass to get predictions if not already done
         if preds is None:
             self.optimizer.zero_grad()
-            (
-                loss_model,
+            (   loss_model,
+                loss_vae_kl_divergence,
+                loss_agent_h0,
                 priors,  # tensor(T,B,2S)
                 posts,  # tensor(T,B,2S)
                 samples,  # tensor(T,B,S)
@@ -383,6 +387,175 @@ class GenerativeModelExperiment():
                            f'/recons_v_preds/{save_root}_' + \
                            f'{epoch:02d}_{batch_idx:06d}_{b:03d}.mp4'
                 tvio.write_video(save_str, combined_im, fps=14)
+
+    def visualize_single(self,
+                                  epoch,
+                                  batch_idx,
+                                  data=None,
+                                  preds=None,
+                                  latent_vec=None,
+                                  informed_init=False,
+                                  use_true_actions=False,
+                                  save_root='',
+                                  batch_size=20):
+
+        self.logger.info('Demonstrating samples from latent vecs')
+
+        self.gen_model.train()
+        self.optimizer.zero_grad()
+        viz_batch_size = batch_size
+
+        # Forward pass to get predictions if not already done
+        if preds is None and latent_vec is None:
+            if informed_init:
+                if data is None:
+                    # Get a single batch from the train_loader
+                    for batch_idx_new, data in enumerate(self.train_loader):
+                        if batch_idx_new > 0:
+                            break
+                    # Make all data into floats, put on the right device, and swap B and T axes
+                    data = {k: v.to(self.device).float() for k, v in
+                            data.items()}
+                    data = {k: torch.swapaxes(v, 0, 1) for k, v in
+                            data.items()}  # (B, T, :...) --> (T, B, :...)
+
+                # Get labels and swap B and T axes
+                full_ims = data['ims']
+                full_ims = full_ims[-self.args.num_sim_steps:]
+                full_ims = full_ims.permute(1, 0, 3, 4, 2)
+
+                true_actions_inds = data['action'][
+                                    -self.args.num_sim_steps:]
+                true_actions_inds = true_actions_inds.permute(1, 0)
+
+                true_terminals = data['terminal'][-self.args.num_sim_steps:]
+                true_terminals = true_terminals.permute(1, 0)
+
+                true_rews = data['reward'][-self.args.num_sim_steps:]
+                true_rews = true_rews.permute(1, 0)
+
+                (loss_model,
+                 loss_vae_kl_divergence,
+                 loss_agent_h0,
+                 priors,  # tensor(T,B,2S)
+                 posts,  # tensor(T,B,2S)
+                 samples,  # tensor(T,B,S)
+                 features,  # tensor(T,B,D+S)
+                 env_states,
+                 (env_h, env_z),
+                 metrics_list,
+                 tensors_list,
+                 preds,
+                 ) = \
+                    self.gen_model(data=data,
+                                   use_true_actions=use_true_actions,
+                                   imagine=True,
+                                   modal_sampling=True)
+            else:  # random init
+                latent_vec = torch.randn(viz_batch_size,
+                                        self.gen_model.sample_vec_size,
+                                        device=self.device)
+
+                (   loss_model,
+                    loss_agent_aux_init,
+                    priors,  # tensor(T,B,2S)
+                    posts,  # tensor(T,B,2S)
+                    samples,  # tensor(T,B,S)
+                    features,  # tensor(T,B,D+S)
+                    env_states,
+                    (env_h, env_z),
+                    metrics_list,
+                    tensors_list,
+                    preds,
+                ) = \
+                    self.gen_model.vae_decode(
+                        latent_vec,
+                        data=None,
+                        true_actions_1hot=None,
+                        use_true_actions=False,
+                        true_agent_h0=None,
+                        use_true_agent_h0=False,
+                        imagine=True,
+                        calc_loss=False,
+                        modal_sampling=True,
+                        retain_grads=True, )
+
+        # Just visualise the given preds
+        elif preds is not None and latent_vec is None:
+            # Dont make a new preds dict by running a gen model decoder
+            pass
+
+        # Use the latent vec given in the arguments
+        elif preds is None and latent_vec is not None:
+
+            (loss_model,
+             loss_agent_aux_init,
+             priors,  # tensor(T,B,2S)
+             posts,  # tensor(T,B,2S)
+             samples,  # tensor(T,B,S)
+             features,  # tensor(T,B,D+S)
+             env_states,
+             (env_h, env_z),
+             metrics_list,
+             tensors_list,
+             preds,
+             ) = \
+                self.gen_model.vae_decode(
+                    latent_vec,
+                    data=None,
+                    true_actions_1hot=None,
+                    use_true_actions=False,
+                    true_agent_h0=None,
+                    use_true_agent_h0=False,
+                    imagine=True,
+                    calc_loss=False,
+                    modal_sampling=True,
+                    retain_grads=True)
+
+        pred_images = preds['ims']
+        pred_terminals = preds['terminal']
+        pred_rews = preds['reward']
+        pred_actions_1hot = preds['action']
+
+        # Establish the right settings for visualisation
+        viz_batch_size = min(int(pred_images.shape[1]), 20)
+        pred_actions_inds = torch.argmax(pred_actions_1hot, dim=2)
+        pred_actions_inds = pred_actions_inds.permute(1, 0)
+
+        # (T,B,C,H,W) --> (B,T,H,W,C)
+        pred_images = pred_images.permute(1, 0, 3, 4, 2)
+        # (T,B,...) --> (B,T,...)
+        pred_terminals = pred_terminals.permute(1, 0)
+        pred_rews = pred_rews.permute(1, 0)
+
+        if use_true_actions:
+            viz_actions_inds = true_actions_inds.clone().cpu().numpy()
+        else:
+            viz_actions_inds = pred_actions_inds.cpu().detach().numpy()
+
+        with torch.no_grad():
+            for b in range(viz_batch_size):
+                pred_im = pred_images[b]
+
+                # Overlay Done and Reward
+                pred_im = overlay_box_var(pred_im, pred_terminals[b], 'left', max=1.)
+                pred_im = overlay_box_var(pred_im, pred_rews[b], 'right', max=10.)
+
+                # Make predictions and ground truth into right format for
+                #  video saving
+                pred_im = pred_im * 255
+                pred_im = torch.clip(pred_im, 0,
+                                     255)  # TODO check that this is no longer necessary
+
+                pred_im = pred_im.clone().detach().type(
+                    torch.uint8).cpu().numpy()
+                pred_im = overlay_actions(pred_im, viz_actions_inds[b], size=16)
+
+                # Save vid
+                save_str = self.sess_dir + \
+                           f'/recons_v_preds/{save_root}_' + \
+                           f'{epoch:02d}_{batch_idx:06d}_{b:03d}.mp4'
+                tvio.write_video(save_str, pred_im, fps=14)
 
     # def extract_preds_from_tensors(self, tensors_list):
     #     """Note that the tensors_list contains tensors without gradients"""
