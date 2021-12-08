@@ -85,20 +85,15 @@ class TrainingExperiment(GenerativeModelExperiment):
                 logger.dumpkvs()
 
             # Saving model
-            # if batch_idx % self.args.save_interval == 0:
-            #     model_path = os.path.join(
-            #         self.sess_dir,
-            #         'model_epoch{}_batch{}.pt'.format(epoch, batch_idx))
-            #     torch.save(
-            #         {'gen_model_state_dict': self.gen_model.state_dict(),
-            #          'optimizer_state_dict': self.optimizer.state_dict()},
-            #         model_path)
-            #     logger.info('Generative model saved to {}'.format(model_path))
-
-            # Visualize the predictions compared with the ground truth
-            # pred_images, pred_terminals, pred_rews = self.extract_preds_from_tensors(tensors_list)
-            #
-            # preds = {'ims': pred_images, 'actions': pred_actions_1hot, 'terminals': pred_terminals, 'rews': pred_rews}
+            if batch_idx % self.args.save_interval == 0:
+                model_path = os.path.join(
+                    self.sess_dir,
+                    'model_epoch{}_batch{}.pt'.format(epoch, batch_idx))
+                torch.save(
+                    {'gen_model_state_dict': self.gen_model.state_dict(),
+                     'optimizer_state_dict': self.optimizer.state_dict()},
+                    model_path)
+                logger.info('Generative model saved to {}'.format(model_path))
 
             B = loss_vae_kl.shape[0]
             if (epoch >= 1 and batch_idx % 20000 == 0) or (epoch < 1 and batch_idx % 5000 == 0):
@@ -108,8 +103,8 @@ class TrainingExperiment(GenerativeModelExperiment):
 
             # Demo recon quality without using true images
             if (epoch >= 1 and batch_idx % 20000 == 0) or (epoch < 1 and batch_idx % 5000 == 0):
-                # self.visualize(epoch, batch_idx=batch_idx, data=None, preds=None, use_true_actions=True, save_root='sample_sim_ims_true_acts')
-                # self.visualize(epoch, batch_idx=batch_idx, data=None, preds=None, use_true_actions=False, save_root='sample_sim_ims_sim_acts')
+                self.visualize(epoch, batch_idx=batch_idx, data=None, preds=None, use_true_actions=True, save_root='sample_sim_ims_true_acts')
+                self.visualize(epoch, batch_idx=batch_idx, data=None, preds=None, use_true_actions=False, save_root='sample_sim_ims_sim_acts')
                 self.visualize_single(
                                epoch, batch_idx=batch_idx, data=None, preds=None, latent_vec=None, use_true_actions=False, save_root='sample_from_rand_latent', batch_size=B)
 
