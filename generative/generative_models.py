@@ -23,6 +23,7 @@ class AgentEnvironmentSimulator(nn.Module):
         self.num_sim_steps  = hyperparams.num_sim_steps
         self.kl_balance     = hyperparams.kl_balance
         self.kl_weight      = hyperparams.kl_weight
+        self.vae_kl_weight  = hyperparams.vae_kl_weight
         self.action_size = agent.env.action_space.n
         self.env_h_stoch_size = hyperparams.env_h_stoch_size
 
@@ -50,7 +51,7 @@ class AgentEnvironmentSimulator(nn.Module):
                 swap_directions=None):
 
         init_ims = data['ims'][0:self.num_init_steps]
-        sample_vec, mu, sigma = self.encoder(init_ims)
+        sample_vec, mu, logvar = self.encoder(init_ims)
 
         # Get true agent h0 and true actions as aux vars for decoder
         true_agent_h0 = data['hx'][self.num_init_steps-1] # -1 because 1st sim step is last init step
@@ -78,6 +79,13 @@ class AgentEnvironmentSimulator(nn.Module):
                              modal_sampling=modal_sampling,
                              retain_grads=True,)
 
+        # KL divergence loss for VAE bottleneck
+        if not imagine: # i.e. during training
+            kl_divergence = -0.5 * torch.sum(1 + logvar - mu.pow(2) - logvar.exp(),
+                                             dim=1)  # Sum over latent dim
+            kl_divergence = torch.mean(kl_divergence)  # Mean over batches
+            loss_model += kl_divergence
+
         return (
             loss_model,
             priors,                      # tensor(T,B,2S)
@@ -100,7 +108,6 @@ class AgentEnvironmentSimulator(nn.Module):
                 modal_sampling=False,
                 retain_grads=True,
                 ):
-
         """
         imagine: Whether or not to use the generated images as input to
         the env model or whether to use true images (true images will be used
@@ -109,12 +116,14 @@ class AgentEnvironmentSimulator(nn.Module):
         """
 
         # Get labels for loss function #TODO loss should be optional
-        agent_h_labels = data['hx'][self.num_init_steps-1:]
-        reward_labels = data['reward'][self.num_init_steps-1:]
-        terminal_labels = data['terminal'][self.num_init_steps-1:]
-        before_terminal_labels = terminal_labels_to_mask(terminal_labels)
-        B = data['ims'].shape[1]
-        im_labels = data['ims'][-self.num_sim_steps:]
+        if not imagine: # No need to calc loss
+            agent_h_labels = data['hx'][self.num_init_steps-1:]
+            reward_labels = data['reward'][self.num_init_steps-1:]
+            terminal_labels = data['terminal'][self.num_init_steps-1:]
+            before_terminal_labels = terminal_labels_to_mask(terminal_labels)
+            im_labels = data['ims'][-self.num_sim_steps:]
+
+        B = sample_vec.shape[0]
 
         # Convert sample_vec to env_prev states
         env_h_prev, _ = self.sample_vec_converter(sample_vec)
@@ -148,12 +157,14 @@ class AgentEnvironmentSimulator(nn.Module):
         for i in range(self.num_sim_steps):
             # Define the labels for the loss function because we calculate it
             #  in here.
-            labels = {'image': im_labels[i],  #TODO make these keys consistent with the rest of the codebase, i.e. use 'ims', 'hx',
-                      'reward':reward_labels[i],
-                      'terminal':terminal_labels[i],
-                      'before_terminal':before_terminal_labels[i],
-                      'agent_h':agent_h_labels[i+1]}  #  +1 because ag_h_{t-1} is input to stepper and to agent, but it outputs ag_h_t(hat). We want the label to be ag_h_t.
-
+            if not imagine:
+                labels = {'image': im_labels[i],  #TODO make these keys consistent with the rest of the codebase, i.e. use 'ims', 'hx',
+                          'reward':reward_labels[i],
+                          'terminal':terminal_labels[i],
+                          'before_terminal':before_terminal_labels[i],
+                          'agent_h':agent_h_labels[i+1]}  #  +1 because ag_h_{t-1} is input to stepper and to agent, but it outputs ag_h_t(hat). We want the label to be ag_h_t.
+            else:
+                labels = None
             embed = embeds[i]
 
             (post,    # tensor(B, 2*S)
@@ -209,26 +220,31 @@ class AgentEnvironmentSimulator(nn.Module):
         priors = self.agent_env_stepper.batch_prior(states_env_h)  # (T,B,2S)
         features = torch.cat([states_env_h, samples], dim=-1)   # (T,B,D+S)
         env_states = (states_env_h, samples)
-        recon_losses = torch.stack(recon_losses).squeeze()
 
-        # KL loss
-        d = self.agent_env_stepper.zdistr
-        dprior = d(priors)
-        dpost = d(posts)
-        loss_kl_exact = D.kl.kl_divergence(dpost, dprior)  # (T,B)
 
-        # Analytic KL loss, standard for VAE
-        if not self.kl_balance:
-            loss_kl = loss_kl_exact
+        if not imagine:
+            recon_losses = torch.stack(recon_losses).squeeze()
+
+            # KL loss
+            d = self.agent_env_stepper.zdistr
+            dprior = d(priors)
+            dpost = d(posts)
+            loss_kl_exact = D.kl.kl_divergence(dpost, dprior)  # (T,B)
+
+            # Analytic KL loss, standard for VAE
+            if not self.kl_balance:
+                loss_kl = loss_kl_exact
+            else:
+                loss_kl_postgrad = D.kl.kl_divergence(dpost, d(priors.detach()))
+                loss_kl_priograd = D.kl.kl_divergence(d(posts.detach()), dprior)
+                loss_kl = (1 - self.kl_balance) * loss_kl_postgrad + \
+                          self.kl_balance       * loss_kl_priograd
+
+            # Total loss
+            assert loss_kl.shape == recon_losses.shape
+            loss_model = self.kl_weight * loss_kl + recon_losses
         else:
-            loss_kl_postgrad = D.kl.kl_divergence(dpost, d(priors.detach()))
-            loss_kl_priograd = D.kl.kl_divergence(d(posts.detach()), dprior)
-            loss_kl = (1 - self.kl_balance) * loss_kl_postgrad + \
-                      self.kl_balance       * loss_kl_priograd
-
-        # Total loss
-        assert loss_kl.shape == recon_losses.shape
-        loss_model = self.kl_weight * loss_kl + recon_losses
+            loss_model = 0.
 
         # Make preds_dict # TODO this won't do because tensors doesn't have gradients!! which we need in order to do saliency functions etc
         # pred_images, _, _ = extract_preds_from_tensors(
@@ -343,21 +359,28 @@ class AgentEnvStepper(nn.Module):
         BF_to_TBIF = lambda x: torch.unsqueeze(torch.unsqueeze(x, 1), 0)
         BF_to_TBF = lambda x: torch.unsqueeze(x, 0)
         feature = BF_to_TBIF(feature)
-        labels = {k: BF_to_TBF(v) for k, v in labels.items()}
+        if not imagine:
+            labels = {k: BF_to_TBF(v) for k, v in labels.items()}
+            loss_reconstr, metrics, tensors, image_rec, rew_rec, terminal_rec = \
+                self.decoder.training_step(feature, labels)
+        else:
+            labels = None
+            loss_reconstr, metrics, tensors, image_rec, rew_rec, terminal_rec = \
+                self.decoder.inference_step(feature)
         # Now decode the env into ims
-        loss_reconstr, metrics, tensors, image_rec, rew_rec, terminal_rec = \
-            self.decoder.training_step(feature, labels)
+
         # Note that XXX_rec has grads but tensors['XXX_rec'] does not
 
         # Then use ims and agent_h to step the agent forward and produce an action
         image_rec = image_rec.squeeze()
         image_rec = dclamp(image_rec, self.image_range_min, self.image_range_max)
-        no_masks = torch.zeros_like(labels['terminal'])
+        no_masks = torch.zeros(1, image_rec.shape[0], device=self.device)  #(T,B)
         pred_action, pred_action_logits, pred_value, agent_h = \
             self.agent.predict_STE(image_rec, agent_h_prev, no_masks,
-                                   retain_grads=True) # Lee: I'm ignorant of whether the terminal-masks are doing anything potentially dangerous
-        loss_reconstr_agent_h = self.agent_hx_loss(agent_h, labels['agent_h'], labels['before_terminal']) # TODO appropriate masking using terminal. We don't want agent hx to be trained after the episode is done
-        loss_reconstr = loss_reconstr + loss_reconstr_agent_h # TODO try without this loss first because I'm not sure it's aligned or otherwise working properly
+                                   retain_grads=True)
+        if not imagine:
+            loss_reconstr_agent_h = self.agent_hx_loss(agent_h, labels['agent_h'], labels['before_terminal'])
+            loss_reconstr = loss_reconstr + loss_reconstr_agent_h
         return (
             post_or_prior,    # tensor(B, 2*S)
             pred_action,
@@ -450,7 +473,7 @@ class VAEEncoder(nn.Module):
 
         self.mu_mlp = nn.Linear(self.rnn_hidden_size,
                                 self.sample_vec_size)
-        self.sigma_mlp = nn.Linear(self.rnn_hidden_size,
+        self.logvar_mlp = nn.Linear(self.rnn_hidden_size,
                                 self.sample_vec_size)
 
 
@@ -482,6 +505,7 @@ class VAEEncoder(nn.Module):
         # to get mu_g and sigma_g
         x = x[-1]  # get last ts
         pre_vec = self.mlp_out(x)
-        mu, sigma = self.mu_mlp(pre_vec), self.sigma_mlp(pre_vec)
+        mu, logvar = self.mu_mlp(pre_vec), self.logvar_mlp(pre_vec)
+        sigma = torch.exp(0.5 * logvar)
         sample = mu + (sigma * torch.randn_like(mu, device=self.device))
-        return sample, mu, sigma
+        return sample, mu, logvar

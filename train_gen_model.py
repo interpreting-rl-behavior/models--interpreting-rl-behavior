@@ -52,7 +52,7 @@ class TrainingExperiment(GenerativeModelExperiment):
             (loss_model, priors, posts, samples, features, env_states,
             env_state, metrics_list, tensors_list, preds_dict) = \
                 self.gen_model(data=data, use_true_actions=True, imagine=False)
-
+            #TODO forgot to do the los function for the VAE latent space.
             loss = torch.mean(torch.sum(loss_model, dim=0))  # sum over T, mean over B
             loss.backward()
             torch.nn.utils.clip_grad_norm_(self.gen_model.parameters(), 100.)
@@ -94,6 +94,7 @@ class TrainingExperiment(GenerativeModelExperiment):
                                use_true_actions=True, save_root='sample_sim_ims_true_acts')
                 self.visualize(epoch, batch_idx=batch_idx, data=None, preds=None,
                                use_true_actions=False, save_root='sample_sim_ims_sim_acts')
+                # TODO visualisation of VAE from latent vec prior 
 
 
 if __name__ == "__main__":

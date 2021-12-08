@@ -103,7 +103,7 @@ class GenerativeModelExperiment():
                 os.makedirs(reconpred_dir)
 
         # Logger
-        logger.configure(dir=resdir, format_strs=['csv', 'stdout'])
+        logger.configure(dir=sess_dir, format_strs=['csv', 'stdout'])
 
         # Set up agent
         print('INITIALIZING AGENT MODEL...')
@@ -182,6 +182,7 @@ class GenerativeModelExperiment():
             terminal_decoder_layers=4,
             kl_weight=0.1,
             kl_balance=0.8,
+            vae_kl_weight=1.,
             sample_vec_size=256,
         )
 
