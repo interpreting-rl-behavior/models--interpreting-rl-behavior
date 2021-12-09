@@ -32,10 +32,10 @@ class AgentEnvironmentSimulator(nn.Module):
         self.conv_in = MultiEncoder(cnn_depth=32, image_channels=3)
         hyperparams.__dict__.update({'embed_dim': self.conv_in.out_dim})
         self.encoder = VAEEncoder(hyperparams, device)
-        self.sample_vec_converter_env_h = NLayerPerceptron(
+        self.sample_vec_converter_env = NLayerPerceptron(
             [hyperparams.sample_vec_size,
-             int((hyperparams.sample_vec_size + hyperparams.deter_dim)/2),
-             hyperparams.deter_dim],
+             int((hyperparams.sample_vec_size + hyperparams.deter_dim + hyperparams.env_h_stoch_size)/2),
+             hyperparams.deter_dim + hyperparams.env_h_stoch_size],
         )
         self.sample_vec_converter_agent_h = NLayerPerceptron(
             [hyperparams.sample_vec_size,
@@ -155,26 +155,38 @@ class AgentEnvironmentSimulator(nn.Module):
 
         B = sample_vec.shape[0]
 
-        # Use sample_vec to predict env_h_prev, agent_h_prev, and action_prev
-        env_h_prev, _ = self.sample_vec_converter_env_h(sample_vec)
-        env_z_prev = torch.zeros(B,
-                               self.env_h_stoch_size,
-                               device=self.device)
+        # Use Sample_vec to get init vectors: env_h_prev, env_z_prev,
+        #  agent_h_prev, and action_prev
 
+        ## First env_h_prev, env_z_prev (env_z_prev uses Straight Through
+        ##  Gradients)
+        env_prev, _ = self.sample_vec_converter_env(sample_vec)
+        env_h_prev, env_z_prev = env_prev[:,:-self.env_h_stoch_size],\
+                                 env_prev[:,-self.env_h_stoch_size:]
+        init_z_dist = self.agent_env_stepper.zdistr(env_z_prev)
+        inds = init_z_dist.mean.argmax(dim=2)
+        mode_one_hot = torch.nn.functional.one_hot(inds,
+                       num_classes=self.agent_env_stepper.stoch_discrete).to(
+                       self.device)
+        env_z_prev = init_z_dist.mean + \
+                 (mode_one_hot - init_z_dist.mean).detach()
+        env_z_prev = env_z_prev.reshape(B, -1)
+
+        ## Second, agent_h_prev
         pred_agent_h_prev, _ = self.sample_vec_converter_agent_h(sample_vec.detach()) # So that the sample vec is only learns to produce good env states, not contain any representations specific to an agent hx.
         pred_agent_h_prev = torch.tanh(pred_agent_h_prev)
-
-        pred_action_prev_logits, _ = self.sample_vec_converter_action(sample_vec.detach())
-        pred_action_prev_probs = torch.softmax(pred_action_prev_logits, dim=1)
-        pred_action_prev_inds = pred_action_prev_probs.argmax(dim=1)
-        pred_action_prev_1hot = torch.nn.functional.one_hot(pred_action_prev_inds,
-                                                            num_classes=self.action_size).to(self.device).float()
-
         if use_true_agent_h0:
             agent_h_prev = true_agent_h0
         else:
             agent_h_prev = pred_agent_h_prev
 
+        ## Third, action_prev (no straight through grads because the agent's init
+        ##  vectors should be trained independently from the rest of the model)
+        pred_action_prev_logits, _ = self.sample_vec_converter_action(sample_vec.detach())
+        pred_action_prev_probs = torch.softmax(pred_action_prev_logits, dim=1)
+        pred_action_prev_inds = pred_action_prev_probs.argmax(dim=1)
+        pred_action_prev_1hot = torch.nn.functional.one_hot(pred_action_prev_inds,
+                                                            num_classes=self.action_size).to(self.device).float()
         if use_true_actions:
             action_prev  = true_actions_1hot[0]
         else:
@@ -192,8 +204,12 @@ class AgentEnvironmentSimulator(nn.Module):
 
             # Combine both auxiliary initialisation losses
             loss_agent_aux_init = loss_agent_h0 + loss_agent_act0
+        else:
+            loss_agent_aux_init = 0.
 
-        # Encode all the images to get the embeddings for the priors
+        # Finished getting initializing vectors.
+
+        # Next, encode all the images to get the embeddings for the priors
         if imagine:
             embeds = [None] * self.num_sim_steps
         else:
@@ -306,7 +322,6 @@ class AgentEnvironmentSimulator(nn.Module):
             loss_model = self.kl_weight * loss_kl + recon_losses
         else:
             loss_model = 0.
-            loss_agent_aux_init = 0.
 
         # Make preds_dict
         preds_dict = {'action': pred_actions_1hot,
