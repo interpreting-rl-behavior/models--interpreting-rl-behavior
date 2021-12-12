@@ -163,7 +163,7 @@ class GenerativeModelExperiment():
                                                    num_workers=2)
 
         ## Make or load generative model and optimizer
-        gen_model_hyperparams = Namespace(
+        gen_model_hyperparams = Namespace( # TODO maybe put all configs like this and CLI args in a single configs file
             num_init_steps=num_init_steps,
             num_steps_full=num_steps_full,
             num_sim_steps=num_sim_steps,
@@ -207,6 +207,7 @@ class GenerativeModelExperiment():
         self.train_loader = train_loader
         self.resdir = resdir
         self.sess_dir = sess_dir
+        self.data_save_dir = args.data_dir
         self.device = device
         self.logger = logger
         self.optimizer = optimizer
@@ -272,6 +273,131 @@ class GenerativeModelExperiment():
         args = parser.parse_args()
         return args
 
+    def get_single_batch(self):
+        # Get a single batch from the train_loader
+        for batch_idx_new, data in enumerate(self.train_loader):
+            if batch_idx_new > 0:
+                break
+        # Make all data into floats, put on the right device, and swap B and T axes
+        data = {k: v.to(self.device).float() for k, v in
+                data.items()}
+        data = {k: torch.swapaxes(v, 0, 1) for k, v in
+                data.items()}  # (B, T, :...) --> (T, B, :...)
+        return data
+
+    def postprocess_preds(self, preds):
+        #### The ones needed for viz
+        pred_images = preds['ims']
+        pred_terminals = preds['terminal']
+        pred_rews = preds['reward']
+        pred_actions_1hot = preds['action']
+
+        # TODO Extract all vars so that you can use this method in both viz and record
+
+        # Establish the right settings for visualisation
+        pred_actions_inds = torch.argmax(pred_actions_1hot, dim=2)
+        pred_actions_inds = pred_actions_inds.permute(1, 0)
+        pred_actions_inds = pred_actions_inds.cpu().detach().numpy()
+
+        # (T,B,C,H,W) --> (B,T,H,W,C)
+        pred_images = pred_images.permute(1, 0, 3, 4, 2)
+        # (T,B,...) --> (B,T,...)
+        pred_terminals = pred_terminals.permute(1, 0)
+        pred_rews = pred_rews.permute(1, 0)
+
+
+        ### The ones not needed by viz (but all are used by record
+        #'act_log_prob''value''hx''sample_vec', 'env_h'
+        pred_act_log_prob = preds['act_log_prob'].transpose(0, 1)
+        pred_value = preds['value'].transpose(0, 1)
+        pred_agent_h = preds['hx'].transpose(0, 1)
+        pred_sample_vec = preds['sample_vec']
+        pred_env_h = preds['env_h'].transpose(0, 1)
+
+        return pred_images, pred_terminals, pred_rews, pred_actions_1hot, \
+               pred_actions_inds, \
+               pred_act_log_prob, pred_value, pred_agent_h, pred_sample_vec,\
+               pred_env_h
+
+    def extract_from_data(self, data):
+        full_ims = data['ims']
+        full_ims = full_ims[-self.args.num_sim_steps:]
+        full_ims = full_ims.permute(1, 0, 3, 4, 2)
+
+        true_actions_inds = data['action'][-self.args.num_sim_steps:]
+        true_actions_inds = true_actions_inds.permute(1, 0)
+
+        true_terminals = data['terminal'][-self.args.num_sim_steps:]
+        true_terminals = true_terminals.permute(1, 0)
+
+        true_rews = data['reward'][-self.args.num_sim_steps:]
+        true_rews = true_rews.permute(1, 0)
+        return full_ims, true_actions_inds, true_terminals, true_rews
+
+    def record(self, informed_initialization=True):
+
+
+        # Within some recording loop
+        samples_so_far = epoch * batch_size
+        new_sample_indices = range(samples_so_far, samples_so_far + batch_size)
+
+    def save_preds(self, preds, new_sample_indices_range, manual_action):
+        pred_obs = preds['obs']
+        pred_rews = preds['reward']
+        pred_dones = preds['done']
+        pred_agent_hxs = preds['hx']
+        pred_agent_logprobs = preds['act_log_probs']
+        pred_agent_values = preds['values']
+        pred_env_states = preds['env_h']
+        sample_latent_vecs = preds['latent_vecs_c_and_g']
+
+        # Stack samples into single tensors and convert to numpy arrays
+        pred_obs = np.array(torch.stack(pred_obs, dim=1).cpu().numpy() * 255, dtype=np.uint8)
+        pred_rews = torch.stack(pred_rews, dim=1).cpu().numpy()
+        pred_dones = torch.stack(pred_dones, dim=1).cpu().numpy()
+        pred_agent_hxs = torch.stack(pred_agent_hxs, dim=1).cpu().numpy()
+        pred_agent_logprobs = torch.stack(pred_agent_logprobs, dim=1).cpu().numpy()
+        pred_agent_values = torch.stack(pred_agent_values, dim=1).cpu().numpy()
+        pred_env_states = torch.stack(pred_env_states, dim=1).cpu().numpy()
+
+        # no timesteps in latent vecs, so only cat not stack along time dim.
+        sample_latent_vecs = torch.cat(sample_latent_vecs, dim=1).cpu().numpy()
+
+        vars = [pred_obs, pred_rews, pred_dones, pred_agent_hxs,
+                pred_agent_logprobs, pred_agent_values, pred_env_states, sample_latent_vecs]
+        var_names = ['obs', 'rews', 'dones', 'agent_hxs',
+                     'agent_logprobs', 'agent_values', 'env_hid_states',
+                     'env_cell_states', 'latent_vec']
+
+        # # Recover the actions for use in the action overlay
+        # if manual_action is not None:
+        #     actions = np.ones((args.batch_size, args.num_sim_steps)) * manual_action
+        # else:
+        #     actions = np.argmax(pred_agent_logprobs, axis=-1)
+
+        # Make dirs for these variables and save variables to dirs and save vid
+        sample_dir_base = os.path.join(self.data_save_dir, 'sample_')
+        for i, new_sample_idx in enumerate(new_sample_indices_range):
+            sample_dir = sample_dir_base + f'{new_sample_idx:05d}'
+            # Make dirs
+            if not (os.path.exists(sample_dir)):
+                os.makedirs(sample_dir)
+
+            # Save variables
+            for var, var_name in zip(vars, var_names):
+                var_sample_name = os.path.join(sample_dir, var_name + '.npy')
+                np.save(var_sample_name, var[i])
+
+            # Save vid
+            ob = torch.tensor(pred_obs[i])
+            ob = ob.permute(0, 2, 3, 1)
+            ob = ob.clone().detach().type(torch.uint8)
+            ob = ob.cpu().numpy()
+            # Overlay a square in the top right showing the agent's actions
+            ob = overlay_actions(ob, actions[i], size=16)
+            save_str = data_dir + '/sample_' + f'{new_sample_idx:05d}.mp4'
+            tvio.write_video(save_str, ob, fps=14)
+
     def visualize(self,
                   epoch,
                   batch_idx,
@@ -285,28 +411,10 @@ class GenerativeModelExperiment():
         self.gen_model.train()
 
         if data is None:
-            # Get a single batch from the train_loader
-            for batch_idx_new, data in enumerate(self.train_loader):
-                if batch_idx_new > 0:
-                    break
-            # Make all data into floats, put on the right device, and swap B and T axes
-            data = {k: v.to(self.device).float() for k, v in data.items()}
-            data = {k: torch.swapaxes(v, 0, 1) for k, v in
-                    data.items()}  # (B, T, :...) --> (T, B, :...)
+            data = self.get_single_batch()
 
         # Get labels and swap B and T axes
-        full_ims = data['ims']
-        full_ims = full_ims[-self.args.num_sim_steps:]
-        full_ims = full_ims.permute(1, 0, 3, 4, 2)
-
-        true_actions_inds = data['action'][-self.args.num_sim_steps:]
-        true_actions_inds = true_actions_inds.permute(1, 0)
-
-        true_terminals = data['terminal'][-self.args.num_sim_steps:]
-        true_terminals = true_terminals.permute(1, 0)
-
-        true_rews = data['reward'][-self.args.num_sim_steps:]
-        true_rews = true_rews.permute(1, 0)
+        full_ims, true_actions_inds, true_terminals, true_rews = self.extract_from_data(data)
 
         # Forward pass to get predictions if not already done
         if preds is None:
@@ -329,29 +437,17 @@ class GenerativeModelExperiment():
                           imagine=True,
                           modal_sampling=True)
 
-        pred_images = preds['ims']
-        pred_terminals = preds['terminal']
-        pred_rews = preds['reward']
-        pred_actions_1hot = preds['action']
-
-        # Establish the right settings for visualisation
-        viz_batch_size = min(int(pred_images.shape[1]), 20)
-        pred_actions_inds = torch.argmax(pred_actions_1hot, dim=2)
-        pred_actions_inds = pred_actions_inds.permute(1, 0)
-
+        pred_images, pred_terminals, pred_rews, pred_actions_1hot, \
+        pred_actions_inds, _, _, _, _, _  = \
+            self.postprocess_preds(preds)
         true_actions_inds = true_actions_inds.clone().cpu().numpy()
-        pred_actions_inds = pred_actions_inds.cpu().detach().numpy()
-
-        # (T,B,C,H,W) --> (B,T,H,W,C)
-        pred_images = pred_images.permute(1, 0, 3, 4, 2)
-        # (T,B,...) --> (B,T,...)
-        pred_terminals = pred_terminals.permute(1, 0)
-        pred_rews = pred_rews.permute(1, 0)
 
         if use_true_actions:
             viz_actions_inds = true_actions_inds
         else:
             viz_actions_inds = pred_actions_inds
+
+        viz_batch_size = min(int(pred_images.shape[0]), 20)
 
         with torch.no_grad():
             for b in range(viz_batch_size):
@@ -371,8 +467,7 @@ class GenerativeModelExperiment():
                 pred_im = torch.clip(pred_im, 0,
                                      255)  # TODO check that this is no longer necessary
 
-                pred_im = pred_im.clone().detach().type(
-                    torch.uint8).cpu().numpy()
+                pred_im = pred_im.clone().detach().type(torch.uint8).cpu().numpy()
                 pred_im = overlay_actions(pred_im, viz_actions_inds[b], size=16)
 
                 full_im = full_im.clone().detach().type(
@@ -405,34 +500,13 @@ class GenerativeModelExperiment():
         self.optimizer.zero_grad()
         viz_batch_size = batch_size
 
-        # Forward pass to get predictions if not already done
+        # TODO systematize the below conjunction
         if preds is None and latent_vec is None:
-            if informed_init:
+            if informed_init:  # encoder --> latent_vec --> decoder --> viz preds
                 if data is None:
-                    # Get a single batch from the train_loader
-                    for batch_idx_new, data in enumerate(self.train_loader):
-                        if batch_idx_new > 0:
-                            break
-                    # Make all data into floats, put on the right device, and swap B and T axes
-                    data = {k: v.to(self.device).float() for k, v in
-                            data.items()}
-                    data = {k: torch.swapaxes(v, 0, 1) for k, v in
-                            data.items()}  # (B, T, :...) --> (T, B, :...)
+                    data = self.get_single_batch()
 
-                # Get labels and swap B and T axes
-                full_ims = data['ims']
-                full_ims = full_ims[-self.args.num_sim_steps:]
-                full_ims = full_ims.permute(1, 0, 3, 4, 2)
-
-                true_actions_inds = data['action'][
-                                    -self.args.num_sim_steps:]
-                true_actions_inds = true_actions_inds.permute(1, 0)
-
-                true_terminals = data['terminal'][-self.args.num_sim_steps:]
-                true_terminals = true_terminals.permute(1, 0)
-
-                true_rews = data['reward'][-self.args.num_sim_steps:]
-                true_rews = true_rews.permute(1, 0)
+                _, true_actions_inds, _, _ = self.extract_from_data(data)
 
                 (loss_model,
                  loss_vae_kl_divergence,
@@ -451,7 +525,7 @@ class GenerativeModelExperiment():
                                    use_true_actions=use_true_actions,
                                    imagine=True,
                                    modal_sampling=True)
-            else:  # random init
+            else:  # random latent_vec --> decoder
                 latent_vec = torch.randn(viz_batch_size,
                                         self.gen_model.sample_vec_size,
                                         device=self.device)
@@ -480,14 +554,9 @@ class GenerativeModelExperiment():
                         modal_sampling=True,
                         retain_grads=True, )
 
-        # Just visualise the given preds
-        elif preds is not None and latent_vec is None:
-            # Dont make a new preds dict by running a gen model decoder
-            pass
-
         # Use the latent vec given in the arguments
         elif preds is None and latent_vec is not None:
-
+            # (already run encoder) latent_vec --> decoder --> viz preds
             (loss_model,
              loss_agent_aux_init,
              priors,  # tensor(T,B,2S)
@@ -512,26 +581,20 @@ class GenerativeModelExperiment():
                     modal_sampling=True,
                     retain_grads=True)
 
-        pred_images = preds['ims']
-        pred_terminals = preds['terminal']
-        pred_rews = preds['reward']
-        pred_actions_1hot = preds['action']
+        # Just visualise the given preds
+        elif preds is not None and latent_vec is None:
+            # Dont make a new preds dict by running a gen model decoder
+            # just --> viz preds
+            pass
 
-        # Establish the right settings for visualisation
-        viz_batch_size = min(int(pred_images.shape[1]), 20)
-        pred_actions_inds = torch.argmax(pred_actions_1hot, dim=2)
-        pred_actions_inds = pred_actions_inds.permute(1, 0)
+        pred_images, pred_terminals, pred_rews, pred_actions_1hot, \
+        pred_actions_inds, _, _, _, _, _ = self.postprocess_preds(preds)
+        viz_batch_size = min(int(pred_images.shape[0]), 20)
 
-        # (T,B,C,H,W) --> (B,T,H,W,C)
-        pred_images = pred_images.permute(1, 0, 3, 4, 2)
-        # (T,B,...) --> (B,T,...)
-        pred_terminals = pred_terminals.permute(1, 0)
-        pred_rews = pred_rews.permute(1, 0)
-
-        if use_true_actions:
+        if use_true_actions:  # N.b. We only ever have true actions with informed init
             viz_actions_inds = true_actions_inds.clone().cpu().numpy()
         else:
-            viz_actions_inds = pred_actions_inds.cpu().detach().numpy()
+            viz_actions_inds = pred_actions_inds#.cpu().detach().numpy()
 
         with torch.no_grad():
             for b in range(viz_batch_size):
@@ -547,8 +610,7 @@ class GenerativeModelExperiment():
                 pred_im = torch.clip(pred_im, 0,
                                      255)  # TODO check that this is no longer necessary
 
-                pred_im = pred_im.clone().detach().type(
-                    torch.uint8).cpu().numpy()
+                pred_im = pred_im.clone().detach().type(torch.uint8).cpu().numpy()
                 pred_im = overlay_actions(pred_im, viz_actions_inds[b], size=16)
 
                 # Save vid
@@ -556,19 +618,6 @@ class GenerativeModelExperiment():
                            f'/recons_v_preds/{save_root}_' + \
                            f'{epoch:02d}_{batch_idx:06d}_{b:03d}.mp4'
                 tvio.write_video(save_str, pred_im, fps=14)
-
-    # def extract_preds_from_tensors(self, tensors_list):
-    #     """Note that the tensors_list contains tensors without gradients"""
-    #     pred_images = torch.cat(
-    #         [tensors_list[t]['image_rec'] for t in range(self.args.num_sim_steps)],
-    #         dim=0)
-    #     pred_terminals = torch.cat(
-    #         [tensors_list[t]['terminal_rec'] for t in range(self.args.num_sim_steps)],
-    #         dim=0)
-    #     pred_rews = torch.cat(
-    #         [tensors_list[t]['reward_rec'] for t in range(self.args.num_sim_steps)],
-    #         dim=0)
-    #     return pred_images, pred_terminals, pred_rews
 
     def get_swap_directions(self):
         if self.args.swap_directions_from is not None:
