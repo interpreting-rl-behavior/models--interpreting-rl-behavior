@@ -23,10 +23,11 @@ class ProcgenDataset(Dataset):
         self.ims_hw = 64
         self.ims_ch = 3
         self.act_space_size = 15
+        null_act_ind = 4 #for coinrun
         self.null_element = {'done': np.zeros(self.seq_len),
                              'reward': np.zeros(self.seq_len),
                              'value': np.zeros(self.seq_len),
-                             'action': np.zeros(self.seq_len),
+                             'action': np.ones(self.seq_len) * null_act_ind,
                              'ims': np.zeros((self.seq_len, self.ims_ch, self.ims_hw, self.ims_hw)),
                              'hx': np.zeros((self.seq_len, self.hx_size)),
                              'act_log_probs': np.zeros((self.seq_len, self.act_space_size)),
