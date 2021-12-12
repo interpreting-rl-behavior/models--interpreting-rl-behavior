@@ -210,7 +210,7 @@ class AgentEnvironmentSimulator(nn.Module):
         # Finished getting initializing vectors.
 
         # Next, encode all the images to get the embeddings for the priors
-        if imagine:
+        if imagine: # i.e. no need to calc loss therefore no need to have im_labels
             embeds = [None] * self.num_sim_steps
         else:
             embeds = self.conv_in(im_labels)
@@ -526,13 +526,14 @@ class VAEEncoder(nn.Module):
         self.env_h_stoch_size = hyperparams.env_h_stoch_size
         self.sample_vec_size = hyperparams.sample_vec_size
 
-        self.image_embedder = LayeredResBlockDown(input_hw=64,
-                                                  input_ch=3,
-                                                  hidden_ch=64,
-                                                  output_hw=8,
-                                                  output_ch=32)
-
-        self.rnn = nn.GRU(input_size=self.image_embedder.output_size,
+        # self.image_embedder = LayeredResBlockDown(input_hw=64,
+        #                                           input_ch=3,
+        #                                           hidden_ch=64,
+        #                                           output_hw=8,
+        #                                           output_ch=32)
+        self.image_embedder = ConvEncoder(cnn_depth=32, in_channels=3)
+        embedder_outsize = self.image_embedder.out_dim
+        self.rnn = nn.GRU(input_size=embedder_outsize,
                           hidden_size=self.rnn_hidden_size,
                           num_layers=1,
                           batch_first=False)
@@ -566,7 +567,7 @@ class VAEEncoder(nn.Module):
 
         images = [x[i] for i in range(ts)]  # split along time dim
         embeddings = [self.image_embedder(im) for im in images]
-        embeddings = [im for (im, _) in embeddings]
+        # embeddings = [im for (im, _) in embeddings]
         x = torch.stack(embeddings, dim=0)  # stack along time dim
 
         # Flatten conv outputs to size (H*W*CH) to get rnn input vecs
