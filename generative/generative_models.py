@@ -26,27 +26,27 @@ class AgentEnvironmentSimulator(nn.Module):
         self.vae_kl_weight  = hyperparams.vae_kl_weight
         self.action_size = agent.env.action_space.n
         self.env_h_stoch_size = hyperparams.env_h_stoch_size
-        self.sample_vec_size = hyperparams.sample_vec_size
+        self.latent_vec_size = hyperparams.latent_vec_size
 
         # Networks
         self.conv_in = MultiEncoder(cnn_depth=32, image_channels=3)
         hyperparams.__dict__.update({'embed_dim': self.conv_in.out_dim})
         self.encoder = VAEEncoder(hyperparams, device)
-        self.sample_vec_converter_env = NLayerPerceptron(
-            [hyperparams.sample_vec_size,
-             int((hyperparams.sample_vec_size + hyperparams.deter_dim + hyperparams.env_h_stoch_size)/2),
+        self.latent_vec_converter_env = NLayerPerceptron(
+            [hyperparams.latent_vec_size,
+             int((hyperparams.latent_vec_size + hyperparams.deter_dim + hyperparams.env_h_stoch_size)/2),
              hyperparams.deter_dim + hyperparams.env_h_stoch_size],
         )
-        self.sample_vec_converter_agent_h = NLayerPerceptron(
-            [hyperparams.sample_vec_size,
-             int((hyperparams.sample_vec_size + hyperparams.agent_hidden_size)/2),
+        self.latent_vec_converter_agent_h = NLayerPerceptron(
+            [hyperparams.latent_vec_size,
+             int((hyperparams.latent_vec_size + hyperparams.agent_hidden_size)/2),
              hyperparams.agent_hidden_size],
         ) # Note that this net does not influence the representations learned
         #  by the VAE latent vec because the VAE sample is detached before
-        # passing to this network. Same for sample_vec_converter_action
-        self.sample_vec_converter_action = NLayerPerceptron(
-            [hyperparams.sample_vec_size,
-             int((hyperparams.sample_vec_size + hyperparams.action_dim)/2),
+        # passing to this network. Same for latent_vec_converter_action
+        self.latent_vec_converter_action = NLayerPerceptron(
+            [hyperparams.latent_vec_size,
+             int((hyperparams.latent_vec_size + hyperparams.action_dim)/2),
              hyperparams.action_dim],
         )
         features_dim = hyperparams.deter_dim + hyperparams.stoch_dim * (hyperparams.stoch_discrete or 1)
@@ -67,7 +67,9 @@ class AgentEnvironmentSimulator(nn.Module):
         calc_loss = not imagine
 
         init_ims = data['ims'][0:self.num_init_steps]
-        sample_vec, mu, logvar = self.encoder(init_ims)
+        #sample_vec, mu, logvar = self.encoder(init_ims)
+        latent_vec = self.encoder(init_ims)
+
         B = init_ims.shape[1]
 
         # Get true agent h0 and true actions as aux vars for decoder
@@ -94,7 +96,7 @@ class AgentEnvironmentSimulator(nn.Module):
             metrics_list,
             tensors_list,
             preds_dict,
-        ) = self.vae_decode(sample_vec,
+        ) = self.vae_decode(latent_vec,
                              data,
                              true_actions_1hot=true_actions_1hot,
                              use_true_actions=use_true_actions,
@@ -106,14 +108,13 @@ class AgentEnvironmentSimulator(nn.Module):
 
         if calc_loss:
             # KL divergence loss for VAE bottleneck
-            loss_vae_kl_divergence = -0.5 * torch.sum(1 + logvar - mu.pow(2) - logvar.exp(),
-                                             dim=1)  # Sum over latent dim
+            loss_latent_vec = 0. #0.5 * torch.sum(latent_vec.pow(2), dim=1)  # -0.5 * torch.sum(1 + logvar - mu.pow(2) - logvar.exp(),dim=1)  # Sum over latent dim
         else:
-            loss_vae_kl_divergence = 0.
+            loss_latent_vec = 0.
 
         return (
             loss_model,
-            loss_vae_kl_divergence,
+            loss_latent_vec,
             loss_agent_h0,
             priors,                      # tensor(T,B,2S)
             posts,                       # tensor(T,B,2S)
@@ -127,7 +128,7 @@ class AgentEnvironmentSimulator(nn.Module):
         )
 
     def vae_decode(self,
-                sample_vec,
+                latent_vec,
                 data,
                 true_actions_1hot=None,
                 use_true_actions=True,
@@ -153,14 +154,14 @@ class AgentEnvironmentSimulator(nn.Module):
             before_terminal_labels = terminal_labels_to_mask(terminal_labels)
             im_labels = data['ims'][-self.num_sim_steps:]
 
-        B = sample_vec.shape[0]
+        B = latent_vec.shape[0]
 
-        # Use Sample_vec to get init vectors: env_h_prev, env_z_prev,
+        # Use latent_vec to get init vectors: env_h_prev, env_z_prev,
         #  agent_h_prev, and action_prev
 
         ## First env_h_prev, env_z_prev (env_z_prev uses Straight Through
         ##  Gradients)
-        env_prev, _ = self.sample_vec_converter_env(sample_vec)
+        env_prev, _ = self.latent_vec_converter_env(latent_vec)
         env_h_prev, env_z_prev = env_prev[:,:-self.env_h_stoch_size],\
                                  env_prev[:,-self.env_h_stoch_size:]
         init_z_dist = self.agent_env_stepper.zdistr(env_z_prev)
@@ -173,7 +174,7 @@ class AgentEnvironmentSimulator(nn.Module):
         env_z_prev = env_z_prev.reshape(B, -1)
 
         ## Second, agent_h_prev
-        pred_agent_h_prev, _ = self.sample_vec_converter_agent_h(sample_vec.detach()) # So that the sample vec is only learns to produce good env states, not contain any representations specific to an agent hx.
+        pred_agent_h_prev, _ = self.latent_vec_converter_agent_h(latent_vec.detach()) # So that the sample vec is only learns to produce good env states, not contain any representations specific to an agent hx.
         pred_agent_h_prev = torch.tanh(pred_agent_h_prev)
         if use_true_agent_h0:
             agent_h_prev = true_agent_h0
@@ -182,7 +183,7 @@ class AgentEnvironmentSimulator(nn.Module):
 
         ## Third, action_prev (no straight through grads because the agent's init
         ##  vectors should be trained independently from the rest of the model)
-        pred_action_prev_logits, _ = self.sample_vec_converter_action(sample_vec.detach())
+        pred_action_prev_logits, _ = self.latent_vec_converter_action(latent_vec.detach())
         pred_action_prev_probs = torch.softmax(pred_action_prev_logits, dim=1)
         pred_action_prev_inds = pred_action_prev_probs.argmax(dim=1)
         pred_action_prev_1hot = torch.nn.functional.one_hot(pred_action_prev_inds,
@@ -331,7 +332,7 @@ class AgentEnvironmentSimulator(nn.Module):
                       'hx': agent_hs,
                       'reward': pred_rews,
                       'terminal': pred_terminals,
-                      'sample_vec': sample_vec,
+                      'latent_vec': latent_vec,
                       'env_h': states_env_h}
 
         return (
@@ -524,7 +525,7 @@ class VAEEncoder(nn.Module):
         self.rnn_hidden_size = hyperparams.initializer_rnn_hidden_size
         self.env_dim = hyperparams.deter_dim
         self.env_h_stoch_size = hyperparams.env_h_stoch_size
-        self.sample_vec_size = hyperparams.sample_vec_size
+        self.latent_vec_size = hyperparams.latent_vec_size
 
         # self.image_embedder = LayeredResBlockDown(input_hw=64,
         #                                           input_ch=3,
@@ -547,9 +548,9 @@ class VAEEncoder(nn.Module):
                                 nn.ELU())
 
         self.mu_mlp = nn.Linear(self.rnn_hidden_size,
-                                self.sample_vec_size)
+                                self.latent_vec_size)
         self.logvar_mlp = nn.Linear(self.rnn_hidden_size,
-                                self.sample_vec_size)
+                                self.latent_vec_size)
 
 
 
@@ -580,7 +581,11 @@ class VAEEncoder(nn.Module):
         # to get mu_g and sigma_g
         x = x[-1]  # get last ts
         pre_vec = self.mlp_out(x)
-        mu, logvar = self.mu_mlp(pre_vec), self.logvar_mlp(pre_vec)
-        sigma = torch.exp(0.5 * logvar)
-        sample = mu + (sigma * torch.randn_like(mu, device=self.device))
-        return sample, mu, logvar
+        latent_vec = self.mu_mlp(pre_vec)
+        norm = torch.norm(latent_vec, dim=1)
+        norm_safe = torch.clip(norm, min=1e-8)
+        latent_vec = latent_vec / norm_safe.unsqueeze(dim=1)
+        # logvar =  self.logvar_mlp(pre_vec)
+        # sigma = torch.exp(0.5 * logvar)
+        # sample = mu #+ (sigma * torch.randn_like(mu, device=self.device))
+        return latent_vec # sample, mu, logvar

@@ -183,7 +183,7 @@ class GenerativeModelExperiment():
             kl_weight=0.1,
             kl_balance=0.8,
             vae_kl_weight=1.,
-            sample_vec_size=256,
+            latent_vec_size=1024,
         )
 
         gen_model = AgentEnvironmentSimulator(agent, device, gen_model_hyperparams)
@@ -208,6 +208,7 @@ class GenerativeModelExperiment():
         self.resdir = resdir
         self.sess_dir = sess_dir
         self.data_save_dir = args.data_dir
+        self.recording_data_save_dir = './generative/rec_gen_mod_data/'
         self.device = device
         self.logger = logger
         self.optimizer = optimizer
@@ -307,16 +308,16 @@ class GenerativeModelExperiment():
 
 
         ### The ones not needed by viz (but all are used by record
-        #'act_log_prob''value''hx''sample_vec', 'env_h'
+        #'act_log_prob''value''hx''latent_vec', 'env_h'
         pred_act_log_prob = preds['act_log_prob'].transpose(0, 1)
         pred_value = preds['value'].transpose(0, 1)
         pred_agent_h = preds['hx'].transpose(0, 1)
-        pred_sample_vec = preds['sample_vec']
+        pred_latent_vec = preds['latent_vec']
         pred_env_h = preds['env_h'].transpose(0, 1)
 
         return pred_images, pred_terminals, pred_rews, pred_actions_1hot, \
                pred_actions_inds, \
-               pred_act_log_prob, pred_value, pred_agent_h, pred_sample_vec,\
+               pred_act_log_prob, pred_value, pred_agent_h, pred_latent_vec,\
                pred_env_h
 
     def extract_from_data(self, data):
@@ -342,26 +343,33 @@ class GenerativeModelExperiment():
         new_sample_indices = range(samples_so_far, samples_so_far + batch_size)
 
     def save_preds(self, preds, new_sample_indices_range, manual_action):
-        pred_obs = preds['obs']
+        pred_obs = preds['ims']
         pred_rews = preds['reward']
-        pred_dones = preds['done']
+        pred_dones = preds['terminal']
         pred_agent_hxs = preds['hx']
-        pred_agent_logprobs = preds['act_log_probs']
-        pred_agent_values = preds['values']
+        pred_agent_logprobs = preds['act_log_prob']
+        pred_agent_values = preds['value']
         pred_env_states = preds['env_h']
-        sample_latent_vecs = preds['latent_vecs_c_and_g']
+        sample_latent_vecs = preds['latent_vec']
 
         # Stack samples into single tensors and convert to numpy arrays
-        pred_obs = np.array(torch.stack(pred_obs, dim=1).cpu().numpy() * 255, dtype=np.uint8)
-        pred_rews = torch.stack(pred_rews, dim=1).cpu().numpy()
-        pred_dones = torch.stack(pred_dones, dim=1).cpu().numpy()
-        pred_agent_hxs = torch.stack(pred_agent_hxs, dim=1).cpu().numpy()
-        pred_agent_logprobs = torch.stack(pred_agent_logprobs, dim=1).cpu().numpy()
-        pred_agent_values = torch.stack(pred_agent_values, dim=1).cpu().numpy()
-        pred_env_states = torch.stack(pred_env_states, dim=1).cpu().numpy()
+        pred_obs = np.array(pred_obs.detach().cpu().numpy() * 255, dtype=np.uint8)
+        pred_rews = pred_rews.detach().cpu().numpy()
+        pred_dones = pred_dones.detach().cpu().numpy()
+        pred_agent_hxs = pred_agent_hxs.detach().cpu().numpy()
+        pred_agent_logprobs = pred_agent_logprobs.detach().cpu().numpy()
+        pred_agent_values = pred_agent_values.detach().cpu().numpy()
+        pred_env_states = pred_env_states.detach().cpu().numpy()
+        # pred_obs = np.array(torch.stack(pred_obs, dim=1).cpu().numpy() * 255, dtype=np.uint8)
+        # pred_rews = torch.stack(pred_rews, dim=1).cpu().numpy()
+        # pred_dones = torch.stack(pred_dones, dim=1).cpu().numpy()
+        # pred_agent_hxs = torch.stack(pred_agent_hxs, dim=1).cpu().numpy()
+        # pred_agent_logprobs = torch.stack(pred_agent_logprobs, dim=1).cpu().numpy()
+        # pred_agent_values = torch.stack(pred_agent_values, dim=1).cpu().numpy()
+        # pred_env_states = torch.stack(pred_env_states, dim=1).cpu().numpy()
 
         # no timesteps in latent vecs, so only cat not stack along time dim.
-        sample_latent_vecs = torch.cat(sample_latent_vecs, dim=1).cpu().numpy()
+        sample_latent_vecs = sample_latent_vecs.detach().cpu().numpy()
 
         vars = [pred_obs, pred_rews, pred_dones, pred_agent_hxs,
                 pred_agent_logprobs, pred_agent_values, pred_env_states, sample_latent_vecs]
@@ -376,7 +384,8 @@ class GenerativeModelExperiment():
         #     actions = np.argmax(pred_agent_logprobs, axis=-1)
 
         # Make dirs for these variables and save variables to dirs and save vid
-        sample_dir_base = os.path.join(self.data_save_dir, 'sample_')
+        # TODO different sample_ name for infinit and random
+        sample_dir_base = os.path.join(self.recording_data_save_dir, 'sample_')
         for i, new_sample_idx in enumerate(new_sample_indices_range):
             sample_dir = sample_dir_base + f'{new_sample_idx:05d}'
             # Make dirs
@@ -389,14 +398,10 @@ class GenerativeModelExperiment():
                 np.save(var_sample_name, var[i])
 
             # Save vid
-            ob = torch.tensor(pred_obs[i])
-            ob = ob.permute(0, 2, 3, 1)
-            ob = ob.clone().detach().type(torch.uint8)
-            ob = ob.cpu().numpy()
-            # Overlay a square in the top right showing the agent's actions
-            ob = overlay_actions(ob, actions[i], size=16)
-            save_str = data_dir + '/sample_' + f'{new_sample_idx:05d}.mp4'
-            tvio.write_video(save_str, ob, fps=14)
+            self.visualize_single(
+                0, batch_idx=new_sample_idx, data=None, preds=preds,
+                latent_vec=None, use_true_actions=False,
+                save_root='recording', batch_size=2)
 
     def visualize(self,
                   epoch,
@@ -527,7 +532,7 @@ class GenerativeModelExperiment():
                                    modal_sampling=True)
             else:  # random latent_vec --> decoder
                 latent_vec = torch.randn(viz_batch_size,
-                                        self.gen_model.sample_vec_size,
+                                        self.gen_model.latent_vec_size,
                                         device=self.device)
 
                 (   loss_model,

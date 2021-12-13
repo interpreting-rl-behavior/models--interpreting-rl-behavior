@@ -49,7 +49,7 @@ class TrainingExperiment(GenerativeModelExperiment):
             self.optimizer.zero_grad()
             (
                 loss_model,
-                loss_vae_kl,
+                loss_latent_vec,
                 loss_agent_aux_init,
                 priors,
                 posts,
@@ -65,7 +65,7 @@ class TrainingExperiment(GenerativeModelExperiment):
             # TODO check whether you can make losses from preds_dict alone and
             #  that they BP to the right nets
             loss = torch.mean(torch.sum(loss_model, dim=0))  # sum over T, mean over B
-            loss += torch.mean(loss_vae_kl)  # mean over B
+            # loss += torch.mean(loss_latent_vec)  # mean over B
             loss += torch.mean(loss_agent_aux_init)  # mean over B
             loss.backward()
             torch.nn.utils.clip_grad_norm_(self.gen_model.parameters(), 100.)
@@ -95,14 +95,12 @@ class TrainingExperiment(GenerativeModelExperiment):
                     model_path)
                 logger.info('Generative model saved to {}'.format(model_path))
 
-            B = loss_vae_kl.shape[0]
-            if (epoch >= 1 and batch_idx % 20000 == 0) or (epoch < 1 and batch_idx % 5000 == 0):
-            # if batch_idx % 1 == 0 :
-                self.visualize(epoch, batch_idx=batch_idx, data=data, preds=preds_dict,
-                               use_true_actions=True, save_root='sample_true_ims_true_acts')
+            B = loss_model.shape[1]
+            # self.save_preds( preds_dict, range(0,3), manual_action=None)
 
             # Demo recon quality without using true images
             if (epoch >= 1 and batch_idx % 20000 == 0) or (epoch < 1 and batch_idx % 5000 == 0):
+                self.visualize(epoch, batch_idx=batch_idx, data=data, preds=preds_dict, use_true_actions=True, save_root='sample_true_ims_true_acts')
                 self.visualize(epoch, batch_idx=batch_idx, data=None, preds=None, use_true_actions=True, save_root='sample_sim_ims_true_acts')
                 self.visualize(epoch, batch_idx=batch_idx, data=None, preds=None, use_true_actions=False, save_root='sample_sim_ims_sim_acts')
                 self.visualize_single(
