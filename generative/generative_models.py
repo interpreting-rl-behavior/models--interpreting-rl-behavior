@@ -165,13 +165,17 @@ class AgentEnvironmentSimulator(nn.Module):
         env_h_prev, env_z_prev = env_prev[:,:-self.env_h_stoch_size],\
                                  env_prev[:,-self.env_h_stoch_size:]
         init_z_dist = self.agent_env_stepper.zdistr(env_z_prev)
-        inds = init_z_dist.mean.argmax(dim=2)
-        mode_one_hot = torch.nn.functional.one_hot(inds,
-                       num_classes=self.agent_env_stepper.stoch_discrete).to(
-                       self.device)
-        env_z_prev = init_z_dist.mean + \
-                 (mode_one_hot - init_z_dist.mean).detach()
-        env_z_prev = env_z_prev.reshape(B, -1)
+        ### Modal sampling
+        # inds = init_z_dist.mean.argmax(dim=2)
+        # mode_one_hot = torch.nn.functional.one_hot(inds,
+        #                num_classes=self.agent_env_stepper.stoch_discrete).to(
+        #                self.device)
+        # env_z_prev = init_z_dist.mean + \
+        #          (mode_one_hot - init_z_dist.mean).detach()
+        # env_z_prev = env_z_prev.reshape(B, -1)
+        ### Random sampling
+        env_z_prev = init_z_dist.rsample().reshape(B, -1)
+
 
         ## Second, agent_h_prev
         pred_agent_h_prev, _ = self.latent_vec_converter_agent_h(latent_vec.detach()) # So that the sample vec is only learns to produce good env states, not contain any representations specific to an agent hx.
