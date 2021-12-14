@@ -534,6 +534,9 @@ class GenerativeModelExperiment():
                 latent_vec = torch.randn(viz_batch_size,
                                         self.gen_model.latent_vec_size,
                                         device=self.device)
+                norm = torch.norm(latent_vec, dim=1)
+                norm_safe = torch.clip(norm, min=1e-8)
+                latent_vec = latent_vec / norm_safe.unsqueeze(dim=1) # TODO maybe modularise norming code if you keep the normAE
 
                 (   loss_model,
                     loss_agent_aux_init,
