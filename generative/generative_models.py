@@ -1,6 +1,6 @@
 from .rssm.encoders import *
 from .rssm.decoders import *
-from .rssm.functions import dclamp, insert_dim, terminal_labels_to_mask
+from .rssm.functions import dclamp, insert_dim, terminal_labels_to_mask, safe_normalize
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
@@ -23,31 +23,31 @@ class AgentEnvironmentSimulator(nn.Module):
         self.num_sim_steps  = hyperparams.num_sim_steps
         self.kl_balance     = hyperparams.kl_balance
         self.kl_weight      = hyperparams.kl_weight
-        self.vae_kl_weight  = hyperparams.vae_kl_weight
-        self.action_size = agent.env.action_space.n
+        self.bottleneck_weight  = hyperparams.bottleneck_weight
+        self.action_space_size = agent.env.action_space.n
         self.env_h_stoch_size = hyperparams.env_h_stoch_size
-        self.latent_vec_size = hyperparams.latent_vec_size
+        self.bottleneck_vec_size = hyperparams.bottleneck_vec_size
 
         # Networks
         self.conv_in = MultiEncoder(cnn_depth=32, image_channels=3)
         hyperparams.__dict__.update({'embed_dim': self.conv_in.out_dim})
-        self.encoder = VAEEncoder(hyperparams, device)
-        self.latent_vec_converter_env = NLayerPerceptron(
-            [hyperparams.latent_vec_size,
-             int((hyperparams.latent_vec_size + hyperparams.deter_dim + hyperparams.env_h_stoch_size)/2),
+        self.encoder = AEEncoder(hyperparams, device)
+        self.bottleneck_vec_converter_env = NLayerPerceptron(
+            [hyperparams.bottleneck_vec_size,
+             int((hyperparams.bottleneck_vec_size + hyperparams.deter_dim + hyperparams.env_h_stoch_size)/2),
              hyperparams.deter_dim + hyperparams.env_h_stoch_size],
         )
-        self.latent_vec_converter_agent_h = NLayerPerceptron(
-            [hyperparams.latent_vec_size,
-             int((hyperparams.latent_vec_size + hyperparams.agent_hidden_size)/2),
+        self.bottleneck_vec_converter_agent_h = NLayerPerceptron(
+            [hyperparams.bottleneck_vec_size,
+             int((hyperparams.bottleneck_vec_size + hyperparams.agent_hidden_size)/2),
              hyperparams.agent_hidden_size],
         ) # Note that this net does not influence the representations learned
-        #  by the VAE latent vec because the VAE sample is detached before
-        # passing to this network. Same for latent_vec_converter_action
-        self.latent_vec_converter_action = NLayerPerceptron(
-            [hyperparams.latent_vec_size,
-             int((hyperparams.latent_vec_size + hyperparams.action_dim)/2),
-             hyperparams.action_dim],
+        #  by the AE latent vec because the AE sample is detached before
+        # passing to this network. Same for bottleneck_vec_converter_action
+        self.bottleneck_vec_converter_action = NLayerPerceptron(
+            [hyperparams.bottleneck_vec_size,
+             int((hyperparams.bottleneck_vec_size + hyperparams.action_space_size)/2),
+             hyperparams.action_space_size],
         )
         features_dim = hyperparams.deter_dim + hyperparams.stoch_dim * (hyperparams.stoch_discrete or 1)
         self.conv_out = MultiDecoder(features_dim, hyperparams)
@@ -67,8 +67,7 @@ class AgentEnvironmentSimulator(nn.Module):
         calc_loss = not imagine
 
         init_ims = data['ims'][0:self.num_init_steps]
-        #sample_vec, mu, logvar = self.encoder(init_ims)
-        latent_vec = self.encoder(init_ims)
+        bottleneck_vec = self.encoder(init_ims)
 
         B = init_ims.shape[1]
 
@@ -76,14 +75,14 @@ class AgentEnvironmentSimulator(nn.Module):
         if use_true_agent_h0:
             true_agent_h0 = data['hx'][self.num_init_steps - 1]  # -1 because 1st sim step is last init step
         else:
-            true_agent_h0 = None  # generated in the VAE decoder
+            true_agent_h0 = None  # generated in the AE decoder
 
         if use_true_actions:
             true_actions_inds = data['action'][self.num_init_steps-2:] # -2 because we have to use a_{t-1} in combo with env_t to get o_t
-            true_actions_1hot = torch.nn.functional.one_hot(true_actions_inds.long(), self.action_size)
+            true_actions_1hot = torch.nn.functional.one_hot(true_actions_inds.long(), self.action_space_size)
             true_actions_1hot = true_actions_1hot.float()
         else:
-            true_actions_1hot = torch.zeros(self.num_sim_steps, B, self.action_size, device=self.device)
+            true_actions_1hot = torch.zeros(self.num_sim_steps, B, self.action_space_size, device=self.device)
 
         (   loss_model,
             loss_agent_h0,
@@ -96,7 +95,7 @@ class AgentEnvironmentSimulator(nn.Module):
             metrics_list,
             tensors_list,
             preds_dict,
-        ) = self.vae_decode(latent_vec,
+        ) = self.ae_decode(bottleneck_vec,
                              data,
                              true_actions_1hot=true_actions_1hot,
                              use_true_actions=use_true_actions,
@@ -107,14 +106,15 @@ class AgentEnvironmentSimulator(nn.Module):
                              retain_grads=True,)
 
         if calc_loss:
-            # KL divergence loss for VAE bottleneck
-            loss_latent_vec = 0. #0.5 * torch.sum(latent_vec.pow(2), dim=1)  # -0.5 * torch.sum(1 + logvar - mu.pow(2) - logvar.exp(),dim=1)  # Sum over latent dim
+            # Loss for autoencoder bottleneck
+            # TODO contrastive loss
+            loss_bottleneck = 0. #0.5 * torch.sum(bottleneck_vec.pow(2), dim=1)  # Sum over latent dim
         else:
-            loss_latent_vec = 0.
+            loss_bottleneck = 0.
 
         return (
             loss_model,
-            loss_latent_vec,
+            loss_bottleneck,
             loss_agent_h0,
             priors,                      # tensor(T,B,2S)
             posts,                       # tensor(T,B,2S)
@@ -127,8 +127,8 @@ class AgentEnvironmentSimulator(nn.Module):
             preds_dict,
         )
 
-    def vae_decode(self,
-                latent_vec,
+    def ae_decode(self,
+                bottleneck_vec,
                 data,
                 true_actions_1hot=None,
                 use_true_actions=True,
@@ -146,6 +146,9 @@ class AgentEnvironmentSimulator(nn.Module):
 
         """
 
+        B = bottleneck_vec.shape[0]
+
+
         # Get labels for loss function
         if calc_loss: # No need to calc loss
             agent_h_labels = data['hx'][self.num_init_steps-1:]
@@ -154,31 +157,30 @@ class AgentEnvironmentSimulator(nn.Module):
             before_terminal_labels = terminal_labels_to_mask(terminal_labels)
             im_labels = data['ims'][-self.num_sim_steps:]
 
-        B = latent_vec.shape[0]
-
-        # Use latent_vec to get init vectors: env_h_prev, env_z_prev,
+        # Use bottleneck_vec to get init vectors: env_h_prev, env_z_prev,
         #  agent_h_prev, and action_prev
-
         ## First env_h_prev, env_z_prev (env_z_prev uses Straight Through
-        ##  Gradients)
-        env_prev, _ = self.latent_vec_converter_env(latent_vec)
+        ##  Gradients because it is a random sample)
+        env_prev, _ = self.bottleneck_vec_converter_env(bottleneck_vec)
         env_h_prev, env_z_prev = env_prev[:,:-self.env_h_stoch_size],\
                                  env_prev[:,-self.env_h_stoch_size:]
         init_z_dist = self.agent_env_stepper.zdistr(env_z_prev)
-        ### Modal sampling
-        # inds = init_z_dist.mean.argmax(dim=2)
-        # mode_one_hot = torch.nn.functional.one_hot(inds,
-        #                num_classes=self.agent_env_stepper.stoch_discrete).to(
-        #                self.device)
-        # env_z_prev = init_z_dist.mean + \
-        #          (mode_one_hot - init_z_dist.mean).detach()
-        # env_z_prev = env_z_prev.reshape(B, -1)
-        ### Random sampling
-        env_z_prev = init_z_dist.rsample().reshape(B, -1)
+        if modal_sampling:
+            ### Modal sampling
+            inds = init_z_dist.mean.argmax(dim=2)
+            mode_one_hot = torch.nn.functional.one_hot(inds,
+                           num_classes=self.agent_env_stepper.stoch_discrete).to(
+                           self.device)
+            env_z_prev = init_z_dist.mean + \
+                     (mode_one_hot - init_z_dist.mean).detach()
+            env_z_prev = env_z_prev.reshape(B, -1)
+        else:
+            ### Random sampling
+            env_z_prev = init_z_dist.rsample().reshape(B, -1)
 
 
         ## Second, agent_h_prev
-        pred_agent_h_prev, _ = self.latent_vec_converter_agent_h(latent_vec.detach()) # So that the sample vec is only learns to produce good env states, not contain any representations specific to an agent hx.
+        pred_agent_h_prev, _ = self.bottleneck_vec_converter_agent_h(bottleneck_vec.detach()) # So that the sample vec is only learns to produce good env states, not contain any representations specific to an agent hx.
         pred_agent_h_prev = torch.tanh(pred_agent_h_prev)
         if use_true_agent_h0:
             agent_h_prev = true_agent_h0
@@ -187,11 +189,11 @@ class AgentEnvironmentSimulator(nn.Module):
 
         ## Third, action_prev (no straight through grads because the agent's init
         ##  vectors should be trained independently from the rest of the model)
-        pred_action_prev_logits, _ = self.latent_vec_converter_action(latent_vec.detach())
+        pred_action_prev_logits, _ = self.bottleneck_vec_converter_action(bottleneck_vec.detach())
         pred_action_prev_probs = torch.softmax(pred_action_prev_logits, dim=1)
         pred_action_prev_inds = pred_action_prev_probs.argmax(dim=1)
         pred_action_prev_1hot = torch.nn.functional.one_hot(pred_action_prev_inds,
-                                                            num_classes=self.action_size).to(self.device).float()
+                                                            num_classes=self.action_space_size).to(self.device).float()
         if use_true_actions:
             action_prev  = true_actions_1hot[0]
         else:
@@ -239,7 +241,7 @@ class AgentEnvironmentSimulator(nn.Module):
             # Define the labels for the loss function because we calculate it
             #  in here.
             if calc_loss:
-                labels = {'image': im_labels[i],  #TODO make these keys consistent with the rest of the codebase, i.e. use 'ims', 'hx',
+                labels = {'ims': im_labels[i],
                           'reward':reward_labels[i],
                           'terminal':terminal_labels[i],
                           'before_terminal':before_terminal_labels[i],
@@ -252,9 +254,9 @@ class AgentEnvironmentSimulator(nn.Module):
             pred_action_1hot,
             pred_action_log_prob,
             pred_value,
-            image_rec, # _pred for predicted, _rec for reconstructed, i.e. basically the same thing.
-            rew_rec,
-            terminal_rec,
+            pred_image, # _pred for predicted, _rec for reconstructed, i.e. basically the same thing.
+            pred_rew,
+            pred_terminal,
             (env_h, env_z),      # tensor(B, D+S+G)
             agent_h,
             loss_reconstr,
@@ -272,9 +274,9 @@ class AgentEnvironmentSimulator(nn.Module):
             pred_actions_1hot.append(pred_action_1hot)
             pred_action_log_probs.append(pred_action_log_prob)
             pred_values.append(pred_value)
-            pred_ims.append(image_rec)
-            pred_rews.append(rew_rec)
-            pred_terminals.append(terminal_rec)
+            pred_ims.append(pred_image)
+            pred_rews.append(pred_rew)
+            pred_terminals.append(pred_terminal)
             states_env_h.append(env_h)
             samples.append(env_z)
             agent_hs.append(agent_h)
@@ -312,7 +314,7 @@ class AgentEnvironmentSimulator(nn.Module):
             dpost = d(posts)
             loss_kl_exact = D.kl.kl_divergence(dpost, dprior)  # (T,B)
 
-            # Analytic KL loss, standard for VAE
+            # Analytic KL loss, standard for AE
             if not self.kl_balance:
                 loss_kl = loss_kl_exact
             else:
@@ -331,12 +333,12 @@ class AgentEnvironmentSimulator(nn.Module):
         # Make preds_dict
         preds_dict = {'action': pred_actions_1hot,
                       'act_log_prob': pred_action_log_probs,
-                      'value': pred_values, # TODO go through whole codebase making consistent 'rec' vs 'pred'. Think I prefer rec because there's less confusion with 'prev'
-                      'ims': pred_ims, # TODO go through whole codebase converting from 'obs' 'ob' 'ims' to 'im', for consistency with other labels
+                      'value': pred_values,
+                      'ims': pred_ims,
                       'hx': agent_hs,
                       'reward': pred_rews,
                       'terminal': pred_terminals,
-                      'latent_vec': latent_vec,
+                      'bottleneck_vec': bottleneck_vec,
                       'env_h': states_env_h}
 
         return (
@@ -372,7 +374,7 @@ class AgentEnvStepper(nn.Module):
 
         # Networks
         self.z_mlp = nn.Linear(hyperparams.stoch_dim * (hyperparams.stoch_discrete or 1), hyperparams.hidden_dim)
-        self.a_mlp = nn.Linear(hyperparams.action_dim, hyperparams.hidden_dim, bias=False)  # No bias, because outputs are added
+        self.a_mlp = nn.Linear(hyperparams.action_space_size, hyperparams.hidden_dim, bias=False)  # No bias, because outputs are added
         self.in_norm = norm(hyperparams.hidden_dim, eps=1e-3)
 
         self.gru = GRUCellStack(hyperparams.hidden_dim, hyperparams.deter_dim, 1, 'gru_layernorm')
@@ -442,19 +444,19 @@ class AgentEnvStepper(nn.Module):
         feature = BF_to_TBIF(feature)
         if calc_loss:
             labels = {k: BF_to_TBF(v) for k, v in labels.items()}
-            loss_reconstr, metrics, tensors, image_rec, rew_rec, terminal_rec = \
+            loss_reconstr, metrics, tensors, pred_image, pred_rew, pred_terminal = \
                 self.decoder.training_step(feature, labels)
         else:
             labels = None
-            loss_reconstr, metrics, tensors, image_rec, rew_rec, terminal_rec = \
+            loss_reconstr, metrics, tensors, pred_image, pred_rew, pred_terminal = \
                 self.decoder.inference_step(feature)
 
         # Then use ims and agent_h to step the agent forward and produce an action
-        image_rec = image_rec.squeeze()
-        image_rec = dclamp(image_rec, self.image_range_min, self.image_range_max)
-        no_masks = torch.zeros(1, image_rec.shape[0], device=self.device)  #(T,B)
+        pred_image = pred_image.squeeze()
+        pred_image = dclamp(pred_image, self.image_range_min, self.image_range_max)
+        no_masks = torch.zeros(1, pred_image.shape[0], device=self.device)  #(T,B)
         pred_action, pred_action_logits, pred_value, agent_h = \
-            self.agent.predict_STE(image_rec, agent_h_prev, no_masks,
+            self.agent.predict_STE(pred_image, agent_h_prev, no_masks,
                                    retain_grads=True)
         if calc_loss:
             loss_reconstr_agent_h = self.agent_hx_loss(agent_h, labels['agent_h'], labels['before_terminal'])
@@ -465,9 +467,9 @@ class AgentEnvStepper(nn.Module):
             pred_action,
             pred_action_logits,
             pred_value,
-            image_rec, # _pred for predicted, _rec for reconstructed, i.e. basically the same thing.
-            rew_rec,
-            terminal_rec,
+            pred_image, # _pred for predicted, _rec for reconstructed, i.e. basically the same thing.
+            pred_rew,
+            pred_terminal,
             (h, sample),      # tensor(B, D+S+G)
             agent_h,
             loss_reconstr,
@@ -512,7 +514,7 @@ class AgentEnvStepper(nn.Module):
             return diag_normal(pp)
 
 
-class VAEEncoder(nn.Module):
+class AEEncoder(nn.Module):
     """
 
     Recurrent network that takes a seq of frames from t=-k to t=0 as input.
@@ -523,25 +525,38 @@ class VAEEncoder(nn.Module):
     def __init__(self,
                  hyperparams,
                  device):
-        super(VAEEncoder, self).__init__()
+        super(AEEncoder, self).__init__()
         self.device = device
         self.num_init_steps = hyperparams.num_init_steps
         self.rnn_hidden_size = hyperparams.initializer_rnn_hidden_size
         self.env_dim = hyperparams.deter_dim
         self.env_h_stoch_size = hyperparams.env_h_stoch_size
-        self.latent_vec_size = hyperparams.latent_vec_size
+        self.bottleneck_vec_size = hyperparams.bottleneck_vec_size
 
         # self.image_embedder = LayeredResBlockDown(input_hw=64,
         #                                           input_ch=3,
         #                                           hidden_ch=64,
         #                                           output_hw=8,
         #                                           output_ch=32)
-        self.image_embedder = ConvEncoder(cnn_depth=32, in_channels=3)
-        embedder_outsize = self.image_embedder.out_dim
-        self.rnn = nn.GRU(input_size=embedder_outsize,
-                          hidden_size=self.rnn_hidden_size,
-                          num_layers=1,
-                          batch_first=False)
+
+        self.image_embedder = LayeredResBlockDown(input_hw=64,
+                                                  input_ch=3,
+                                                  hidden_ch=64,
+                                                  output_hw=4,
+                                                  output_ch=256)
+
+        self.rnn = nn.GRU(input_size=self.image_embedder.output_size,
+                           hidden_size=self.rnn_hidden_size,
+                           num_layers=1,
+                           batch_first=False)
+
+
+        # self.image_embedder = ConvEncoder(cnn_depth=32, in_channels=3)
+        # embedder_outsize = self.image_embedder.out_dim
+        # self.rnn = nn.GRU(input_size=embedder_outsize,
+        #                   hidden_size=self.rnn_hidden_size,
+        #                   num_layers=1,
+        #                   batch_first=False)
 
         self.mlp_out = nn.Sequential(
                                 nn.Linear(self.rnn_hidden_size,
@@ -551,11 +566,8 @@ class VAEEncoder(nn.Module):
                                           self.rnn_hidden_size),
                                 nn.ELU())
 
-        self.mu_mlp = nn.Linear(self.rnn_hidden_size,
-                                self.latent_vec_size)
-        self.logvar_mlp = nn.Linear(self.rnn_hidden_size,
-                                self.latent_vec_size)
-
+        self.bottleneck_mlp = nn.Linear(self.rnn_hidden_size,
+                                self.bottleneck_vec_size)
 
 
     def forward(self,
@@ -572,7 +584,7 @@ class VAEEncoder(nn.Module):
 
         images = [x[i] for i in range(ts)]  # split along time dim
         embeddings = [self.image_embedder(im) for im in images]
-        # embeddings = [im for (im, _) in embeddings]
+        embeddings = [im for (im, _) in embeddings]
         x = torch.stack(embeddings, dim=0)  # stack along time dim
 
         # Flatten conv outputs to size (H*W*CH) to get rnn input vecs
@@ -582,14 +594,10 @@ class VAEEncoder(nn.Module):
         x, _ = self.rnn(x)
 
         # Concat RNN output to agent h0 and then pass to Converter nets
-        # to get mu_g and sigma_g
+        # to get bottneck vec
         x = x[-1]  # get last ts
         pre_vec = self.mlp_out(x)
-        latent_vec = self.mu_mlp(pre_vec)
-        norm = torch.norm(latent_vec, dim=1)
-        norm_safe = torch.clip(norm, min=1e-8)
-        latent_vec = latent_vec / norm_safe.unsqueeze(dim=1)
-        # logvar =  self.logvar_mlp(pre_vec)
-        # sigma = torch.exp(0.5 * logvar)
-        # sample = mu #+ (sigma * torch.randn_like(mu, device=self.device))
-        return latent_vec # sample, mu, logvar
+        bottleneck_vec = self.bottleneck_mlp(pre_vec)
+        bottleneck_vec = safe_normalize(bottleneck_vec)
+
+        return bottleneck_vec
