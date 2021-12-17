@@ -65,7 +65,7 @@ class TrainingExperiment(GenerativeModelExperiment):
             # TODO check whether you can make saliency/target losses from preds_dict alone and
             #  that they BP to the right nets
             loss = torch.mean(torch.sum(loss_model, dim=0))  # sum over T, mean over B
-            # loss += torch.mean(loss_bottleneck)  # mean over B
+            loss += loss_bottleneck # no mean because already summed over b
             loss += torch.mean(loss_agent_aux_init)  # mean over B
             loss.backward()
             torch.nn.utils.clip_grad_norm_(self.gen_model.parameters(), 100.)

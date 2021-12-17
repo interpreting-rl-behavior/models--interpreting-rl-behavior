@@ -23,10 +23,11 @@ class AgentEnvironmentSimulator(nn.Module):
         self.num_sim_steps  = hyperparams.num_sim_steps
         self.kl_balance     = hyperparams.kl_balance
         self.kl_weight      = hyperparams.kl_weight
-        self.bottleneck_weight  = hyperparams.bottleneck_weight
+        self.bottleneck_loss_weight  = hyperparams.bottleneck_loss_weight
         self.action_space_size = agent.env.action_space.n
         self.env_h_stoch_size = hyperparams.env_h_stoch_size
         self.bottleneck_vec_size = hyperparams.bottleneck_vec_size
+        self.env_update_penalty_weight = hyperparams.env_update_penalty_weight
 
         # Networks
         self.conv_in = MultiEncoder(cnn_depth=32, image_channels=3)
@@ -107,8 +108,15 @@ class AgentEnvironmentSimulator(nn.Module):
 
         if calc_loss:
             # Loss for autoencoder bottleneck
-            # TODO contrastive loss
-            loss_bottleneck = 0. #0.5 * torch.sum(bottleneck_vec.pow(2), dim=1)  # Sum over latent dim
+            # pushes each vec away from others for best spread over hypersphere
+            similarities = 1-torch.mm(bottleneck_vec, bottleneck_vec.transpose(0,1))
+            eye = torch.eye(similarities.shape[0]).to(self.device)
+            not_eye = -(eye-1)
+            not_eye = not_eye.byte()
+            nonauto_sims = torch.where(not_eye, similarities, eye)
+            loss_bottleneck = - torch.log(1./torch.sum(torch.exp(nonauto_sims)))
+            loss_bottleneck *= self.bottleneck_loss_weight
+            # loss_bottleneck = 0. #0.5 * torch.sum(bottleneck_vec.pow(2), dim=1)  # Sum over latent dim
         else:
             loss_bottleneck = 0.
 
@@ -147,7 +155,6 @@ class AgentEnvironmentSimulator(nn.Module):
         """
 
         B = bottleneck_vec.shape[0]
-
 
         # Get labels for loss function
         if calc_loss: # No need to calc loss
@@ -211,6 +218,9 @@ class AgentEnvironmentSimulator(nn.Module):
 
             # Combine both auxiliary initialisation losses
             loss_agent_aux_init = loss_agent_h0 + loss_agent_act0
+
+            # prepare for calc of env_h update penalty
+            env_update_losses = []
         else:
             loss_agent_aux_init = 0.
 
@@ -288,6 +298,11 @@ class AgentEnvironmentSimulator(nn.Module):
                 action_prev = true_actions_1hot[i + 1]  # +1 because index0 is a_{t-1}
             else:
                 action_prev = pred_action_1hot
+
+            if calc_loss:
+                diff = env_h - env_h_prev
+                env_update_loss = torch.norm(diff, dim=1) # no norm on batch dim
+                env_update_losses.append(env_update_loss)
             agent_h_prev = agent_h
             env_h_prev, env_z_prev = (env_h, env_z)
 
@@ -307,6 +322,7 @@ class AgentEnvironmentSimulator(nn.Module):
 
         if calc_loss:
             recon_losses = torch.stack(recon_losses).squeeze()
+            env_update_losses = torch.stack(env_update_losses).squeeze()
 
             # KL loss
             d = self.agent_env_stepper.zdistr
@@ -323,10 +339,12 @@ class AgentEnvironmentSimulator(nn.Module):
                 loss_kl = (1 - self.kl_balance) * loss_kl_postgrad + \
                           self.kl_balance       * loss_kl_priograd
 
+
             # Total loss
             assert loss_kl.shape == recon_losses.shape
-            # are these all the same shape??
-            loss_model = self.kl_weight * loss_kl + recon_losses
+            loss_model = self.kl_weight * loss_kl + \
+                         recon_losses + \
+                         self.env_update_penalty_weight * env_update_losses
         else:
             loss_model = 0.
 
@@ -543,7 +561,7 @@ class AEEncoder(nn.Module):
                                                   input_ch=3,
                                                   hidden_ch=64,
                                                   output_hw=4,
-                                                  output_ch=256)
+                                                  output_ch=128)
 
         self.rnn = nn.GRU(input_size=self.image_embedder.output_size,
                            hidden_size=self.rnn_hidden_size,

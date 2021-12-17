@@ -184,8 +184,9 @@ class GenerativeModelExperiment():
             terminal_decoder_layers=4,
             kl_weight=3.,
             kl_balance=0.8,
-            bottleneck_weight=1.,
+            bottleneck_loss_weight=0.1,
             bottleneck_vec_size=512,
+            env_update_penalty_weight=0.005
         )
 
         gen_model = AgentEnvironmentSimulator(agent, device, gen_model_hyperparams)
