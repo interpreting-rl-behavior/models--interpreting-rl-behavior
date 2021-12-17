@@ -10,6 +10,8 @@ from common import set_global_seeds, set_global_log_levels
 from train import create_venv
 from generative.generative_models import AgentEnvironmentSimulator
 from generative.procgen_dataset import ProcgenDataset
+from generative.rssm.functions import safe_normalize
+
 from overlay_image import overlay_actions, overlay_box_var
 
 from util.namespace import Namespace
@@ -20,11 +22,11 @@ from datetime import datetime
 class GenerativeModelExperiment():
     def __init__(self):
         """ # TODO generalize docstring
-        A class for experiments that involve sampling from a VAE latent space.
+        A class for experiments that involve sampling from a AE latent space.
 
         Its purpose is to have all the infrastructure necessary for
         running experiments that involve generating samples from the latent
-        space of the VAE. It therefore accommodates the following experiments:
+        space of the AE. It therefore accommodates the following experiments:
           -
           - TargetFunctionExperiments
           - LatentSpaceInterpolationExperiment
@@ -122,8 +124,8 @@ class GenerativeModelExperiment():
         ## Agent's discrete action space
         recurrent = agent_hyperparams.get('recurrent', False)
         if isinstance(action_space, gym.spaces.Discrete):
-            action_size = action_space.n
-            policy = CategoricalPolicy(model, recurrent, action_size)
+            action_space_size = action_space.n
+            policy = CategoricalPolicy(model, recurrent, action_space_size)
         else:
             raise NotImplementedError
         policy.to(device)
@@ -171,19 +173,19 @@ class GenerativeModelExperiment():
             stoch_dim=32,
             env_h_stoch_size=32 * 32,
             agent_hidden_size=64,
-            action_dim=action_size, #TODO go through making action_dim and _size consistent
+            action_space_size=action_space_size, #TODO go through making action_space_size and _size consistent
             deter_dim=512,  # 2048
-            initializer_rnn_hidden_size=256,
+            initializer_rnn_hidden_size=512,
             layer_norm=True,
             hidden_dim=1000,
             image_channels=3,
             cnn_depth=48,
             reward_decoder_layers=4,
             terminal_decoder_layers=4,
-            kl_weight=0.1,
+            kl_weight=3.,
             kl_balance=0.8,
-            vae_kl_weight=1.,
-            latent_vec_size=1024,
+            bottleneck_weight=1.,
+            bottleneck_vec_size=512,
         )
 
         gen_model = AgentEnvironmentSimulator(agent, device, gen_model_hyperparams)
@@ -308,16 +310,16 @@ class GenerativeModelExperiment():
 
 
         ### The ones not needed by viz (but all are used by record
-        #'act_log_prob''value''hx''latent_vec', 'env_h'
+        #'act_log_prob''value''hx''bottleneck_vec', 'env_h'
         pred_act_log_prob = preds['act_log_prob'].transpose(0, 1)
         pred_value = preds['value'].transpose(0, 1)
         pred_agent_h = preds['hx'].transpose(0, 1)
-        pred_latent_vec = preds['latent_vec']
+        pred_bottleneck_vec = preds['bottleneck_vec']
         pred_env_h = preds['env_h'].transpose(0, 1)
 
         return pred_images, pred_terminals, pred_rews, pred_actions_1hot, \
                pred_actions_inds, \
-               pred_act_log_prob, pred_value, pred_agent_h, pred_latent_vec,\
+               pred_act_log_prob, pred_value, pred_agent_h, pred_bottleneck_vec,\
                pred_env_h
 
     def extract_from_data(self, data):
@@ -350,7 +352,7 @@ class GenerativeModelExperiment():
         pred_agent_logprobs = preds['act_log_prob']
         pred_agent_values = preds['value']
         pred_env_states = preds['env_h']
-        sample_latent_vecs = preds['latent_vec']
+        bottleneck_vecs = preds['bottleneck_vec']
 
         # Stack samples into single tensors and convert to numpy arrays
         pred_obs = np.array(pred_obs.detach().cpu().numpy() * 255, dtype=np.uint8)
@@ -369,13 +371,13 @@ class GenerativeModelExperiment():
         # pred_env_states = torch.stack(pred_env_states, dim=1).cpu().numpy()
 
         # no timesteps in latent vecs, so only cat not stack along time dim.
-        sample_latent_vecs = sample_latent_vecs.detach().cpu().numpy()
+        bottleneck_vecs = bottleneck_vecs.detach().cpu().numpy()
 
         vars = [pred_obs, pred_rews, pred_dones, pred_agent_hxs,
-                pred_agent_logprobs, pred_agent_values, pred_env_states, sample_latent_vecs]
+                pred_agent_logprobs, pred_agent_values, pred_env_states, bottleneck_vecs]
         var_names = ['obs', 'rews', 'dones', 'agent_hxs',
                      'agent_logprobs', 'agent_values', 'env_hid_states',
-                     'env_cell_states', 'latent_vec']
+                     'env_cell_states', 'bottleneck_vec']
 
         # # Recover the actions for use in the action overlay
         # if manual_action is not None:
@@ -400,10 +402,10 @@ class GenerativeModelExperiment():
             # Save vid
             self.visualize_single(
                 0, batch_idx=new_sample_idx, data=None, preds=preds,
-                latent_vec=None, use_true_actions=False,
+                bottleneck_vec=None, use_true_actions=False,
                 save_root='recording', batch_size=2)
 
-    def visualize(self,
+    def visualize(self, # TODO maybe separate out the saving from the vid making
                   epoch,
                   batch_idx,
                   data=None,
@@ -425,7 +427,7 @@ class GenerativeModelExperiment():
         if preds is None:
             self.optimizer.zero_grad()
             (   loss_model,
-                loss_vae_kl_divergence,
+                loss_bottleneck,
                 loss_agent_h0,
                 priors,  # tensor(T,B,2S)
                 posts,  # tensor(T,B,2S)
@@ -493,7 +495,7 @@ class GenerativeModelExperiment():
                                   batch_idx,
                                   data=None,
                                   preds=None,
-                                  latent_vec=None,
+                                  bottleneck_vec=None,
                                   informed_init=False,
                                   use_true_actions=False,
                                   save_root='',
@@ -506,15 +508,15 @@ class GenerativeModelExperiment():
         viz_batch_size = batch_size
 
         # TODO systematize the below conjunction
-        if preds is None and latent_vec is None:
-            if informed_init:  # encoder --> latent_vec --> decoder --> viz preds
+        if preds is None and bottleneck_vec is None:
+            if informed_init:  # encoder --> bottleneck_vec --> decoder --> viz preds
                 if data is None:
                     data = self.get_single_batch()
 
                 _, true_actions_inds, _, _ = self.extract_from_data(data)
 
                 (loss_model,
-                 loss_vae_kl_divergence,
+                 loss_bottleneck,
                  loss_agent_h0,
                  priors,  # tensor(T,B,2S)
                  posts,  # tensor(T,B,2S)
@@ -530,13 +532,11 @@ class GenerativeModelExperiment():
                                    use_true_actions=use_true_actions,
                                    imagine=True,
                                    modal_sampling=True)
-            else:  # random latent_vec --> decoder
-                latent_vec = torch.randn(viz_batch_size,
-                                        self.gen_model.latent_vec_size,
+            else:  # random bottleneck_vec --> decoder
+                bottleneck_vec = torch.randn(viz_batch_size,
+                                        self.gen_model.bottleneck_vec_size,
                                         device=self.device)
-                norm = torch.norm(latent_vec, dim=1)
-                norm_safe = torch.clip(norm, min=1e-8)
-                latent_vec = latent_vec / norm_safe.unsqueeze(dim=1) # TODO maybe modularise norming code if you keep the normAE
+                bottleneck_vec = safe_normalize(bottleneck_vec)
 
                 (   loss_model,
                     loss_agent_aux_init,
@@ -550,8 +550,8 @@ class GenerativeModelExperiment():
                     tensors_list,
                     preds,
                 ) = \
-                    self.gen_model.vae_decode(
-                        latent_vec,
+                    self.gen_model.ae_decode(
+                        bottleneck_vec,
                         data=None,
                         true_actions_1hot=None,
                         use_true_actions=False,
@@ -563,8 +563,8 @@ class GenerativeModelExperiment():
                         retain_grads=True, )
 
         # Use the latent vec given in the arguments
-        elif preds is None and latent_vec is not None:
-            # (already run encoder) latent_vec --> decoder --> viz preds
+        elif preds is None and bottleneck_vec is not None:
+            # (already run encoder) bottleneck_vec --> decoder --> viz preds
             (loss_model,
              loss_agent_aux_init,
              priors,  # tensor(T,B,2S)
@@ -577,8 +577,8 @@ class GenerativeModelExperiment():
              tensors_list,
              preds,
              ) = \
-                self.gen_model.vae_decode(
-                    latent_vec,
+                self.gen_model.ae_decode(
+                    bottleneck_vec,
                     data=None,
                     true_actions_1hot=None,
                     use_true_actions=False,
@@ -590,7 +590,7 @@ class GenerativeModelExperiment():
                     retain_grads=True)
 
         # Just visualise the given preds
-        elif preds is not None and latent_vec is None:
+        elif preds is not None and bottleneck_vec is None:
             # Dont make a new preds dict by running a gen model decoder
             # just --> viz preds
             pass
