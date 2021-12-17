@@ -204,7 +204,7 @@ class TargetFunction():
 
     def action_target_function(self, preds_dict, epoch):
         preds = preds_dict['act_log_probs']
-        sample_vecs = preds_dict['sample_vecs']
+        bottleneck_vecs = preds_dict['bottleneck_vecs']
         preds = torch.stack(preds, dim=1).squeeze()
 
         # Make a target log prob that is simply slightly higher than
@@ -240,7 +240,7 @@ class TargetFunction():
 
         # Add l2 loss on size of sample vector to attract the vector toward the
         # origin
-        sample_l2_loss = self.origin_attraction_scale*(sample_vecs ** 2).mean()
+        sample_l2_loss = self.origin_attraction_scale*(bottleneck_vecs ** 2).mean()
         print("TargFunc loss: %f ; vec l2 loss: %f " % (loss_sum, sample_l2_loss))
         loss_sum = loss_sum + sample_l2_loss
 
@@ -248,7 +248,7 @@ class TargetFunction():
 
     def value_incr_or_decr_target_function(self, preds_dict, epoch):
         preds = preds_dict['value']
-        sample_vecs = preds_dict['sample_vecs']
+        bottleneck_vecs = preds_dict['bottleneck_vecs']
         preds = torch.stack(preds, dim=1).squeeze()
 
         # Make a target that is simply slightly higher than
@@ -278,7 +278,7 @@ class TargetFunction():
 
         # Add l2 loss on size of sample vector to attract the vector toward the
         # origin
-        sample_l2_loss = self.origin_attraction_scale*(sample_vecs ** 2).mean()
+        sample_l2_loss = self.origin_attraction_scale*(bottleneck_vecs ** 2).mean()
         print("TargFunc loss: %f ; vec l2 loss: %f " % (loss_sum, sample_l2_loss))
         loss_sum = loss_sum + sample_l2_loss
 
@@ -286,7 +286,7 @@ class TargetFunction():
 
     def value_high_or_low_target_function(self, preds_dict, epoch):
         preds = preds_dict['value']
-        sample_vecs = preds_dict['sample_vecs']
+        bottleneck_vecs = preds_dict['bottleneck_vecs']
         preds = torch.stack(preds, dim=1).squeeze()
 
         # Make a target that is simply slightly higher than
@@ -310,7 +310,7 @@ class TargetFunction():
 
         # Add l2 loss on size of sample vector to attract the vector toward the
         # origin
-        sample_l2_loss = self.origin_attraction_scale*(sample_vecs ** 2).mean()
+        sample_l2_loss = self.origin_attraction_scale*(bottleneck_vecs ** 2).mean()
         print("TargFunc loss: %f ; vec l2 loss: %f " % (loss_sum, sample_l2_loss))
         loss_sum = loss_sum + sample_l2_loss
 
@@ -318,7 +318,7 @@ class TargetFunction():
 
     def hx_neuron_target_function(self, preds_dict, epoch):
         preds = preds_dict['hx']
-        sample_vecs = preds_dict['sample_vecs']
+        bottleneck_vecs = preds_dict['bottleneck_vecs']
         preds = torch.stack(preds, dim=1).squeeze()
         neuron_optimized = epoch
 
@@ -343,7 +343,7 @@ class TargetFunction():
 
         # Add l2 loss on size of sample vector to attract the vector toward the
         # origin
-        sample_l2_loss = self.origin_attraction_scale*(sample_vecs ** 2).mean()
+        sample_l2_loss = self.origin_attraction_scale*(bottleneck_vecs ** 2).mean()
         print("TargFunc loss: %f ; vec l2 loss: %f " % (loss_sum, sample_l2_loss))
         loss_sum = loss_sum + sample_l2_loss
 
@@ -351,7 +351,7 @@ class TargetFunction():
 
     def hx_direction_target_function(self, preds_dict, epoch):
         preds = preds_dict['hx']
-        sample_vecs = preds_dict['sample_vecs']
+        bottleneck_vecs = preds_dict['bottleneck_vecs']
         preds = torch.stack(preds, dim=1).squeeze()
         directions = self.directions[:, epoch]
         # pred_magnitude = np.linalg.norm(preds[:, self.timesteps], axis=1)
@@ -380,7 +380,7 @@ class TargetFunction():
 
         # Add l2 loss on size of sample vector to attract the vector toward the
         # origin
-        sample_l2_loss = self.origin_attraction_scale*(sample_vecs ** 2).mean()
+        sample_l2_loss = self.origin_attraction_scale*(bottleneck_vecs ** 2).mean()
         print("TargFunc loss: %f ; vec l2 loss: %f " % (loss_sum, sample_l2_loss))
         loss_sum = loss_sum + sample_l2_loss
 
@@ -388,7 +388,7 @@ class TargetFunction():
 
     def hx_location_target_function(self, preds_dict, epoch):
         preds = preds_dict['hx']
-        sample_vecs = preds_dict['sample_vecs']
+        bottleneck_vecs = preds_dict['bottleneck_vecs']
         preds = torch.stack(preds, dim=1).squeeze()
         directions = self.directions[:, epoch]
         directions = torch.tensor(directions, device=preds.device)
@@ -414,7 +414,7 @@ class TargetFunction():
 
         # Add l2 loss on size of sample vector to attract the vector toward the
         # origin
-        sample_l2_loss = self.origin_attraction_scale * (sample_vecs ** 2).mean()
+        sample_l2_loss = self.origin_attraction_scale * (bottleneck_vecs ** 2).mean()
         print("TargFunc loss: %f ; vec l2 loss: %f " % (loss_sum, sample_l2_loss))
         loss_sum = loss_sum + sample_l2_loss
 
@@ -503,7 +503,7 @@ if __name__=='__main__':
 
     # Set some hyperparams
     viz_batch_size = 9
-    vae_latent_size = 128
+    bottleneck_vec_size = 128
     z_c_size = 64
     z_g_size = 64
 
@@ -513,17 +513,17 @@ if __name__=='__main__':
     for epoch in range(target_func.num_epochs):
         print("Epoch: " + str(epoch))
         # Get random starting vectors, which we will optimize
-        sample_vecs = torch.randn(viz_batch_size, vae_latent_size).to(
+        bottleneck_vecs = torch.randn(viz_batch_size, bottleneck_vec_size).to(
             tfe.device)
-        sample_vecs = torch.nn.Parameter(sample_vecs)
-        start_sample_vecs = sample_vecs.detach().clone()
-        sample_vecs.requires_grad = True
+        bottleneck_vecs = torch.nn.Parameter(bottleneck_vecs)
+        start_bottleneck_vecs = bottleneck_vecs.detach().clone()
+        bottleneck_vecs.requires_grad = True
 
         # Set up optimizer for samples
-        targ_func_opt = torch.optim.SGD(params=[sample_vecs], momentum=0.3,
+        targ_func_opt = torch.optim.SGD(params=[bottleneck_vecs], momentum=0.3,
                                         lr=target_func.lr,
                                         nesterov=True) # TODO try alternatives
-        # targ_func_opt = torch.optim.Adam(params=[sample_vecs], lr=target_func.lr)
+        # targ_func_opt = torch.optim.Adam(params=[bottleneck_vecs], lr=target_func.lr)
 
         # Start target func optimization loop
         run_target_func_loop = True
@@ -532,8 +532,8 @@ if __name__=='__main__':
 
             pred_obs, pred_rews, pred_dones, pred_agent_hs, \
             pred_agent_logprobs, pred_agent_values, pred_env_hs = \
-                tfe.gen_model.decoder(z_c=sample_vecs[:,0:z_c_size],
-                                      z_g=sample_vecs[:,z_c_size:z_c_size + \
+                tfe.gen_model.decoder(z_c=bottleneck_vecs[:,0:z_c_size],
+                                      z_g=bottleneck_vecs[:,z_c_size:z_c_size + \
                                                                  z_g_size],
                                       true_actions=None,
                                       true_h0=None)
@@ -543,7 +543,7 @@ if __name__=='__main__':
                           'done': pred_dones,
                           'act_log_probs': pred_agent_logprobs,
                           'value': pred_agent_values,
-                          'sample_vecs': sample_vecs,
+                          'bottleneck_vecs': bottleneck_vecs,
                           'env_hx': pred_env_hs[0],
                           'env_cell_state': pred_env_hs[1]}
 
@@ -553,8 +553,8 @@ if __name__=='__main__':
             print("Iteration %i target function loss: %f" % (iteration_count,
                                                              float(target_func_loss.item())))
             # Decide whether to stop the target func optimization
-            pairwise_dists = np.linalg.norm(sample_vecs[:,None,:].detach().clone().cpu().numpy() - \
-                                            sample_vecs[None,:,:].detach().clone().cpu().numpy(), axis=-1)
+            pairwise_dists = np.linalg.norm(bottleneck_vecs[:,None,:].detach().clone().cpu().numpy() - \
+                                            bottleneck_vecs[None,:,:].detach().clone().cpu().numpy(), axis=-1)
             print("Distances between samples: %f" % pairwise_dists.mean())
 
             # Decide whether to stop loop
@@ -565,14 +565,14 @@ if __name__=='__main__':
 
             # Get gradient and step the optimizer
             target_func_loss.backward()
-            print("Biggest grad: %f" % torch.abs(sample_vecs.grad).max().item())
-            print("Prenorm grad mean mag: %f" % torch.abs(sample_vecs.grad).mean())
+            print("Biggest grad: %f" % torch.abs(bottleneck_vecs.grad).max().item())
+            print("Prenorm grad mean mag: %f" % torch.abs(bottleneck_vecs.grad).mean())
 
-            torch.nn.utils.clip_grad_norm_(sample_vecs,
+            torch.nn.utils.clip_grad_norm_(bottleneck_vecs,
                                            target_func.grad_norm, norm_type=2.0)
             targ_func_opt.step()
             print("Total distance: %f" % \
-                  ((sample_vecs - start_sample_vecs)**2).sum().sqrt())
+                  ((bottleneck_vecs - start_bottleneck_vecs)**2).sum().sqrt())
             print("\n")
 
             # Prepare for the next step
@@ -580,11 +580,11 @@ if __name__=='__main__':
             iteration_count += 1
 
         # Save results
-        sample_vec_save_str = sess_dir + '/sample_vecs_' + \
+        bottleneck_vec_save_str = sess_dir + '/bottleneck_vecs_' + \
                               args.target_function_type + \
                               '_' + str(epoch) + '.npy'
-        np.save(sample_vec_save_str,
-                sample_vecs.clone().detach().cpu().numpy())
+        np.save(bottleneck_vec_save_str,
+                bottleneck_vecs.clone().detach().cpu().numpy())
         opt_quant_save_str = sess_dir + '/opt_quants_' + \
                               args.target_function_type + \
                               '_' + str(epoch) + '.npy'

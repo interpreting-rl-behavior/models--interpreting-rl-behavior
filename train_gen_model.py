@@ -49,7 +49,7 @@ class TrainingExperiment(GenerativeModelExperiment):
             self.optimizer.zero_grad()
             (
                 loss_model,
-                loss_latent_vec,
+                loss_bottleneck,
                 loss_agent_aux_init,
                 priors,
                 posts,
@@ -61,11 +61,11 @@ class TrainingExperiment(GenerativeModelExperiment):
                 tensors_list,
                 preds_dict
             ) = \
-                self.gen_model(data=data, use_true_actions=True, imagine=False)
-            # TODO check whether you can make losses from preds_dict alone and
+                self.gen_model(data=data, use_true_actions=True, imagine=False, modal_sampling=False)
+            # TODO check whether you can make saliency/target losses from preds_dict alone and
             #  that they BP to the right nets
             loss = torch.mean(torch.sum(loss_model, dim=0))  # sum over T, mean over B
-            # loss += torch.mean(loss_latent_vec)  # mean over B
+            # loss += torch.mean(loss_bottleneck)  # mean over B
             loss += torch.mean(loss_agent_aux_init)  # mean over B
             loss.backward()
             torch.nn.utils.clip_grad_norm_(self.gen_model.parameters(), 100.)
@@ -104,7 +104,7 @@ class TrainingExperiment(GenerativeModelExperiment):
                 self.visualize(epoch, batch_idx=batch_idx, data=None, preds=None, use_true_actions=True, save_root='sample_sim_ims_true_acts')
                 self.visualize(epoch, batch_idx=batch_idx, data=None, preds=None, use_true_actions=False, save_root='sample_sim_ims_sim_acts')
                 self.visualize_single(
-                               epoch, batch_idx=batch_idx, data=None, preds=None, latent_vec=None, use_true_actions=False, save_root='sample_from_rand_latent', batch_size=B)
+                               epoch, batch_idx=batch_idx, data=None, preds=None, bottleneck_vec=None, use_true_actions=False, save_root='sample_from_rand_latent', batch_size=B)
 
 if __name__ == "__main__":
     training_exp = TrainingExperiment()
