@@ -54,7 +54,7 @@ def run():
     env_c = np.load(os.path.join(generated_data_path, 'sample_00000/env_cell_states.npy'))
     agnt_hx = np.load(os.path.join(generated_data_path, 'sample_00000/agent_hxs.npy'))
     agnt_lp = np.load(os.path.join(generated_data_path, 'sample_00000/agent_logprobs.npy'))
-    z_g = np.load(os.path.join(generated_data_path, 'sample_00000/latent_vec.npy'))
+    z_g = np.load(os.path.join(generated_data_path, 'sample_00000/bottleneck_vec.npy'))
     z_g = [z_g[z_g.shape[0]//2:]] * env_c.shape[0]
     z_g = np.stack(z_g)
     sml_vecs = np.concatenate((env_hx,
@@ -78,7 +78,7 @@ def run():
         agnt_lp = np.load(os.path.join(generated_data_path,
                                      f'sample_{ep:05d}/agent_logprobs.npy'))
         z_g = np.load(os.path.join(generated_data_path,
-                                   f'sample_{ep:05d}/latent_vec.npy'))
+                                   f'sample_{ep:05d}/bottleneck_vec.npy'))
         z_g = [z_g[z_g.shape[0] // 2:]] * env_c.shape[0]
         z_g = np.stack(z_g)
         sml_vec_to_cat = np.concatenate((env_hx,

@@ -10,15 +10,15 @@ class CategoricalPolicy(nn.Module):
     def __init__(self, 
                  embedder,
                  recurrent,
-                 action_size):
+                 action_space_size):
         """
         embedder: (torch.Tensor) model to extract the embedding for observation
-        action_size: number of the categorical actions
+        action_space_size: number of the categorical actions
         """ 
         super(CategoricalPolicy, self).__init__()
         self.embedder = embedder
         # small scale weight-initialization in policy enhances the stability        
-        self.fc_policy = orthogonal_init(nn.Linear(self.embedder.output_dim, action_size), gain=0.01)
+        self.fc_policy = orthogonal_init(nn.Linear(self.embedder.output_dim, action_space_size), gain=0.01)
         self.fc_value = orthogonal_init(nn.Linear(self.embedder.output_dim, 1), gain=1.0)
 
         self.recurrent = recurrent

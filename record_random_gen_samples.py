@@ -149,8 +149,8 @@ def run():
     ## Agent's discrete action space
     recurrent = hyperparameters.get('recurrent', False)
     if isinstance(action_space, gym.spaces.Discrete):
-        action_size = action_space.n
-        policy = CategoricalPolicy(model, recurrent, action_size)
+        action_space_size = action_space.n
+        policy = CategoricalPolicy(model, recurrent, action_space_size)
     else:
         raise NotImplementedError
     policy.to(device)
@@ -212,12 +212,12 @@ def record_gen_samples(epoch, args, gen_model, batch_size, agent, logger, data_d
 
     # Recording cycle
     with torch.no_grad():
-        vae_latent_size = 128
+        bottleneck_vec_size = 128
 
         # Get input vec for decoder
-        sample_latent_vecs = torch.randn(batch_size, vae_latent_size)
-        sample_latent_vecs = sample_latent_vecs.to(device)
-        z_c, z_g = torch.split(sample_latent_vecs, split_size_or_sections=64, dim=1)
+        bottleneck_vecs = torch.randn(batch_size, bottleneck_vec_size)
+        bottleneck_vecs = bottleneck_vecs.to(device)
+        z_c, z_g = torch.split(bottleneck_vecs, split_size_or_sections=64, dim=1)
 
         # Generate samples
         pred_obs, pred_rews, pred_dones, pred_agent_hxs, \
@@ -233,14 +233,14 @@ def record_gen_samples(epoch, args, gen_model, batch_size, agent, logger, data_d
         pred_agent_values = torch.stack(pred_agent_values, dim=1).cpu().numpy()
         pred_env_hid_states = torch.stack(env_rnn_states[0], dim=1).cpu().numpy()
         pred_env_cell_states = torch.stack(env_rnn_states[1], dim=1).cpu().numpy()
-        sample_latent_vecs = sample_latent_vecs.cpu().numpy()
+        bottleneck_vecs = bottleneck_vecs.cpu().numpy()
 
         vars = [pred_obs, pred_rews, pred_dones, pred_agent_hxs,
                 pred_agent_logprobs, pred_agent_values, pred_env_hid_states,
-                pred_env_cell_states, sample_latent_vecs]
+                pred_env_cell_states, bottleneck_vecs]
         var_names = ['obs', 'rews', 'dones', 'agent_hxs',
                      'agent_logprobs', 'agent_values', 'env_hid_states',
-                     'env_cell_states', 'latent_vec']
+                     'env_cell_states', 'bottleneck_vec']
 
         actions = np.argmax(pred_agent_logprobs, axis=-1)
 

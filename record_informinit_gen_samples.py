@@ -159,8 +159,8 @@ def run():
     ## Agent's discrete action space
     recurrent = hyperparameters.get('recurrent', False)
     if isinstance(action_space, gym.spaces.Discrete):
-        action_size = action_space.n
-        policy = CategoricalPolicy(model, recurrent, action_size)
+        action_space_size = action_space.n
+        policy = CategoricalPolicy(model, recurrent, action_space_size)
     else:
         raise NotImplementedError
     policy.to(device)
@@ -236,7 +236,7 @@ def record_gen_samples(epoch, args, gen_model, batch_size, agent, data, logger, 
     # Prepare for training cycle
     gen_model.eval()
 
-    coinrun_actions = {'downleft': 0, 'left': 1, 'upleft': 2, 'down': 3, 'up': 5, 'downright': 6,
+    coinrun_actions = {'downleft': 0, 'left': 1, 'upleft': 2, 'down': 3, 'noop':4, 'up': 5, 'downright': 6,
                        'right': 7, 'upright': 8}
 
     if args.manual_action:
@@ -297,7 +297,7 @@ def record_gen_samples(epoch, args, gen_model, batch_size, agent, data, logger, 
         pred_agent_logprobs = preds['act_log_probs']
         pred_agent_values = preds['values']
         env_rnn_states = preds['env_hx']
-        sample_latent_vecs = preds['latent_vecs_c_and_g']
+        bottleneck_vecs = preds['bottleneck_vec']
 
         # Stack samples into single tensors and convert to numpy arrays
         pred_obs = np.array(torch.stack(pred_obs, dim=1).cpu().numpy() * 255, dtype=np.uint8)
@@ -310,14 +310,14 @@ def record_gen_samples(epoch, args, gen_model, batch_size, agent, data, logger, 
         pred_env_cell_states = torch.stack(env_rnn_states[1], dim=1).cpu().numpy()
 
         # no timesteps in latent vecs, so only cat not stack along time dim.
-        sample_latent_vecs = torch.cat(sample_latent_vecs, dim=1).cpu().numpy()
+        bottleneck_vecs = torch.cat(bottleneck_vecs, dim=1).cpu().numpy()
 
         vars = [pred_obs, pred_rews, pred_dones, pred_agent_hxs,
                 pred_agent_logprobs, pred_agent_values, pred_env_hid_states,
-                pred_env_cell_states, sample_latent_vecs]
+                pred_env_cell_states, bottleneck_vecs]
         var_names = ['obs', 'rews', 'dones', 'agent_hxs',
                      'agent_logprobs', 'agent_values', 'env_hid_states',
-                     'env_cell_states', 'latent_vec']
+                     'env_cell_states', 'bottleneck_vec']
 
         # Recover the actions for use in the action overlay
         if manual_action is not None:

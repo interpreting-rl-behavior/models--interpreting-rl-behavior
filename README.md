@@ -81,9 +81,9 @@ divergence never reaches zero so the distribution of the latent vector never
 becomes a perfectly Gaussian We produce PCA and and tSNE plots of the VAE
 latent vectors to observe the structure of the distribution. 
 
-> python latent_vec_analysis_precompute.py --agent_env_data_dir=[path_to_real_rollout_data_save_dir]/data --generated_data_dir_inf=[path_to_sim_rollout_data_save_dir]/recorded_informinit_gen_samples --generated_data_dir_rand=[path_to_sim_rollout_data_save_dir]/recorded_randinit_gen_samples
+> python bottleneck_vec_analysis_precompute.py --agent_env_data_dir=[path_to_real_rollout_data_save_dir]/data --generated_data_dir_inf=[path_to_sim_rollout_data_save_dir]/recorded_informinit_gen_samples --generated_data_dir_rand=[path_to_sim_rollout_data_save_dir]/recorded_randinit_gen_samples
 > 
-> python latent_vec_analysis_plotting.py --agent_env_data_dir=[path_to_real_rollout_data_save_dir]/data --precomputed_analysis_data_path=analysis/latent_vec_analysis_precomp/
+> python bottleneck_vec_analysis_plotting.py --agent_env_data_dir=[path_to_real_rollout_data_save_dir]/data --precomputed_analysis_data_path=analysis/bottleneck_vec_analysis_precomp/
 
 ## Analysis of agent's hidden state
 We'll next analyse the agent's hidden state with a few dimensionality reduction

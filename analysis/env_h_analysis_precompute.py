@@ -46,7 +46,7 @@ def run():
     print("Collecting env data together...")
     env_hx = np.load(os.path.join(generated_data_path, 'sample_00000/env_hid_states.npy'))
     env_c = np.load(os.path.join(generated_data_path, 'sample_00000/env_cell_states.npy'))
-    z_g = np.load(os.path.join(generated_data_path, 'sample_00000/latent_vec.npy'))
+    z_g = np.load(os.path.join(generated_data_path, 'sample_00000/bottleneck_vec.npy'))
     z_g = [z_g[z_g.shape[0]//2:]] * env_c.shape[0]
     z_g = np.stack(z_g)
     env_vecs = np.concatenate((env_hx, env_c, z_g), axis=1)
@@ -56,7 +56,7 @@ def run():
         env_c = np.load(os.path.join(generated_data_path,
                                      f'sample_{ep:05d}/env_cell_states.npy'))
         z_g = np.load(os.path.join(generated_data_path,
-                                   f'sample_{ep:05d}/latent_vec.npy'))
+                                   f'sample_{ep:05d}/bottleneck_vec.npy'))
         z_g = [z_g[z_g.shape[0] // 2:]] * env_c.shape[0]
         z_g = np.stack(z_g)
         env_vecs_to_cat = np.concatenate((env_hx, env_c, z_g), axis=1)

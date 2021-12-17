@@ -26,49 +26,49 @@ class MultiDecoder(nn.Module):
 
     def training_step(self,
                       features: TensorTBIF,
-                      obs: Dict[str, Tensor],
+                      labels: Dict[str, Tensor],
                       extra_metrics: bool = False
                       ) -> Tuple[TensorTBI, Dict[str, Tensor], Dict[str, Tensor]]:
         tensors = {}
         metrics = {}
 
-        loss_image_tbi, loss_image, image_rec = self.image.training_step(features, obs['image'])
+        loss_image_tbi, loss_image, pred_image = self.image.training_step(features, labels['ims'])
         metrics.update(loss_image=loss_image.detach().mean())
         tensors.update(loss_image=loss_image.detach(),
-                       image_rec=image_rec.detach())
+                       pred_image=pred_image.detach())
 
-        loss_reward_tbi, loss_reward, reward_rec = self.reward.training_step(features, obs['reward'])
+        loss_reward_tbi, loss_reward, pred_reward = self.reward.training_step(features, labels['reward'])
         metrics.update(loss_reward=loss_reward.detach().mean())
         tensors.update(loss_reward=loss_reward.detach(),
-                       reward_rec=reward_rec.detach())
+                       pred_reward=pred_reward.detach())
 
-        loss_terminal_tbi, loss_terminal, terminal_rec = self.terminal.training_step(features, obs['terminal'])
+        loss_terminal_tbi, loss_terminal, pred_terminal = self.terminal.training_step(features, labels['terminal'])
         metrics.update(loss_terminal=loss_terminal.detach().mean())
         tensors.update(loss_terminal=loss_terminal.detach(),
-                       terminal_rec=terminal_rec.detach())
+                       pred_terminal=pred_terminal.detach())
 
         assert loss_image_tbi.shape == loss_reward_tbi.shape == loss_terminal_tbi.shape
         loss_reconstr = (self.image_weight * loss_image_tbi
                          + self.reward_weight * loss_reward_tbi
                          + self.terminal_weight * loss_terminal_tbi)
 
-        if extra_metrics: # TODO consider masking the loss where terminal==1. I strongly suspect I will do this.
-            mask_rewardp = obs['reward'] > 0  # mask where reward is positive
+        if extra_metrics:
+            mask_rewardp = labels['reward'] > 0  # mask where reward is positive
             loss_rewardp = loss_reward * mask_rewardp / mask_rewardp  # set to nan where ~mask
             metrics.update(loss_rewardp=nanmean(loss_rewardp))
             tensors.update(loss_rewardp=loss_rewardp)
 
-            mask_rewardn = obs['reward'] < 0  # mask where reward is negative
+            mask_rewardn = labels['reward'] < 0  # mask where reward is negative
             loss_rewardn = loss_reward * mask_rewardn / mask_rewardn  # set to nan where ~mask
             metrics.update(loss_rewardn=nanmean(loss_rewardn))
             tensors.update(loss_rewardn=loss_rewardn)
 
-            mask_terminal1 = obs['terminal'] > 0  # mask where terminal is 1
+            mask_terminal1 = labels['terminal'] > 0  # mask where terminal is 1
             loss_terminal1 = loss_terminal * mask_terminal1 / mask_terminal1  # set to nan where ~mask
             metrics.update(loss_terminal1=nanmean(loss_terminal1))
             tensors.update(loss_terminal1=loss_terminal1)
 
-        return loss_reconstr, metrics, tensors, image_rec, reward_rec, terminal_rec
+        return loss_reconstr, metrics, tensors, pred_image, pred_reward, pred_terminal
 
     def inference_step(self,
                       features: TensorTBIF,
@@ -77,11 +77,11 @@ class MultiDecoder(nn.Module):
         loss_reconstr = None
         tensors = {}
         metrics = {}
-        image_rec = self.image.inference_step(features)
-        reward_rec = self.reward.inference_step(features)
-        terminal_rec = self.terminal.inference_step(features)
+        pred_image = self.image.inference_step(features)
+        pred_reward = self.reward.inference_step(features)
+        pred_terminal = self.terminal.inference_step(features)
 
-        return loss_reconstr, metrics, tensors, image_rec, reward_rec, terminal_rec
+        return loss_reconstr, metrics, tensors, pred_image, pred_reward, pred_terminal
 
 
 class ConvDecoder(nn.Module):

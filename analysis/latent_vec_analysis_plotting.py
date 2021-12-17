@@ -1,4 +1,4 @@
-"""Make sure you've run latent_vec_analysis_precompute.py before running this
+"""Make sure you've run bottleneck_vec_analysis_precompute.py before running this
 because it generates data that this script uses."""
 
 import pandas as pd
@@ -19,7 +19,7 @@ def parse_args():
         '--agent_env_data_dir', type=str,
         default="data")
     parser.add_argument(
-        '--precomputed_analysis_data_path', type=str, default="analysis/latent_vec_analysis_precomp/")
+        '--precomputed_analysis_data_path', type=str, default="analysis/bottleneck_vec_analysis_precomp/")
     parser.add_argument(
         '--presaved_data_path', type=str, default="/media/lee/DATA/DDocs/AI_neuro_work/assurance_project_stuff/data/precollected/")
     args = parser.parse_args()
@@ -39,7 +39,7 @@ def run():
 
     # Set up saving and loading dirs
     precomp_data_path = args.precomputed_analysis_data_path
-    save_path = 'analysis/latent_vec_plots'
+    save_path = 'analysis/bottleneck_vec_plots'
 
     # Load lv data
     lv_inf_pca = np.load(os.path.join(precomp_data_path,

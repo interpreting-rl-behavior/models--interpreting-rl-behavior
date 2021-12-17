@@ -135,8 +135,8 @@ if __name__=='__main__':
     # Discrete action space
     recurrent = hyperparameters.get('recurrent', False)
     if isinstance(action_space, gym.spaces.Discrete):
-        action_size = action_space.n
-        policy = CategoricalPolicy(model, recurrent, action_size)
+        action_space_size = action_space.n
+        policy = CategoricalPolicy(model, recurrent, action_space_size)
     else:
         raise NotImplementedError
     policy.to(device)

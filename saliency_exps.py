@@ -135,46 +135,46 @@ class SaliencyFunction():
 
 
 
-def combine_sample_latent_vecs(sample_ids):
+def combine_bottleneck_vecs(sample_ids):
     sample_dirs = [os.path.join(args.generated_data_dir,
                               f'sample_{int(sample_id):05d}')
                    for sample_id in sample_ids]
-    sample_latent_vec_paths = [os.path.join(sample_dir, 'latent_vec.npy')
+    bottleneck_vec_paths = [os.path.join(sample_dir, 'bottleneck_vec.npy')
                                for sample_dir in sample_dirs]
-    sample_vecs = [np.load(sample_latent_vec_path)
-                   for sample_latent_vec_path in sample_latent_vec_paths]  # Collect vecs from samples together
-    sample_vecs = np.stack(sample_vecs)
-    sample_vecs = np.mean(sample_vecs, axis=0)  # Take their mean
-    sample_vecs = np.stack([sample_vecs] * args.batch_size)  # Create copies of the mean sample vec
-    sample_vecs = torch.tensor(sample_vecs, device=device)
-    sample_vecs = torch.nn.Parameter(sample_vecs)
-    sample_vecs.requires_grad = True
+    bottleneck_vecs = [np.load(bottleneck_vec_path)
+                   for bottleneck_vec_path in bottleneck_vec_paths]  # Collect vecs from samples together
+    bottleneck_vecs = np.stack(bottleneck_vecs)
+    bottleneck_vecs = np.mean(bottleneck_vecs, axis=0)  # Take their mean
+    bottleneck_vecs = np.stack([bottleneck_vecs] * args.batch_size)  # Create copies of the mean sample vec
+    bottleneck_vecs = torch.tensor(bottleneck_vecs, device=device)
+    bottleneck_vecs = torch.nn.Parameter(bottleneck_vecs)
+    bottleneck_vecs.requires_grad = True
 
     # Add a slight perturbation to the mean sample vecs
-    perturbation = torch.randn_like(sample_vecs) * perturbation_scale
+    perturbation = torch.randn_like(bottleneck_vecs) * perturbation_scale
     perturbation[0, :] = 0.  # So 0th batch is the unperturbed trajectory
-    latent_vecs = sample_vecs + perturbation
-    return latent_vecs
+    bottleneck_vecs = bottleneck_vecs + perturbation
+    return bottleneck_vecs
 
-def get_sample_latent_vecs(sample_id):
+def get_bottleneck_vecs(sample_id):
     sample_dir = os.path.join(args.generated_data_dir,
                               f'sample_{int(sample_id):05d}')
-    sample_latent_vec_path = os.path.join(sample_dir, 'latent_vec.npy')
-    sample_vecs = np.load(sample_latent_vec_path)
-    sample_vecs = np.stack([sample_vecs] * args.batch_size)
-    sample_vecs = torch.tensor(sample_vecs, device=device)
-    sample_vecs = torch.nn.Parameter(sample_vecs)
-    sample_vecs.requires_grad = True
-    perturbation = torch.randn_like(sample_vecs) * perturbation_scale
+    bottleneck_vec_path = os.path.join(sample_dir, 'bottleneck_vec.npy')
+    bottleneck_vecs = np.load(bottleneck_vec_path)
+    bottleneck_vecs = np.stack([bottleneck_vecs] * args.batch_size)
+    bottleneck_vecs = torch.tensor(bottleneck_vecs, device=device)
+    bottleneck_vecs = torch.nn.Parameter(bottleneck_vecs)
+    bottleneck_vecs.requires_grad = True
+    perturbation = torch.randn_like(bottleneck_vecs) * perturbation_scale
     perturbation[0, :] = 0.  # So 0th batch is the unperturbed trajectory
-    latent_vecs = sample_vecs + perturbation
-    return latent_vecs
+    bottleneck_vecs = bottleneck_vecs + perturbation
+    return bottleneck_vecs
 
-def forward_backward_pass(sample_vecs, sfe, saliency_func):
+def forward_backward_pass(bottleneck_vecs, sfe, saliency_func):
     pred_obs, pred_rews, pred_dones, pred_agent_hs, \
     pred_agent_logprobs, pred_agent_values, pred_env_hs = \
-        sfe.gen_model.decoder(z_c=sample_vecs[:, 0:z_c_size],
-                              z_g=sample_vecs[:, z_c_size:z_c_size + \
+        sfe.gen_model.decoder(z_c=bottleneck_vecs[:, 0:z_c_size],
+                              z_g=bottleneck_vecs[:, z_c_size:z_c_size + \
                                                           z_g_size],
                               true_actions=None,
                               true_h0=None,
@@ -185,7 +185,7 @@ def forward_backward_pass(sample_vecs, sfe, saliency_func):
                   'done': pred_dones,
                   'act_log_probs': pred_agent_logprobs,
                   'value': pred_agent_values,
-                  'sample_vecs': sample_vecs,
+                  'bottleneck_vecs': bottleneck_vecs,
                   'env_hx': pred_env_hs[0],
                   'env_cell_state': pred_env_hs[1]}
 
@@ -214,9 +214,9 @@ def forward_backward_pass(sample_vecs, sfe, saliency_func):
     return preds_dict, grads_dict
 
 
-def save_results(preds_dict, grads_dict, latent_vec_name, saliency_func_type,
+def save_results(preds_dict, grads_dict, bottleneck_vec_name, saliency_func_type,
                  timesteps):
-    savedir = os.path.join(args.generated_data_dir, latent_vec_name)
+    savedir = os.path.join(args.generated_data_dir, bottleneck_vec_name)
     if not os.path.exists(savedir):
         os.makedirs(savedir)
     for key in grads_dict.keys():
@@ -282,19 +282,19 @@ def save_results(preds_dict, grads_dict, latent_vec_name, saliency_func_type,
 
     # Save vid
     # combined_vid = combined_vid.clone().detach().type(torch.uint8).cpu().numpy()
-    combo_vid_name = f'{latent_vec_name}_saliency_{saliency_func_type}.mp4'
+    combo_vid_name = f'{bottleneck_vec_name}_saliency_{saliency_func_type}.mp4'
     combo_vid_name = os.path.join(args.generated_data_dir, combo_vid_name)
     tvio.write_video(combo_vid_name, combined_vid, fps=13)
 
-def run_saliency_mapping_and_save(latent_vecs, latent_vec_name, sfe, saliency_func):
+def run_saliency_mapping_and_save(bottleneck_vecs, bottleneck_vec_name, sfe, saliency_func):
     # Forward and backward pass
-    preds_dict, grads_dict = forward_backward_pass(latent_vecs,
+    preds_dict, grads_dict = forward_backward_pass(bottleneck_vecs,
                                                    sfe, saliency_func)
 
     saliency_func_type = saliency_func.saliency_func_type
     timesteps = saliency_func.timesteps
     # Save results
-    save_results(preds_dict, grads_dict, latent_vec_name, saliency_func_type, timesteps)
+    save_results(preds_dict, grads_dict, bottleneck_vec_name, saliency_func_type, timesteps)
 
 if __name__=='__main__':
     if True:
@@ -360,7 +360,7 @@ if __name__=='__main__':
 
     # Set some hyperparams
     saliency_batch_size = 9
-    vae_latent_size = 128
+    bottleneck_vec_size = 128
     z_c_size = 64
     z_g_size = 64
     perturbation_scale = 0.01# 2e-2
@@ -386,17 +386,17 @@ if __name__=='__main__':
 
         if combine_samples_not_iterate:
             print("Combining samples: " + str(sample_ids))
-            latent_vec_name = f"sample_{str(sample_ids[0:3])}"
-            latent_vecs = combine_sample_latent_vecs(sample_ids)
-            run_saliency_mapping_and_save(latent_vecs, latent_vec_name,
+            bottleneck_vec_name = f"sample_{str(sample_ids[0:3])}"
+            bottleneck_vecs = combine_bottleneck_vecs(sample_ids)
+            run_saliency_mapping_and_save(bottleneck_vecs, bottleneck_vec_name,
                                           sfe, saliency_func)
 
         else:
             for sample_id in sample_ids:
                 print("Sample ID: " + str(sample_id))
-                latent_vec_name = f"sample_{int(sample_id):05d}"
-                sample_vecs = get_sample_latent_vecs(sample_id)
-                run_saliency_mapping_and_save(sample_vecs, latent_vec_name,
+                bottleneck_vec_name = f"sample_{int(sample_id):05d}"
+                bottleneck_vecs = get_bottleneck_vecs(sample_id)
+                run_saliency_mapping_and_save(bottleneck_vecs, bottleneck_vec_name,
                                               sfe, saliency_func)
 
 

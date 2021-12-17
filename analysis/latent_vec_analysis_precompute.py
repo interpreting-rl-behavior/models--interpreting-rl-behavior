@@ -48,9 +48,9 @@ def run():
     generated_data_path_inf = args.generated_data_dir_inf
     generated_data_path_rand = args.generated_data_dir_rand
 
-    save_path = 'latent_vec_analysis_precomp/'
+    save_path = 'bottleneck_vec_analysis_precomp/'
     save_path = os.path.join(os.getcwd(), "analysis", save_path)
-    plot_save_path = 'latent_vec_plots'
+    plot_save_path = 'bottleneck_vec_plots'
     plot_save_path = os.path.join(os.getcwd(), "analysis", plot_save_path)
     os.makedirs(save_path, exist_ok=True)
     os.makedirs(plot_save_path, exist_ok=True)
@@ -63,7 +63,7 @@ def run():
     #  informed initialization and also construct dataframe of auxiliary
     #  information to understand the LV space
 
-    lv_inf = np.load(os.path.join(generated_data_path_inf, 'sample_00000/latent_vec.npy'))
+    lv_inf = np.load(os.path.join(generated_data_path_inf, 'sample_00000/bottleneck_vec.npy'))
     lv_inf = np.expand_dims(lv_inf, axis=0)
 
     aux_data_rew = np.load(os.path.join(generated_data_path_inf,
@@ -80,7 +80,7 @@ def run():
     for ep in range(1, num_samples):
         # Get and concat latent vecs
         lv_to_cat = np.load(os.path.join(generated_data_path_inf,
-                                         f'sample_{ep:05d}/latent_vec.npy'))
+                                         f'sample_{ep:05d}/bottleneck_vec.npy'))
         lv_to_cat = np.expand_dims(lv_to_cat, axis=0)
         lv_inf = np.concatenate((lv_inf, lv_to_cat))
 
@@ -97,12 +97,12 @@ def run():
 
     # Now same for random latent vecs, but no auxiliary data
     print("Getting random latent vectors...")
-    lv_rand = np.load(os.path.join(generated_data_path_rand, 'sample_00000/latent_vec.npy'))
+    lv_rand = np.load(os.path.join(generated_data_path_rand, 'sample_00000/bottleneck_vec.npy'))
     lv_rand = np.expand_dims(lv_rand, axis=0)
     for ep in range(1, num_samples):
         # Get and concat latent vecs
         lv_to_cat = np.load(os.path.join(generated_data_path_rand,
-                                         f'sample_{ep:05d}/latent_vec.npy'))
+                                         f'sample_{ep:05d}/bottleneck_vec.npy'))
         lv_to_cat = np.expand_dims(lv_to_cat, axis=0)
 
         lv_rand = np.concatenate((lv_rand, lv_to_cat))
@@ -166,7 +166,7 @@ def run():
     #         color='blue')
     # plt.xlabel("Principle Component")
     # plt.ylabel("Variance Explained (%)")
-    # plt.savefig(plot_save_path + "/pca_var_expl_for_infinit_latent_vecs__epis%i.png" % num_samples)
+    # plt.savefig(plot_save_path + "/pca_var_expl_for_infinit_bottleneck_vecs__epis%i.png" % num_samples)
     #
     # # tSNE
     # print('Starting tSNE...')
