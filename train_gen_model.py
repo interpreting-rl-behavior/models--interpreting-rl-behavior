@@ -64,9 +64,10 @@ class TrainingExperiment(GenerativeModelExperiment):
                 self.gen_model(data=data, use_true_actions=True, imagine=False, modal_sampling=False)
             # TODO check whether you can make saliency/target losses from preds_dict alone and
             #  that they BP to the right nets
-            loss = torch.mean(torch.sum(loss_model, dim=0))  # sum over T, mean over B
-            loss += loss_bottleneck # no mean because already summed over b
-            loss += torch.mean(loss_agent_aux_init)  # mean over B
+            loss_model = torch.mean(torch.sum(loss_model, dim=0))  # sum over T, mean over B
+            # loss_bottleneck has no mean because already summed over b
+            loss_agent_aux_init = torch.mean(loss_agent_aux_init)  # mean over B
+            loss = loss_model + loss_bottleneck + loss_agent_aux_init
             loss.backward()
             torch.nn.utils.clip_grad_norm_(self.gen_model.parameters(), 100.)
 
@@ -81,6 +82,9 @@ class TrainingExperiment(GenerativeModelExperiment):
                 loss.item()
                 logger.logkv('epoch', epoch)
                 logger.logkv('batches', batch_idx)
+                logger.logkv('loss_bottleneck', loss_bottleneck)
+                logger.logkv('loss_model', loss_model)
+                logger.logkv('loss_agent_aux_init', loss_agent_aux_init)
                 logger.logkv('loss total', loss.item())
                 logger.dumpkvs()
 
@@ -95,7 +99,7 @@ class TrainingExperiment(GenerativeModelExperiment):
                     model_path)
                 logger.info('Generative model saved to {}'.format(model_path))
 
-            B = loss_model.shape[1]
+            B = data['ims'].shape[1]
             # self.save_preds( preds_dict, range(0,3), manual_action=None)
 
             # Demo recon quality without using true images
