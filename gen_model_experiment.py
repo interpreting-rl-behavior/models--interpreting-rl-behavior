@@ -182,11 +182,11 @@ class GenerativeModelExperiment():
             cnn_depth=48,
             reward_decoder_layers=4,
             terminal_decoder_layers=4,
-            kl_weight=3.,
+            kl_weight=12.,
             kl_balance=0.8,
-            bottleneck_loss_weight=0.1,
-            bottleneck_vec_size=512,
-            env_update_penalty_weight=0.005
+            bottleneck_loss_weight=1.,
+            bottleneck_vec_size=128,
+            env_update_penalty_weight=0.2
         )
 
         gen_model = AgentEnvironmentSimulator(agent, device, gen_model_hyperparams)
@@ -427,7 +427,8 @@ class GenerativeModelExperiment():
         # Forward pass to get predictions if not already done
         if preds is None:
             self.optimizer.zero_grad()
-            (   loss_model,
+            (   loss_dict_no_grad,
+                loss_model,
                 loss_bottleneck,
                 loss_agent_h0,
                 priors,  # tensor(T,B,2S)
@@ -516,7 +517,8 @@ class GenerativeModelExperiment():
 
                 _, true_actions_inds, _, _ = self.extract_from_data(data)
 
-                (loss_model,
+                (loss_dict_no_grad,
+                 loss_model,
                  loss_bottleneck,
                  loss_agent_h0,
                  priors,  # tensor(T,B,2S)
@@ -539,7 +541,8 @@ class GenerativeModelExperiment():
                                         device=self.device)
                 bottleneck_vec = safe_normalize(bottleneck_vec)
 
-                (   loss_model,
+                (   loss_dict_no_grad,
+                    loss_model,
                     loss_agent_aux_init,
                     priors,  # tensor(T,B,2S)
                     posts,  # tensor(T,B,2S)
@@ -566,7 +569,8 @@ class GenerativeModelExperiment():
         # Use the latent vec given in the arguments
         elif preds is None and bottleneck_vec is not None:
             # (already run encoder) bottleneck_vec --> decoder --> viz preds
-            (loss_model,
+            (loss_dict_no_grad,
+             loss_model,
              loss_agent_aux_init,
              priors,  # tensor(T,B,2S)
              posts,  # tensor(T,B,2S)

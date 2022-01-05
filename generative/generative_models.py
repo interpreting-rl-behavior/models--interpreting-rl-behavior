@@ -85,7 +85,8 @@ class AgentEnvironmentSimulator(nn.Module):
         else:
             true_actions_1hot = torch.zeros(self.num_sim_steps, B, self.action_space_size, device=self.device)
 
-        (   loss_model,
+        (   loss_dict_no_grad,
+            loss_model,
             loss_agent_h0,
             priors,  # tensor(T,B,2S)
             posts,  # tensor(T,B,2S)
@@ -120,7 +121,10 @@ class AgentEnvironmentSimulator(nn.Module):
         else:
             loss_bottleneck = 0.
 
+        loss_dict_no_grad['loss_bottleneck'] = loss_bottleneck
+
         return (
+            loss_dict_no_grad,
             loss_model,
             loss_bottleneck,
             loss_agent_h0,
@@ -155,6 +159,7 @@ class AgentEnvironmentSimulator(nn.Module):
         """
 
         B = bottleneck_vec.shape[0]
+        loss_dict_no_grad = {}
 
         # Get labels for loss function
         if calc_loss: # No need to calc loss
@@ -223,6 +228,8 @@ class AgentEnvironmentSimulator(nn.Module):
             env_update_losses = []
         else:
             loss_agent_aux_init = 0.
+
+        loss_dict_no_grad['loss_agent_aux_init'] = loss_agent_aux_init
 
         # Finished getting initializing vectors.
 
@@ -345,8 +352,17 @@ class AgentEnvironmentSimulator(nn.Module):
             loss_model = self.kl_weight * loss_kl + \
                          recon_losses + \
                          self.env_update_penalty_weight * env_update_losses
+
+            loss_dict_no_grad[
+                'loss_reconstruction'] = loss_reconstr.mean().item()
+            loss_dict_no_grad['loss_kl_rssm'] = loss_kl.mean().item() * self.kl_weight
+            loss_dict_no_grad[
+                'loss_env_update'] = env_update_losses.mean().item() * self.env_update_penalty_weight
         else:
             loss_model = 0.
+            loss_dict_no_grad['loss_reconstruction'] = 0.
+            loss_dict_no_grad['loss_kl_rssm'] = 0.
+            loss_dict_no_grad['loss_env_update'] = 0.
 
         # Make preds_dict
         preds_dict = {'action': pred_actions_1hot,
@@ -360,6 +376,7 @@ class AgentEnvironmentSimulator(nn.Module):
                       'env_h': states_env_h}
 
         return (
+            loss_dict_no_grad,
             loss_model,
             loss_agent_aux_init,
             priors,                      # tensor(T,B,2S)

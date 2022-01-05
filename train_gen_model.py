@@ -47,7 +47,7 @@ class TrainingExperiment(GenerativeModelExperiment):
 
             # Forward and backward pass and update generative model parameters
             self.optimizer.zero_grad()
-            (
+            (   loss_dict_no_grad,
                 loss_model,
                 loss_bottleneck,
                 loss_agent_aux_init,
@@ -84,8 +84,10 @@ class TrainingExperiment(GenerativeModelExperiment):
                 logger.logkv('batches', batch_idx)
                 logger.logkv('loss_bottleneck', loss_bottleneck)
                 logger.logkv('loss_model', loss_model)
+                for k, v in loss_dict_no_grad.items():
+                    logger.logkv(k, v)
                 logger.logkv('loss_agent_aux_init', loss_agent_aux_init)
-                logger.logkv('loss total', loss.item())
+                logger.logkv('loss total=model+bneck+aux', loss.item())
                 logger.dumpkvs()
 
             # Saving model
