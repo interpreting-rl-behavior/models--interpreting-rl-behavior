@@ -353,11 +353,12 @@ class AgentEnvironmentSimulator(nn.Module):
                          recon_losses + \
                          self.env_update_penalty_weight * env_update_losses
 
-            loss_dict_no_grad[
-                'loss_reconstruction'] = loss_reconstr.mean().item()
-            loss_dict_no_grad['loss_kl_rssm'] = loss_kl.mean().item() * self.kl_weight
-            loss_dict_no_grad[
-                'loss_env_update'] = env_update_losses.mean().item() * self.env_update_penalty_weight
+            loss_dict_no_grad['loss_reconstruction'] = \
+                torch.mean(torch.sum(recon_losses, dim=0)).item()
+            loss_dict_no_grad['loss_kl_rssm'] = \
+                torch.mean(torch.sum(loss_kl, dim=0)).item() * self.kl_weight
+            loss_dict_no_grad['loss_env_update'] = \
+                torch.mean(torch.sum(env_update_losses, dim=0)).item() * self.env_update_penalty_weight
         else:
             loss_model = 0.
             loss_dict_no_grad['loss_reconstruction'] = 0.
