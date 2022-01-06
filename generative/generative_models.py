@@ -108,20 +108,28 @@ class AgentEnvironmentSimulator(nn.Module):
                              retain_grads=True,)
 
         if calc_loss:
-            # Loss for autoencoder bottleneck
-            # pushes each vec away from others for best spread over hypersphere
-            similarities = 1-torch.mm(bottleneck_vec, bottleneck_vec.transpose(0,1))
-            eye = torch.eye(similarities.shape[0]).to(self.device)
+            # # Loss for autoencoder bottleneck
+            # # pushes each vec away from others for best spread over hypersphere
+            # similarities = 1-torch.mm(bottleneck_vec, bottleneck_vec.transpose(0,1))
+            # eye = torch.eye(similarities.shape[0]).to(self.device)
+            # not_eye = -(eye-1)
+            # not_eye = not_eye.byte()
+            # nonauto_sims = torch.where(not_eye, similarities, eye)
+            # loss_bottleneck = - torch.log(1./torch.sum(torch.exp(nonauto_sims)))
+            # loss_bottleneck *= self.bottleneck_loss_weight
+            sq_dists = 2 * torch.mm(bottleneck_vec, bottleneck_vec.transpose(0,1)) - 2
+            eye = torch.eye(sq_dists.shape[0]).to(self.device)
             not_eye = -(eye-1)
             not_eye = not_eye.byte()
-            nonauto_sims = torch.where(not_eye, similarities, eye)
-            loss_bottleneck = - torch.log(1./torch.sum(torch.exp(nonauto_sims)))
+            nonauto_sq_dists = torch.where(not_eye, sq_dists, eye)
+            loss_bottleneck = torch.log(torch.sum(torch.exp(nonauto_sq_dists)))
             loss_bottleneck *= self.bottleneck_loss_weight
-            # loss_bottleneck = 0. #0.5 * torch.sum(bottleneck_vec.pow(2), dim=1)  # Sum over latent dim
+            loss_dict_no_grad['loss_bottleneck'] = loss_bottleneck.item()
+
         else:
             loss_bottleneck = 0.
+            loss_dict_no_grad['loss_bottleneck'] = loss_bottleneck
 
-        loss_dict_no_grad['loss_bottleneck'] = loss_bottleneck
 
         return (
             loss_dict_no_grad,
@@ -226,10 +234,14 @@ class AgentEnvironmentSimulator(nn.Module):
 
             # prepare for calc of env_h update penalty
             env_update_losses = []
+
+            # log
+            loss_dict_no_grad['loss_agent_aux_init'] = torch.mean(
+                loss_agent_aux_init).item()
+
         else:
             loss_agent_aux_init = 0.
-
-        loss_dict_no_grad['loss_agent_aux_init'] = loss_agent_aux_init
+            loss_dict_no_grad['loss_agent_aux_init'] = loss_agent_aux_init
 
         # Finished getting initializing vectors.
 
