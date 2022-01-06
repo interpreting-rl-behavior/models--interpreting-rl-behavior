@@ -35,12 +35,14 @@ class AgentEnvironmentSimulator(nn.Module):
         self.encoder = AEEncoder(hyperparams, device)
         self.bottleneck_vec_converter_env = NLayerPerceptron(
             [hyperparams.bottleneck_vec_size,
-             int((hyperparams.bottleneck_vec_size + hyperparams.deter_dim + hyperparams.env_h_stoch_size)/2),
+             int((hyperparams.bottleneck_vec_size + hyperparams.deter_dim + hyperparams.env_h_stoch_size) / 2),
+             int((hyperparams.bottleneck_vec_size + hyperparams.deter_dim + hyperparams.env_h_stoch_size) / 2),
              hyperparams.deter_dim + hyperparams.env_h_stoch_size],
         )
         self.bottleneck_vec_converter_agent_h = NLayerPerceptron(
             [hyperparams.bottleneck_vec_size,
              int((hyperparams.bottleneck_vec_size + hyperparams.agent_hidden_size)/2),
+             int((hyperparams.bottleneck_vec_size + hyperparams.agent_hidden_size) / 2),
              hyperparams.agent_hidden_size],
         ) # Note that this net does not influence the representations learned
         #  by the AE latent vec because the AE sample is detached before
@@ -48,6 +50,7 @@ class AgentEnvironmentSimulator(nn.Module):
         self.bottleneck_vec_converter_action = NLayerPerceptron(
             [hyperparams.bottleneck_vec_size,
              int((hyperparams.bottleneck_vec_size + hyperparams.action_space_size)/2),
+             int((hyperparams.bottleneck_vec_size + hyperparams.action_space_size) / 2),
              hyperparams.action_space_size],
         )
         features_dim = hyperparams.deter_dim + hyperparams.stoch_dim * (hyperparams.stoch_discrete or 1)
