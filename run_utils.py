@@ -7,16 +7,11 @@ from common.policy import CategoricalPolicy
 from common import set_global_seeds, set_global_log_levels
 
 from pathlib import Path
-import os, time, yaml, argparse
+import os, time, yaml
 import gym
 from procgen import ProcgenEnv
-import random
 import torch
-import json
-import pandas as pd
 import csv
-from tqdm import tqdm
-import config
 import numpy as np
 
 
@@ -26,11 +21,11 @@ def load_env_and_agent(exp_name,
                        model_file,
                        start_level,
                        num_levels,
-                       distribution_mode,
-                       param_name,
-                       device,
-                       gpu_device,
-                       random_percent,
+                       distribution_mode="hard",
+                       param_name="hard",
+                       device="cpu",
+                       gpu_device=0,
+                       random_percent=0,
                        logdir=None,
                        num_threads=10):
 
@@ -168,7 +163,7 @@ def run_env(
     returns level metrics. If logfile (csv) is supplied, metrics are also
     appended there.
     """
-    if save_value or reset_mode=="off":
+    if save_value:
         raise NotImplementedError
 
     if logfile is not None:
@@ -181,13 +176,30 @@ def run_env(
     done = np.zeros(agent.n_envs)
 
 
+    def log_to_csv(metrics):
+        """write metrics to csv"""
+        if not metrics:
+            return
+        column_names = ["seed", "steps", "rand_coin", "coin_collected", "inv_coin_collected", "died", "timed_out"]
+        metrics = [int(m) for m in metrics]
+        if append_to_csv:
+            if os.path.isfile(logfile):
+                with open(logfile, "a") as f:
+                    w = csv.writer(f)
+                    w.writerow(metrics)
+            else:  # write header first
+                with open(logfile, "w") as f:
+                    w = csv.writer(f)
+                    w.writerow(column_names)
+
+
     def log_metrics(done: bool, info: dict):
         """
-        Run this when run complete, log metrics in the 
+        Run this every step.
+        When run complete, log metrics in the 
         following format:
         seed, steps, randomize_goal, collected_coin, collected_inv_coin, died, timed_out
         """
-        column_names = ["seed", "steps", "rand_coin", "coin_collected", "inv_coin_collected", "died", "timed_out"]
         metrics = None
         if done:
             keys = ["prev_level_seed", "prev_level/total_steps", "prev_level/randomize_goal", "prev_level_complete", "prev_level/invisible_coin_collected"]
@@ -202,27 +214,18 @@ def run_env(
             metrics = [info[key] for key in keys]
             metrics.extend([-1, True, -1, -1])
         else:
-            raise
-
-        metrics = [int(m) for m in metrics]
-        if append_to_csv:
-            if os.path.isfile(logfile):
-                with open(logfile, "a") as f:
-                    w = csv.writer(f)
-                    w.writerow(metrics)
-            else: # write header first
-                with open(logfile, "w") as f:
-                    w = csv.writer(f)
-                    w.writerow(column_names)
-
-
+            pass
+        log_to_csv(metrics)
         return metrics
+
 
     def check_if_break(done: bool, info: dict):
         if reset_mode == "inv_coin":
             return done or info["invisible_coin_collected"]
         elif reset_mode == "complete":
             return done
+        elif reset_mode == "off":
+            return False
         else:
             raise ValueError("Reset mode must be one of inv_coin, complete, off."
                              f"Instead got {reset_mode}")
@@ -230,7 +233,6 @@ def run_env(
     step = 0
     while step < max_num_timesteps:
         agent.policy.eval()
-        metrics = []
         for _ in range(agent.n_steps):  # = 256
             step += 1
             act, log_prob_act, value, next_hidden_state = agent.predict(obs, hidden_state, done)
@@ -240,7 +242,8 @@ def run_env(
             obs = next_obs
             hidden_state = next_hidden_state
 
+            log_metrics(done[0], info[0])
             if check_if_break(done[0], info[0]):
-                return log_metrics(done[0], info[0])
-    return metrics
+                return
+    return
 

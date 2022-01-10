@@ -1,20 +1,10 @@
-from numpy.lib.npyio import save
 from common.env.procgen_wrappers import *
-from common.logger import Logger
-from common.storage import Storage
-from common.model import NatureModel, ImpalaModel
-from common.policy import CategoricalPolicy
 from common import set_global_seeds, set_global_log_levels
 
 from pathlib import Path
-import os, time, yaml, argparse
-import gym
+import os, time, argparse
 from procgen import ProcgenEnv
 import random
-import torch
-import json
-import pandas as pd
-import csv
 from tqdm import tqdm
 import config
 import numpy as np
@@ -27,7 +17,7 @@ if __name__=='__main__':
     parser.add_argument('--start_level',      type=int, default = int(0), help='start-level for environment')
     parser.add_argument('--device',           type=str, default = 'cpu', required = False, help='whether to use gpu')
     parser.add_argument('--gpu_device',       type=int, default = int(0), required = False, help = 'visible device in CUDA')
-    parser.add_argument('--agent_seed',       type=int, default = random.randint(0,9999), help='Seed for pytorch')
+    parser.add_argument('--agent_seed',       type=int, default = random.randint(0,999999), help='Seed for pytorch')
     parser.add_argument('--log_level',        type=int, default = int(40), help='[10,20,30,40]')
     parser.add_argument('--logdir',           type=str, default = None)
     parser.add_argument('--start_level_seed', type=int, default = 0)
@@ -54,7 +44,8 @@ if __name__=='__main__':
     if not (os.path.exists(logpath)):
         os.makedirs(logpath)
 
-    logfile = logpath + f"agent_seed_{args.agent_seed}__date_" + time.strftime("%d-%m-%Y_%H-%M-%S.csv")
+    #logfile = logpath + f"agent_seed_{args.agent_seed}__date_" + time.strftime("%d-%m-%Y_%H-%M-%S.csv")
+    logfile = logpath + "metrics.csv"
     print(f"Saving metrics to {logfile}.")
     print("Running vanilla environment...")
     for env_seed in tqdm(vanilla_env_seeds):
@@ -62,8 +53,6 @@ if __name__=='__main__':
             logfile=logfile,
             model_file=args.model_file,
             level_seed=env_seed,
-            distribution_mode="hard",
-            param_name="hard",
             device=args.device,
             gpu_device=args.gpu_device,
             random_percent=0,
