@@ -1,3 +1,4 @@
+from torch._C import Value
 from test import load_env_and_agent, run
 import argparse
 from common import set_global_seeds, set_global_log_levels
@@ -6,6 +7,9 @@ from pathlib import Path
 import csv
 
 if __name__=='__main__':
+    raise NotImplementedError("I made changes to test.py, so now this script needs to be overhauled")
+
+
     parser = argparse.ArgumentParser()
     parser.add_argument('--random_percent_model_dir', type=str, default=None,
                 help="directory with saved coinrun models trained on "
