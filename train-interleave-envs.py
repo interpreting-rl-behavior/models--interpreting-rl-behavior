@@ -133,7 +133,7 @@ if __name__=='__main__':
     #############
     print('INITIALIZING STORAGE...')
     hidden_state_dim = model.output_dim
-    storage = Storage(observation_shape, hidden_state_dim, n_steps, n_envs, args.device)
+    storage = Storage(observation_shape, hidden_state_dim, n_steps, n_envs, device)
 
     ###########
     ## AGENT ##
@@ -144,7 +144,7 @@ if __name__=='__main__':
         from agents.ppo import PPO as AGENT
     else:
         raise NotImplementedError
-    agent = AGENT(env, policy, logger, storage, args.device, args.num_checkpoints, **hyperparameters)
+    agent = AGENT(env, policy, logger, storage, device, args.num_checkpoints, **hyperparameters)
     if args.model_file is not None:
         print("Loading agent from %s" % args.model_file)
         checkpoint = torch.load(args.model_file)
