@@ -12,6 +12,10 @@ import argparse
 def run():
     # Get CLI args
     args = parse_args()
+    if args.experiment_name is not '':
+        print("Only plotting %s" % args.experiment_name)
+        path = './results/' + args.experiment_name
+        plot(path)
     if args.datapath == 'all':
         # get all experiment dirs
         dirs = next(os.walk('results'))[1]
@@ -33,6 +37,8 @@ def parse_args():
         description='args for plotting')
     parser.add_argument(
         '--datapath', type=str)
+    parser.add_argument(
+        '--experiment_name', type=str, default='')
     args = parser.parse_args()
     return args
 
