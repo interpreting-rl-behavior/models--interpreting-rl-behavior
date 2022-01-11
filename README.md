@@ -73,7 +73,7 @@ environment rollouts. It will be informative, therefore, to get a picture of
 what's going on inside the latent vector of the VAE, since this is the input
 to the decoder. 
 
-## Analysis of latent vector of VAE
+## Analysis of bottleneck vector
 
 In theory, the distribution of the VAE latent vector space is trained to be as close
 as possible to a standard multivariate gaussian distribution. In practice, however, the KL 
