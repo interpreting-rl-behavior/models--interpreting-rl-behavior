@@ -22,7 +22,10 @@ def run():
             sub_dirs = next(os.walk(path))[1]
             for sub_dir in sub_dirs:
                 print(path + '/' + sub_dir)
-                plot(os.path.join(path, sub_dir))
+                if os.path.exists(path + '/' + sub_dir + "/progress.csv"):
+                    plot(os.path.join(path, sub_dir))
+                else:
+                    print("Skipping")
 
 
 def parse_args():
@@ -51,8 +54,8 @@ def plot(data_path):
     # max_y = data['loss/hx'][100:].max().max()  # largest value in any column
     # plt.yticks(np.arange(0, max_y, max_y/50))
 
-    for name in cols:
-        plt.plot(data.index[10:]*10, data[name][10:], label=name)
+    for name in cols: #100 is log interval
+        plt.plot(data.index[10:]*100, data[name][10:], label=name)
         plt.grid(b=True, which='both')
 
     plt.xlabel('# batches')
