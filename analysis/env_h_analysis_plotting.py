@@ -20,10 +20,10 @@ def parse_args():
         '--agent_env_data_dir', type=str,
         default="data")
     parser.add_argument(
-        '--precomputed_analysis_data_path', type=str, default="env_analysis_precomp")
+        '--precomputed_analysis_data_path', type=str, default="analysis/env_analysis_precomp")
     parser.add_argument(
         '--generated_data_dir', type=str,
-        default='../generative/recorded_informinit_gen_samples')
+        default='generative/rec_gen_mod_data/informed_init')
     parser.add_argument(
         '--presaved_data_path', type=str, default="/media/lee/DATA/DDocs/AI_neuro_work/assurance_project_stuff/data/precollected/")
     args = parser.parse_args()
@@ -32,7 +32,7 @@ def parse_args():
 
 def run():
     args = parse_args()
-    num_samples = 20000  # number of episodes to make plots for. Needs to be
+    num_samples = 2000#20000  # number of episodes to make plots for. Needs to be
     # the same as the precomputed data you want to use
     plot_pca = True
     plot_3d_pca_all = False

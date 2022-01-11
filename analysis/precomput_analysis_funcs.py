@@ -1,8 +1,7 @@
 import pandas as pd
 import numpy as np
 from sklearn.manifold import TSNE
-from sklearn.decomposition import PCA
-from sklearn.decomposition import NMF
+from sklearn.decomposition import PCA, NMF, FastICA
 from sklearn.cluster import AgglomerativeClustering
 from sklearn.neighbors import kneighbors_graph
 #import umap
@@ -106,3 +105,15 @@ def nmf_then_save(data, num_factors, save_path, aux_name1, aux_name2, max_iter=5
             vecs_nmf.transform(data_nonneg))
     np.save(save_path + f'nmf_components_{aux_name1}_{aux_name2}.npy',
             vecs_nmf.components_)
+
+def ica_then_save(whitened_data, save_path, aux_name1, aux_name2,
+                  max_iter=5000, tol=1e-4):
+
+    model = FastICA(whiten=False, random_state=0, max_iter=max_iter, tol=tol)
+    data_ica = model.fit_transform(whitened_data)
+    np.save(save_path + f'ica_unmixing_matrix_{aux_name1}_{aux_name2}.npy',
+            model.components_)
+    np.save(save_path + f'ica_mixing_matrix_{aux_name1}_{aux_name2}.npy',
+            model.mixing_)
+    np.save(save_path + f'ica_source_signals_{aux_name1}_{aux_name2}.npy',
+            data_ica)

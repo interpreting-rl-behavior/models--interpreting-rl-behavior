@@ -32,7 +32,7 @@ def parse_args():
 
 def run():
     args = parse_args()
-    num_episodes = 4000#2000  # number of episodes to make plots for. Needs to be
+    num_episodes = 100#4000#2000  # number of episodes to make plots for. Needs to be
     num_generated_samples = 200
     # the same as the precomputed data you want to use
     plot_pca = True
@@ -54,10 +54,10 @@ def run():
 
     # Load the non vector outputs
     main_data_path = args.agent_env_data_dir
-    data = pd.read_csv(os.path.join(main_data_path, 'data_gen_model_0.csv'))
+    data = pd.read_csv(os.path.join(main_data_path, 'data_gen_model_00000.csv'))
     for ep in range(1, num_episodes):
         data_epi = pd.read_csv(os.path.join(main_data_path,
-                                             f'data_gen_model_{ep}.csv'))
+                                             f'data_gen_model_{ep:05d}.csv'))
         data = data.append(data_epi)
     data = data.loc[data['episode'] < num_episodes]
     print('data shape', data.shape)
@@ -70,10 +70,10 @@ def run():
         hx = np.load(hx_presaved_filepath)
     else:
         # Collect them one by one
-        hx = np.load(os.path.join(main_data_path, 'episode0/hx.npy'))
+        hx = np.load(os.path.join(main_data_path, 'episode_00000/hx.npy'))
         for ep in range(1, num_episodes):
             hx_to_cat = np.load(os.path.join(main_data_path,
-                                             f'episode{ep}/hx.npy'))
+                                             f'episode_{ep:05d}/hx.npy'))
             hx = np.concatenate((hx, hx_to_cat))
         # TODO save
 
@@ -88,9 +88,9 @@ def run():
         lp = np.load(lp_presaved_filepath)
     else:
         # Collect them one by one
-        lp = np.load(os.path.join(main_data_path, 'episode0/lp.npy'))
+        lp = np.load(os.path.join(main_data_path, 'episode_00000/lp.npy'))
         for ep in range(1,num_episodes):
-            lp_to_cat = np.load(os.path.join(main_data_path,f'episode{ep}/lp.npy'))
+            lp_to_cat = np.load(os.path.join(main_data_path,f'episode_{ep:05d}/lp.npy'))
             lp = np.concatenate((lp, lp_to_cat))
     lp_max = np.argmax(lp, axis=1)
     entropy = -1 * np.sum(np.exp(lp)*lp, axis=1)
@@ -108,7 +108,7 @@ def run():
     episode_step_groups = [dfg for dfg in
                            data.groupby(by='episode')['episode_step']]
     max_steps_per_epi = [np.max(np.array(group)[1]) for group in episode_step_groups]
-    max_steps_per_epi_list = [[x] * (x+1) for x in max_steps_per_epi]
+    max_steps_per_epi_list = [[x] * int(x+1) for x in max_steps_per_epi]
     max_steps_per_epi_list = [item for sublist in max_steps_per_epi_list for item in sublist] # flattens
     data['episode_max_steps'] = max_steps_per_epi_list
     data['% through episode'] = data['episode_step'] / data['episode_max_steps']
@@ -119,9 +119,9 @@ def run():
     epi_rewarded = []
     for i, gr in enumerate(episode_rew_groups):
         if np.any(gr[1]):
-            rew_bool_list = [1] * (max_steps_per_epi[i] + 1)
+            rew_bool_list = [1] * int(max_steps_per_epi[i] + 1)
         else:
-            rew_bool_list = [0] * (max_steps_per_epi[i] + 1)
+            rew_bool_list = [0] * int(max_steps_per_epi[i] + 1)
         epi_rewarded.extend(rew_bool_list)
     data['episode_rewarded'] = epi_rewarded
 
@@ -153,6 +153,14 @@ def run():
                      '/nmf_hx_%i.npy' % num_episodes)
     nmf_max_factor = np.argmax(hx_nmf, axis=1)
     data['nmf_max_factor'] = nmf_max_factor
+    # TODO i think we need to throw away the 0th hx in each episode. There
+    #  are e.g. 47 hxs in episode 00000 but only 46 steps were counted. This is
+    # because on the final timestep we exceptionally add the 'current' hx, not
+    # just the previous hx. So since the 0th hx never actually makes  an
+    # action or value estimate (we first pass the 0th hx to the GRU along with
+    # the encoded obs input to get the current hx, which in turn is used to make
+    # the action and value output), it makes sense that we get rid of the 0th
+    # hx because it's uninformative and unused by values and action.
 
     # cluster identity
     hx_cluster = np.load(args.precomputed_analysis_data_path + \

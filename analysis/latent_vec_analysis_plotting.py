@@ -15,9 +15,14 @@ pd.options.mode.chained_assignment = None  # default='warn'
 def parse_args():
     parser = argparse.ArgumentParser(
         description='args for plotting')
+    parser = argparse.ArgumentParser(
+        description='args for plotting')
     parser.add_argument(
         '--agent_env_data_dir', type=str,
-        default="data")
+        default="data/")
+    parser.add_argument(
+        '--generated_data_dir', type=str,
+        default='generative/rec_gen_mod_data')
     parser.add_argument(
         '--precomputed_analysis_data_path', type=str, default="analysis/bottleneck_vec_analysis_precomp/")
     parser.add_argument(
@@ -28,7 +33,7 @@ def parse_args():
 def run():
     args = parse_args()
     # number of episodes to make plots for. Needs to be
-    num_generated_samples = 4000
+    num_generated_samples = 1000
     # the same as the precomputed data you want to use
     plot_pca = True
     plot_3d_pca_all = True

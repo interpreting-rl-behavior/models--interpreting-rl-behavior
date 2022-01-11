@@ -24,11 +24,8 @@ def parse_args():
         '--agent_env_data_dir', type=str,
         default="data/")
     parser.add_argument(
-        '--generated_data_dir_inf', type=str,
-        default='generative/recorded_informinit_gen_samples')
-    parser.add_argument(
-        '--generated_data_dir_rand', type=str,
-        default='generative/recorded_random_gen_samples')
+        '--generated_data_dir', type=str,
+        default='generative/rec_gen_mod_data')
 
     args = parser.parse_args()
     return args
@@ -37,7 +34,7 @@ def parse_args():
 # EPISODE_STRINGS = {v:str(v) for v in range(3431)}
 def run():
     args = parse_args()
-    num_samples = 200 # number of generated samples to use
+    num_samples = 1000 # number of generated samples to use
     n_components_pca = 128
     n_components_tsne = 2
     n_clusters = 100
@@ -45,8 +42,14 @@ def run():
     seed = 42  # for the tSNE algo
 
     # Prepare load and save dirs
-    generated_data_path_inf = args.generated_data_dir_inf
-    generated_data_path_rand = args.generated_data_dir_rand
+    generated_data_dir = args.generated_data_dir
+    generated_data_path_rand = os.path.join(
+        generated_data_dir,
+        'rand_init')
+    generated_data_path_inf = os.path.join(
+        generated_data_dir,
+        'informed_init')
+
 
     save_path = 'bottleneck_vec_analysis_precomp/'
     save_path = os.path.join(os.getcwd(), "analysis", save_path)
