@@ -285,7 +285,7 @@ if __name__=='__main__':
                 data[idx] = pd.DataFrame(columns=column_names)
                 episode_number[idx] = epi_max + 1
                 epi_max += 1
-                episode_steps[idx] = 0
+                episode_steps[idx] = -1 # not 0 because we increment just below
 
                 obs_lists[idx] = []
                 hx_lists[idx] = []
