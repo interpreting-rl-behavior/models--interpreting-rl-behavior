@@ -46,7 +46,8 @@ class TrainingExperiment(GenerativeModelExperiment):
                 env_state,
                 metrics_list,
                 tensors_list,
-                preds_dict
+                preds_dict,
+                unstacked_preds_dict,
             ) = \
                 self.gen_model(data=data, use_true_actions=True, imagine=False, modal_sampling=False)
             # TODO check whether you can make saliency/target losses from preds_dict alone and

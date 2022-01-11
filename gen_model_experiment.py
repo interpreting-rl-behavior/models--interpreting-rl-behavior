@@ -544,6 +544,7 @@ class GenerativeModelExperiment():
                  metrics_list,
                  tensors_list,
                  preds,
+                 unstacked_preds_dict,
                  ) = \
                     self.gen_model.ae_decode(
                         bottleneck_vec,
@@ -572,6 +573,7 @@ class GenerativeModelExperiment():
              metrics_list,
              tensors_list,
              preds,
+             unstacked_preds_dict,
              ) = \
                 self.gen_model.ae_decode(
                     bottleneck_vec,

@@ -72,6 +72,8 @@ class AgentEnvironmentSimulator(nn.Module):
 
         init_ims = data['ims'][0:self.num_init_steps]
         bottleneck_vec = self.encoder(init_ims)
+        if retain_grads:
+            bottleneck_vec.retain_grads()
 
         B = init_ims.shape[1]
 
@@ -100,6 +102,7 @@ class AgentEnvironmentSimulator(nn.Module):
             metrics_list,
             tensors_list,
             preds_dict,
+            unstacked_preds_dict,
         ) = self.ae_decode(bottleneck_vec,
                              data,
                              true_actions_1hot=true_actions_1hot,
@@ -148,6 +151,7 @@ class AgentEnvironmentSimulator(nn.Module):
             metrics_list,
             tensors_list,
             preds_dict,
+            unstacked_preds_dict,
         )
 
     def ae_decode(self,
@@ -173,7 +177,7 @@ class AgentEnvironmentSimulator(nn.Module):
         loss_dict_no_grad = {}
 
         # Get labels for loss function
-        if calc_loss: # No need to calc loss
+        if calc_loss:  # No need to calc loss
             agent_h_labels = data['hx'][self.num_init_steps-1:]
             reward_labels = data['reward'][self.num_init_steps-1:]
             terminal_labels = data['terminal'][self.num_init_steps-1:]
@@ -184,10 +188,12 @@ class AgentEnvironmentSimulator(nn.Module):
         #  agent_h_prev, and action_prev
         ## First env_h_prev, env_z_prev (env_z_prev uses Straight Through
         ##  Gradients because it is a random sample)
+
         env_prev, _ = self.bottleneck_vec_converter_env(bottleneck_vec)
         env_h_prev, env_z_prev = env_prev[:,:-self.env_h_stoch_size],\
                                  env_prev[:,-self.env_h_stoch_size:]
         init_z_dist = self.agent_env_stepper.zdistr(env_z_prev)
+
         if modal_sampling:
             ### Modal sampling
             inds = init_z_dist.mean.argmax(dim=2)
@@ -210,13 +216,20 @@ class AgentEnvironmentSimulator(nn.Module):
         else:
             agent_h_prev = pred_agent_h_prev
 
-        ## Third, action_prev (no straight through grads because the agent's init
-        ##  vectors should be trained independently from the rest of the model)
+        ## Third, action_prev
+        # Originally there was no straight through grads here because the agent's init
+        ##  vectors should be trained independently from the rest of the model.
+        ## But we're actually still training it separately from the model, but
+        ## in fact we do need STE for causal consistency when updating the
+        ## bottleneck vector. No need to retrain the whole model though.
         pred_action_prev_logits, _ = self.bottleneck_vec_converter_action(bottleneck_vec.detach())
         pred_action_prev_probs = torch.softmax(pred_action_prev_logits, dim=1)
         pred_action_prev_inds = pred_action_prev_probs.argmax(dim=1)
         pred_action_prev_1hot = torch.nn.functional.one_hot(pred_action_prev_inds,
                                                             num_classes=self.action_space_size).to(self.device).float()
+        pred_action_prev_1hot = pred_action_prev_probs + \
+                 (pred_action_prev_1hot - pred_action_prev_probs).detach()
+
         if use_true_actions:
             action_prev  = true_actions_1hot[0]
         else:
@@ -269,6 +282,11 @@ class AgentEnvironmentSimulator(nn.Module):
         metrics_list = []
         tensors_list = []
 
+        if retain_grads:
+            action_prev.retain_grad()
+            agent_h_prev.retain_grad()
+            env_h_prev.retain_grad()
+
         for i in range(self.num_sim_steps):
             # Define the labels for the loss function because we calculate it
             #  in here.
@@ -302,6 +320,14 @@ class AgentEnvironmentSimulator(nn.Module):
                                             calc_loss=calc_loss,
                                             modal_sampling=modal_sampling,
                                             labels=labels)
+
+            if retain_grads:
+                pred_image.retain_grad()
+                agent_h.retain_grad()
+                pred_action_1hot.retain_grad()
+                pred_action_log_prob.retain_grad()
+                env_h.retain_grad()
+
             posts.append(post)
             pred_actions_1hot.append(pred_action_1hot)
             pred_action_log_probs.append(pred_action_log_prob)
@@ -327,6 +353,19 @@ class AgentEnvironmentSimulator(nn.Module):
                 env_update_losses.append(env_update_loss)
             agent_h_prev = agent_h
             env_h_prev, env_z_prev = (env_h, env_z)
+
+        # We keep an unstacked dict because for some reason when you retain
+        # grads on the stacked tensors it doesn't actually retain the grads
+        unstacked_preds_dict = {'action': pred_actions_1hot,
+                                'act_log_prob': pred_action_log_probs,
+                                'value': pred_values,
+                                'ims': pred_ims,
+                                'hx': agent_hs,
+                                'reward': pred_rews,
+                                'terminal': pred_terminals,
+                                'bottleneck_vec': bottleneck_vec,
+                                'env_h': states_env_h}
+
 
         posts = torch.stack(posts)                  # (T,B,2S)
         pred_actions_1hot = torch.stack(pred_actions_1hot)
@@ -404,6 +443,7 @@ class AgentEnvironmentSimulator(nn.Module):
             metrics_list,
             tensors_list,
             preds_dict,
+            unstacked_preds_dict,
         )
 
 
@@ -512,6 +552,12 @@ class AgentEnvStepper(nn.Module):
         if calc_loss:
             loss_reconstr_agent_h = self.agent_hx_loss(agent_h, labels['agent_h'], labels['before_terminal'])
             loss_reconstr = loss_reconstr + loss_reconstr_agent_h
+
+        pred_action.retain_grad()
+        pred_action_logits.retain_grad()
+        pred_value.retain_grad()
+        pred_image.retain_grad()
+        agent_h.retain_grad()
 
         return (
             post_or_prior,    # tensor(B, 2*S)
