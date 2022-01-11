@@ -1,20 +1,7 @@
-from common.env.procgen_wrappers import *
 import util.logger as logger  # from common.logger import Logger
-from common.storage import Storage
-from common.model import NatureModel, ImpalaModel
-from common.policy import CategoricalPolicy
-from common import set_global_seeds, set_global_log_levels
-from train import create_venv
-import os, yaml, argparse
-import gym
-import random
+import os
 import torch
-from generative.generative_models import AgentEnvironmentSimulator
-from generative.procgen_dataset import ProcgenDataset
 from gen_model_experiment import GenerativeModelExperiment
-from collections import deque
-import torchvision.io as tvio
-from datetime import datetime
 
 
 class TrainingExperiment(GenerativeModelExperiment):
@@ -104,11 +91,12 @@ class TrainingExperiment(GenerativeModelExperiment):
 
             # Demo recon quality without using true images
             if (epoch >= 1 and batch_idx % 20000 == 0) or (epoch < 1 and batch_idx % 5000 == 0):
-                self.visualize(epoch, batch_idx=batch_idx, data=data, preds=preds_dict, use_true_actions=True, save_root='sample_true_ims_true_acts')
-                self.visualize(epoch, batch_idx=batch_idx, data=None, preds=None, use_true_actions=True, save_root='sample_sim_ims_true_acts')
-                self.visualize(epoch, batch_idx=batch_idx, data=None, preds=None, use_true_actions=False, save_root='sample_sim_ims_sim_acts')
+                save_dir = self.sess_dir + '/recons_v_preds/'
+                self.visualize(epoch, batch_idx=batch_idx, data=data, preds=preds_dict, use_true_actions=True, save_dir=save_dir, save_root='sample_true_ims_true_acts')
+                self.visualize(epoch, batch_idx=batch_idx, data=None, preds=None, use_true_actions=True, save_dir=save_dir, save_root='sample_sim_ims_true_acts')
+                self.visualize(epoch, batch_idx=batch_idx, data=None, preds=None, use_true_actions=False, save_dir=save_dir, save_root='sample_sim_ims_sim_acts')
                 self.visualize_single(
-                               epoch, batch_idx=batch_idx, data=None, preds=None, bottleneck_vec=None, use_true_actions=False, save_root='sample_from_rand_latent', batch_size=B)
+                               epoch, batch_idx=batch_idx, data=None, preds=None, bottleneck_vec=None, use_true_actions=False, save_dir=save_dir, save_root='sample_from_rand_latent', batch_size=B)
 
 if __name__ == "__main__":
     training_exp = TrainingExperiment()
