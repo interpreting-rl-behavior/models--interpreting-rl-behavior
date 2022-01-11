@@ -1,51 +1,8 @@
-import numpy as np
-from common.env.procgen_wrappers import *
-import util.logger as logger  # from common.logger import Logger
-from common.storage import Storage
-from common.model import NatureModel, ImpalaModel
-from common.policy import CategoricalPolicy
-from common import set_global_seeds, set_global_log_levels
-from train import create_venv
-
-import os, yaml, argparse
-import gym
-import random
-import torch
-from generative.generative_models import AgentEnvironmentSimulator
-from generative.procgen_dataset import ProcgenDataset
 from gen_model_experiment import GenerativeModelExperiment
-
-from collections import deque
-import torchvision.io as tvio
-from datetime import datetime
-from common.env.procgen_wrappers import *
-import util.logger as logger  # from common.logger import Logger
-from util.parallel import DataParallel
-from common.storage import Storage
-from common.model import NatureModel, ImpalaModel
-from common.policy import CategoricalPolicy
-from common import set_global_seeds, set_global_log_levels
-from train import create_venv
-from overlay_image import overlay_actions
-
-import os, yaml, argparse
-import gym
-import random
-import torch
-from generative.procgen_dataset import ProcgenDataset
-
-from collections import deque
-import torchvision.io as tvio
-from datetime import datetime
-
-
-
-################################
-import util.logger as logger  # from common.logger import Logger
 import os
 import torch
-from gen_model_experiment import GenerativeModelExperiment
-
+from generative.rssm.functions import safe_normalize
+import numpy as np
 
 class RecordingExperiment(GenerativeModelExperiment):
     """Inherits everything from GenerativeModelExperiment but adds a recording
@@ -65,6 +22,13 @@ class RecordingExperiment(GenerativeModelExperiment):
     """
     def __init__(self):
         super(RecordingExperiment, self).__init__()
+        if self.args.recording_rand_init:
+            self.informed_initialization = False
+            self.recording_data_save_dir = self.recording_data_save_dir_rand_init
+        else:
+            self.informed_initialization = True
+            self.recording_data_save_dir = self.recording_data_save_dir_informed_init
+
 
     def run_recording_loop(self):
         # TODO manual actions
@@ -74,11 +38,160 @@ class RecordingExperiment(GenerativeModelExperiment):
         samples_so_far = 0
         # Recording cycle
         for batch_idx, data in enumerate(self.train_loader):
-            self.record(data, batch_idx, samples_so_far, )
+            self.record(data, batch_idx, samples_so_far,
+                        informed_initialization=self.informed_initialization )
             samples_so_far += self.args.batch_size
             print(samples_so_far)
+        print("Dataset fully recorded. You probably shouldn't be seeing this."+\
+              "You've made too much data.")
+            # TODO swap directions (will want to record several similar samples:
+            #  one with same init but with and without direction swapping.
+            #  These will each need different names)
 
-            # TODO swap directions
+    def record(self, data, batch_idx, samples_so_far,
+               informed_initialization=True, name_root='sample'):
+
+        if informed_initialization:
+            # Within some recording loop
+            # Make all data into floats and put on the right device
+            data = self.preprocess_data_dict(data)
+
+            # Forward and backward pass generative model parameters
+            self.optimizer.zero_grad()
+            (_,
+             _,
+             _,
+             _,
+             priors,
+             posts,
+             samples,
+             features,
+             env_states,
+             env_state,
+             metrics_list,
+             tensors_list,
+             preds_dict
+             ) = \
+                self.gen_model(data=data, use_true_actions=False, imagine=True,
+                               modal_sampling=True)
+        else:
+            bottleneck_vec = torch.randn(self.args.batch_size,
+                                         self.gen_model.bottleneck_vec_size,
+                                         device=self.device)
+            bottleneck_vec = safe_normalize(bottleneck_vec)
+
+            (loss_dict_no_grad,
+             loss_model,
+             loss_agent_aux_init,
+             priors,  # tensor(T,B,2S)
+             posts,  # tensor(T,B,2S)
+             samples,  # tensor(T,B,S)
+             features,  # tensor(T,B,D+S)
+             env_states,
+             (env_h, env_z),
+             metrics_list,
+             tensors_list,
+             preds_dict,
+             ) = \
+                self.gen_model.ae_decode(
+                    bottleneck_vec,
+                    data=None,
+                    true_actions_1hot=None,
+                    use_true_actions=False,
+                    true_agent_h0=None,
+                    use_true_agent_h0=False,
+                    imagine=True,
+                    calc_loss=False,
+                    modal_sampling=True,
+                    retain_grads=True, )
+
+        # Logging and saving info
+        if batch_idx % self.args.log_interval == 0:
+            self.logger.logkv('batches', batch_idx)
+            self.logger.dumpkvs()
+        batch_size = self.args.batch_size
+        new_sample_indices = range(samples_so_far,
+                                   samples_so_far + batch_size)
+
+        self.save_preds(preds_dict, new_sample_indices)
+
+    def save_preds(self, preds, new_sample_indices_range, manual_actions=None,
+                   name_root='sample'):
+
+        pred_images, pred_terminals, pred_rews, pred_actions_1hot, \
+        pred_actions_inds, \
+        pred_act_log_prob, pred_value, pred_agent_h, pred_bottleneck_vec, \
+        pred_env_h = self.postprocess_preds(preds)
+
+        # pred_obs = preds['ims']
+        # pred_rews = preds['reward']
+        # pred_dones = preds['terminal']
+        # pred_agent_hxs = preds['hx']
+        # pred_agent_logprobs = preds['act_log_prob']
+        # pred_agent_values = preds['value']
+        # pred_env_states = preds['env_h']
+        # bottleneck_vecs = preds['bottleneck_vec']
+
+        # Stack samples into single tensors and convert to numpy arrays
+        pred_images = np.array(pred_images.detach().cpu().numpy() * 255,
+                            dtype=np.uint8)
+        pred_rews = pred_rews.detach().cpu().numpy()
+        pred_terminals = pred_terminals.detach().cpu().numpy()
+        pred_agent_h = pred_agent_h.detach().cpu().numpy()
+        pred_act_log_prob = pred_act_log_prob.detach().cpu().numpy()
+        pred_value = pred_value.detach().cpu().numpy()
+        pred_env_h = pred_env_h.detach().cpu().numpy()
+        # pred_obs = np.array(torch.stack(pred_obs, dim=1).cpu().numpy() * 255, dtype=np.uint8)
+        # pred_rews = torch.stack(pred_rews, dim=1).cpu().numpy()
+        # pred_dones = torch.stack(pred_dones, dim=1).cpu().numpy()
+        # pred_agent_hxs = torch.stack(pred_agent_hxs, dim=1).cpu().numpy()
+        # pred_agent_logprobs = torch.stack(pred_agent_logprobs, dim=1).cpu().numpy()
+        # pred_agent_values = torch.stack(pred_agent_values, dim=1).cpu().numpy()
+        # pred_env_states = torch.stack(pred_env_states, dim=1).cpu().numpy()
+
+        # no timesteps in latent vecs, so only cat not stack along time dim.
+        pred_bottleneck_vec = pred_bottleneck_vec.detach().cpu().numpy()
+
+        vars = [pred_images, pred_rews, pred_terminals, pred_agent_h,
+                pred_act_log_prob, pred_value, pred_env_h,
+                pred_bottleneck_vec]
+        var_names = ['ims', 'rews', 'dones', 'agent_hs',
+                     'agent_logprobs', 'agent_values', 'env_hs',
+                     'bottleneck_vec', ]
+
+        # Recover the actions for use in the action overlay
+        if manual_actions is not None:
+            actions = np.ones(
+                (self.args.batch_size, self.args.num_sim_steps)) * manual_actions
+        else:
+            actions = np.argmax(pred_act_log_prob, axis=-1)
+            # Maybe if you ever use this, use pred_actions_inds instead
+
+        # Make dirs for these variables and save variables to dirs and save vid
+        # TODO different sample_ name for infinit and random
+        sample_dir_base = os.path.join(self.recording_data_save_dir,
+                                       name_root + '_')
+        for i, new_sample_idx in enumerate(new_sample_indices_range):
+            sample_dir = sample_dir_base + f'{new_sample_idx:05d}'
+            # Make dirs
+            if not (os.path.exists(sample_dir)):
+                os.makedirs(sample_dir)
+
+            # Save variables #TODO saving of not ts
+            for var, var_name in zip(vars, var_names):
+                var_sample_name = os.path.join(sample_dir, var_name + '.npy')
+                np.save(var_sample_name, var[i])
+
+        # Save vid
+        new_sample_indices_range = list(new_sample_indices_range)
+        samples_so_far = new_sample_indices_range[0]
+        b = len(new_sample_indices_range)
+        self.visualize_single(
+            0, batch_idx=samples_so_far, data=None, preds=preds,
+            bottleneck_vec=None, use_true_actions=False,
+            save_dir=self.recording_data_save_dir,
+            save_root='sample', batch_size=b, numbering_scheme="n",
+            samples_so_far=samples_so_far)
 
 if __name__ == "__main__":
     recording_exp = RecordingExperiment()
@@ -96,7 +209,7 @@ if __name__ == "__main__":
 #
 #     It saves the obs, hx, env_hx, etc. in a unique folder for that sample.
 #
-#     e.g. directory name 'generative/recorded_gen_samples/sample_00001' contains obs.npy, hx.npy, env_hx.npy
+#     e.g. directory name 'generative/rec_gen_mod_data/sample_00001' contains obs.npy, hx.npy, env_hx.npy
 #
 #     and the directory 'generative/recorded_gen_samples' contains the videos
 #     of the samples. There will also be a manually managed csv file that marks

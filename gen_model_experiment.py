@@ -18,11 +18,10 @@ from util.namespace import Namespace
 from datetime import datetime
 
 
-
 class GenerativeModelExperiment():
     def __init__(self):
         """ # TODO generalize docstring
-        A class for experiments that involve sampling from a AE latent space.
+        A class that sets up a generative model.
 
         Its purpose is to have all the infrastructure necessary for
         running experiments that involve generating samples from the latent
@@ -165,7 +164,8 @@ class GenerativeModelExperiment():
                                                    num_workers=2)
 
         ## Make or load generative model and optimizer
-        gen_model_hyperparams = Namespace( # TODO maybe put all configs like this and CLI args in a single configs file
+        gen_model_hyperparams = Namespace(
+            # TODO maybe put all configs like this and CLI args in a single configs file
             num_init_steps=num_init_steps,
             num_steps_full=num_steps_full,
             num_sim_steps=num_sim_steps,
@@ -173,7 +173,7 @@ class GenerativeModelExperiment():
             stoch_dim=32,
             env_h_stoch_size=32 * 32,
             agent_hidden_size=64,
-            action_space_size=action_space_size, #TODO go through making action_space_size and _size consistent
+            action_space_size=action_space_size,
             deter_dim=512,  # 2048
             initializer_rnn_hidden_size=512,
             layer_norm=True,
@@ -189,7 +189,8 @@ class GenerativeModelExperiment():
             env_update_penalty_weight=0.5
         )
 
-        gen_model = AgentEnvironmentSimulator(agent, device, gen_model_hyperparams)
+        gen_model = AgentEnvironmentSimulator(agent, device,
+                                              gen_model_hyperparams)
         gen_model = gen_model.to(device)
         optimizer = torch.optim.Adam(gen_model.parameters(), lr=args.lr)
 
@@ -211,10 +212,20 @@ class GenerativeModelExperiment():
         self.resdir = resdir
         self.sess_dir = sess_dir
         self.data_save_dir = args.data_dir
-        self.recording_data_save_dir = './generative/rec_gen_mod_data/'
         self.device = device
         self.logger = logger
         self.optimizer = optimizer
+        self.hyperparams = gen_model_hyperparams
+
+        self.recording_data_root_dir = args.generated_data_dir
+        self.recording_data_save_dir_rand_init = os.path.join(
+            self.recording_data_root_dir,
+            'rand_init'
+        )
+        self.recording_data_save_dir_informed_init = os.path.join(
+            self.recording_data_root_dir,
+            'informed_init'
+        )
 
     def parse_the_args(self):
         parser = argparse.ArgumentParser()
@@ -268,25 +279,41 @@ class GenerativeModelExperiment():
         parser.add_argument('--loss_scale_hx', type=float, default=1.)
         parser.add_argument('--loss_scale_reward', type=float, default=1.)
         parser.add_argument('--loss_scale_terminal', type=float, default=1.)
-        parser.add_argument('--loss_scale_act_log_probs', type=float,
-                            default=1.)
+        parser.add_argument('--loss_scale_act_log_probs', type=float,default=1.)
         parser.add_argument('--loss_scale_gen_adv', type=float, default=1.)
         parser.add_argument('--loss_scale_kl', type=float, default=1.)
+
+        # Recording experiments
+        parser.add_argument('--recording_rand_init', dest='recording_rand_init', action='store_true')
+        parser.set_defaults(recording_rand_init=False)
+        parser.add_argument('--generated_data_dir', type=str, default='./generative/rec_gen_mod_data/')
+
+
+        # Saliency experiments
+        parser.add_argument('--saliency_func_type', nargs='+')
+        parser.add_argument('--combine_samples_not_iterate', dest='combine_samples_not_iterate', action='store_true')
+        parser.set_defaults(combine_samples_not_iterate=False)
+        parser.add_argument('--saliency_direction_idx', type=int, default=1)
+        parser.add_argument('--saliency_batch_size', type=int, default=9)
+        parser.add_argument('--saliency_sample_ids', nargs='+', default=[])
+
 
         # Collect hyperparams from arguments
         args = parser.parse_args()
         return args
+
+    def preprocess_data_dict(self, data): # TODO consider putting this into procgen_dataset if it's used everywhere (e.g. both in recording and training experiments)
+        data = {k: v.to(self.device).float() for k, v in data.items()}
+        data = {k: torch.swapaxes(v, 0, 1) for k, v in
+                data.items()}  # (B, T, :...) --> (T, B, :...)
+        return data
 
     def get_single_batch(self):
         # Get a single batch from the train_loader
         for batch_idx_new, data in enumerate(self.train_loader):
             if batch_idx_new > 0:
                 break
-        # Make all data into floats, put on the right device, and swap B and T axes
-        data = {k: v.to(self.device).float() for k, v in
-                data.items()}
-        data = {k: torch.swapaxes(v, 0, 1) for k, v in
-                data.items()}  # (B, T, :...) --> (T, B, :...)
+        data = self.preprocess_data_dict(data)
         return data
 
     def postprocess_preds(self, preds):
@@ -295,8 +322,6 @@ class GenerativeModelExperiment():
         pred_terminals = preds['terminal']
         pred_rews = preds['reward']
         pred_actions_1hot = preds['action']
-
-        # TODO Extract all vars so that you can use this method in both viz and record
 
         # Establish the right settings for visualisation
         pred_actions_inds = torch.argmax(pred_actions_1hot, dim=2)
@@ -309,9 +334,8 @@ class GenerativeModelExperiment():
         pred_terminals = pred_terminals.permute(1, 0)
         pred_rews = pred_rews.permute(1, 0)
 
-
         ### The ones not needed by viz (but all are used by record
-        #'act_log_prob''value''hx''bottleneck_vec', 'env_h'
+        # 'act_log_prob''value''hx''bottleneck_vec', 'env_h'
         pred_act_log_prob = preds['act_log_prob'].transpose(0, 1)
         pred_value = preds['value'].transpose(0, 1)
         pred_agent_h = preds['hx'].transpose(0, 1)
@@ -320,7 +344,7 @@ class GenerativeModelExperiment():
 
         return pred_images, pred_terminals, pred_rews, pred_actions_1hot, \
                pred_actions_inds, \
-               pred_act_log_prob, pred_value, pred_agent_h, pred_bottleneck_vec,\
+               pred_act_log_prob, pred_value, pred_agent_h, pred_bottleneck_vec, \
                pred_env_h
 
     def extract_from_data(self, data):
@@ -338,81 +362,18 @@ class GenerativeModelExperiment():
         true_rews = true_rews.permute(1, 0)
         return full_ims, true_actions_inds, true_terminals, true_rews
 
-    def record(self, informed_initialization=True):
 
 
-        # Within some recording loop
-        samples_so_far = epoch * batch_size
-        new_sample_indices = range(samples_so_far, samples_so_far + batch_size)
-
-    def save_preds(self, preds, new_sample_indices_range, manual_action):
-        pred_obs = preds['ims']
-        pred_rews = preds['reward']
-        pred_dones = preds['terminal']
-        pred_agent_hxs = preds['hx']
-        pred_agent_logprobs = preds['act_log_prob']
-        pred_agent_values = preds['value']
-        pred_env_states = preds['env_h']
-        bottleneck_vecs = preds['bottleneck_vec']
-
-        # Stack samples into single tensors and convert to numpy arrays
-        pred_obs = np.array(pred_obs.detach().cpu().numpy() * 255, dtype=np.uint8)
-        pred_rews = pred_rews.detach().cpu().numpy()
-        pred_dones = pred_dones.detach().cpu().numpy()
-        pred_agent_hxs = pred_agent_hxs.detach().cpu().numpy()
-        pred_agent_logprobs = pred_agent_logprobs.detach().cpu().numpy()
-        pred_agent_values = pred_agent_values.detach().cpu().numpy()
-        pred_env_states = pred_env_states.detach().cpu().numpy()
-        # pred_obs = np.array(torch.stack(pred_obs, dim=1).cpu().numpy() * 255, dtype=np.uint8)
-        # pred_rews = torch.stack(pred_rews, dim=1).cpu().numpy()
-        # pred_dones = torch.stack(pred_dones, dim=1).cpu().numpy()
-        # pred_agent_hxs = torch.stack(pred_agent_hxs, dim=1).cpu().numpy()
-        # pred_agent_logprobs = torch.stack(pred_agent_logprobs, dim=1).cpu().numpy()
-        # pred_agent_values = torch.stack(pred_agent_values, dim=1).cpu().numpy()
-        # pred_env_states = torch.stack(pred_env_states, dim=1).cpu().numpy()
-
-        # no timesteps in latent vecs, so only cat not stack along time dim.
-        bottleneck_vecs = bottleneck_vecs.detach().cpu().numpy()
-
-        vars = [pred_obs, pred_rews, pred_dones, pred_agent_hxs,
-                pred_agent_logprobs, pred_agent_values, pred_env_states, bottleneck_vecs]
-        var_names = ['obs', 'rews', 'dones', 'agent_hxs',
-                     'agent_logprobs', 'agent_values', 'env_hid_states',
-                     'env_cell_states', 'bottleneck_vec']
-
-        # # Recover the actions for use in the action overlay
-        # if manual_action is not None:
-        #     actions = np.ones((args.batch_size, args.num_sim_steps)) * manual_action
-        # else:
-        #     actions = np.argmax(pred_agent_logprobs, axis=-1)
-
-        # Make dirs for these variables and save variables to dirs and save vid
-        # TODO different sample_ name for infinit and random
-        sample_dir_base = os.path.join(self.recording_data_save_dir, 'sample_')
-        for i, new_sample_idx in enumerate(new_sample_indices_range):
-            sample_dir = sample_dir_base + f'{new_sample_idx:05d}'
-            # Make dirs
-            if not (os.path.exists(sample_dir)):
-                os.makedirs(sample_dir)
-
-            # Save variables
-            for var, var_name in zip(vars, var_names):
-                var_sample_name = os.path.join(sample_dir, var_name + '.npy')
-                np.save(var_sample_name, var[i])
-
-            # Save vid
-            self.visualize_single(
-                0, batch_idx=new_sample_idx, data=None, preds=preds,
-                bottleneck_vec=None, use_true_actions=False,
-                save_root='recording', batch_size=2)
-
-    def visualize(self, # TODO maybe separate out the saving from the vid making
+    def visualize(self,
+                  # TODO maybe separate out the saving from the vid making
                   epoch,
                   batch_idx,
                   data=None,
                   preds=None,
                   use_true_actions=True,
+                  save_dir='',
                   save_root=''):
+        # TODO swap directions functionality
 
         self.logger.info('Demonstrating reconstruction and prediction quality')
 
@@ -422,32 +383,34 @@ class GenerativeModelExperiment():
             data = self.get_single_batch()
 
         # Get labels and swap B and T axes
-        full_ims, true_actions_inds, true_terminals, true_rews = self.extract_from_data(data)
+        full_ims, true_actions_inds, true_terminals, true_rews = self.extract_from_data(
+            data)
 
         # Forward pass to get predictions if not already done
         if preds is None:
             self.optimizer.zero_grad()
-            (   loss_dict_no_grad,
-                loss_model,
-                loss_bottleneck,
-                loss_agent_h0,
-                priors,  # tensor(T,B,2S)
-                posts,  # tensor(T,B,2S)
-                samples,  # tensor(T,B,S)
-                features,  # tensor(T,B,D+S)
-                env_states,
-                (env_h, env_z),
-                metrics_list,
-                tensors_list,
-                preds,
-            ) = \
+            (loss_dict_no_grad,
+             loss_model,
+             loss_bottleneck,
+             loss_agent_h0,
+             priors,  # tensor(T,B,2S)
+             posts,  # tensor(T,B,2S)
+             samples,  # tensor(T,B,S)
+             features,  # tensor(T,B,D+S)
+             env_states,
+             (env_h, env_z),
+             metrics_list,
+             tensors_list,
+             preds,
+             ) = \
                 self.gen_model(data=data,
-                          use_true_actions=use_true_actions,
-                          imagine=True,
-                          modal_sampling=True)
+                               use_true_actions=use_true_actions,
+                               use_true_agent_h0=False,
+                               imagine=True,
+                               modal_sampling=True)
 
         pred_images, pred_terminals, pred_rews, pred_actions_1hot, \
-        pred_actions_inds, _, _, _, _, _  = \
+        pred_actions_inds, _, _, _, _, _ = \
             self.postprocess_preds(preds)
         true_actions_inds = true_actions_inds.clone().cpu().numpy()
 
@@ -464,10 +427,14 @@ class GenerativeModelExperiment():
                 full_im = full_ims[b]
 
                 # Overlay Done and Reward
-                pred_im = overlay_box_var(pred_im, pred_terminals[b], 'left', max=1.)
-                pred_im = overlay_box_var(pred_im, pred_rews[b], 'right', max=10.)
-                full_im = overlay_box_var(full_im, true_terminals[b], 'left', max=1.)
-                full_im = overlay_box_var(full_im, true_rews[b], 'right', max=10.)
+                pred_im = overlay_box_var(pred_im, pred_terminals[b], 'left',
+                                          max=1.)
+                pred_im = overlay_box_var(pred_im, pred_rews[b], 'right',
+                                          max=10.)
+                full_im = overlay_box_var(full_im, true_terminals[b], 'left',
+                                          max=1.)
+                full_im = overlay_box_var(full_im, true_rews[b], 'right',
+                                          max=10.)
 
                 # Make predictions and ground truth into right format for
                 #  video saving
@@ -476,40 +443,63 @@ class GenerativeModelExperiment():
                 pred_im = torch.clip(pred_im, 0,
                                      255)  # TODO check that this is no longer necessary
 
-                pred_im = pred_im.clone().detach().type(torch.uint8).cpu().numpy()
+                pred_im = pred_im.clone().detach().type(
+                    torch.uint8).cpu().numpy()
                 pred_im = overlay_actions(pred_im, viz_actions_inds[b], size=16)
 
                 full_im = full_im.clone().detach().type(
                     torch.uint8).cpu().numpy()
-                full_im = overlay_actions(full_im, true_actions_inds[b], size=16)
+                full_im = overlay_actions(full_im, true_actions_inds[b],
+                                          size=16)
 
                 # Join the prediction and the true image side-by-side
                 combined_im = np.concatenate([pred_im, full_im], axis=2)
 
                 # Save vid
-                save_str = self.sess_dir + \
-                           f'/recons_v_preds/{save_root}_' + \
+                save_str = save_dir + \
+                           f'/{save_root}_' + \
                            f'{epoch:02d}_{batch_idx:06d}_{b:03d}.mp4'
                 tvio.write_video(save_str, combined_im, fps=14)
 
     def visualize_single(self,
-                                  epoch,
-                                  batch_idx,
-                                  data=None,
-                                  preds=None,
-                                  bottleneck_vec=None,
-                                  informed_init=False,
-                                  use_true_actions=False,
-                                  save_root='',
-                                  batch_size=20):
+                         epoch,
+                         batch_idx,
+                         data=None,
+                         preds=None,
+                         bottleneck_vec=None,
+                         informed_init=False,
+                         use_true_actions=False,
+                         save_dir='',
+                         save_root='',
+                         batch_size=20,
+                         numbering_scheme='ebi',
+                         samples_so_far=None):
+        """
+        Has several options for flexibility:
 
-        self.logger.info('Demonstrating samples from latent vecs')
+                      |Given|Not Given|
+        _______________________________
+        preds_dict    |     |         |
+        _______________________________
+        bottleneck_vec|     |         |
+        _______________________________
+
+        - if NO given preds and NO given bottleneck, then
+        -- if informed init, use new or given data and pass it thru the gen mod
+        -- if not informed init, make a random bottleneck vec and decode it
+        - if NO given preds but GIVEN bottleneck vec, then decode bottleneck vec
+        - if GIVEN preds but NO given bottleneck vec, then just visualize preds
+        - if GIVEN preds and GIVEN bottleneck vec, raise error.
+        """
+        assert numbering_scheme in ('ebi', 'n'), "Invalid numbering scheme. Must be 'ebi' or 'n'"
+        self.logger.info('Visualizing a single-image video')
 
         self.gen_model.train()
         self.optimizer.zero_grad()
         viz_batch_size = batch_size
 
         # TODO systematize the below conjunction
+        # TODO put the nested ifs in a summary in a docstring
         if preds is None and bottleneck_vec is None:
             if informed_init:  # encoder --> bottleneck_vec --> decoder --> viz preds
                 if data is None:
@@ -533,27 +523,28 @@ class GenerativeModelExperiment():
                  ) = \
                     self.gen_model(data=data,
                                    use_true_actions=use_true_actions,
+                                   use_true_agent_h0=False,
                                    imagine=True,
                                    modal_sampling=True)
             else:  # random bottleneck_vec --> decoder
                 bottleneck_vec = torch.randn(viz_batch_size,
-                                        self.gen_model.bottleneck_vec_size,
-                                        device=self.device)
+                                             self.gen_model.bottleneck_vec_size,
+                                             device=self.device)
                 bottleneck_vec = safe_normalize(bottleneck_vec)
 
-                (   loss_dict_no_grad,
-                    loss_model,
-                    loss_agent_aux_init,
-                    priors,  # tensor(T,B,2S)
-                    posts,  # tensor(T,B,2S)
-                    samples,  # tensor(T,B,S)
-                    features,  # tensor(T,B,D+S)
-                    env_states,
-                    (env_h, env_z),
-                    metrics_list,
-                    tensors_list,
-                    preds,
-                ) = \
+                (loss_dict_no_grad,
+                 loss_model,
+                 loss_agent_aux_init,
+                 priors,  # tensor(T,B,2S)
+                 posts,  # tensor(T,B,2S)
+                 samples,  # tensor(T,B,S)
+                 features,  # tensor(T,B,D+S)
+                 env_states,
+                 (env_h, env_z),
+                 metrics_list,
+                 tensors_list,
+                 preds,
+                 ) = \
                     self.gen_model.ae_decode(
                         bottleneck_vec,
                         data=None,
@@ -600,22 +591,29 @@ class GenerativeModelExperiment():
             # just --> viz preds
             pass
 
+        elif preds is not None and bottleneck_vec is not None:
+            raise ValueError("Can take only one of " + \
+                             "{preds_dict, bottleneck_vec}, but received both.")
+
+
         pred_images, pred_terminals, pred_rews, pred_actions_1hot, \
         pred_actions_inds, _, _, _, _, _ = self.postprocess_preds(preds)
-        viz_batch_size = min(int(pred_images.shape[0]), 20)
+        # viz_batch_size = min(int(pred_images.shape[0]), 20)
 
         if use_true_actions:  # N.b. We only ever have true actions with informed init
             viz_actions_inds = true_actions_inds.clone().cpu().numpy()
         else:
-            viz_actions_inds = pred_actions_inds#.cpu().detach().numpy()
+            viz_actions_inds = pred_actions_inds  # .cpu().detach().numpy()
 
         with torch.no_grad():
             for b in range(viz_batch_size):
                 pred_im = pred_images[b]
 
                 # Overlay Done and Reward
-                pred_im = overlay_box_var(pred_im, pred_terminals[b], 'left', max=1.)
-                pred_im = overlay_box_var(pred_im, pred_rews[b], 'right', max=10.)
+                pred_im = overlay_box_var(pred_im, pred_terminals[b], 'left',
+                                          max=1.)
+                pred_im = overlay_box_var(pred_im, pred_rews[b], 'right',
+                                          max=10.)
 
                 # Make predictions and ground truth into right format for
                 #  video saving
@@ -623,13 +621,20 @@ class GenerativeModelExperiment():
                 pred_im = torch.clip(pred_im, 0,
                                      255)  # TODO check that this is no longer necessary
 
-                pred_im = pred_im.clone().detach().type(torch.uint8).cpu().numpy()
+                pred_im = pred_im.clone().detach().type(
+                    torch.uint8).cpu().numpy()
                 pred_im = overlay_actions(pred_im, viz_actions_inds[b], size=16)
 
                 # Save vid
-                save_str = self.sess_dir + \
-                           f'/recons_v_preds/{save_root}_' + \
-                           f'{epoch:02d}_{batch_idx:06d}_{b:03d}.mp4'
+                if numbering_scheme == 'n':
+                    number = samples_so_far + b
+                    number = f'{number:08d}'
+                elif numbering_scheme == 'ebi':
+                    number = f'{epoch:02d}_{batch_idx:06d}_{b:03d}'
+
+                save_str = os.path.join(
+                    save_dir,
+                    f'{save_root}_{number}.mp4')
                 tvio.write_video(save_str, pred_im, fps=14)
 
     def get_swap_directions(self):
