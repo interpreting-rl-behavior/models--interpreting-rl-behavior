@@ -71,21 +71,20 @@ class AgentEnvironmentSimulator(nn.Module):
 
         init_ims = data['ims'][0:self.num_init_steps]
         bottleneck_vec = self.encoder(init_ims)
-        if retain_grads:
-            bottleneck_vec.retain_grads()
 
         B = init_ims.shape[1]
 
         # Get true agent h0 and true actions as aux vars for decoder
-        if use_true_agent_h0:
-            true_agent_h0 = data['hx'][self.num_init_steps - 1]  # -1 because 1st sim step is last init step
-        else:
-            true_agent_h0 = None  # generated in the AE decoder
+        true_agent_h0 = data['hx'][self.num_init_steps - 1]  # -1 because 1st sim step is last init step
+        true_agent_h0.requires_grad_()
+        # N.B. true_agent_h0 may not actually be used for inference but is
+        # needed for loss calculation.
 
         if use_true_actions:
             true_actions_inds = data['action'][self.num_init_steps-2:] # -2 because we have to use a_{t-1} in combo with env_t to get o_t
             true_actions_1hot = torch.nn.functional.one_hot(true_actions_inds.long(), self.action_space_size)
             true_actions_1hot = true_actions_1hot.float()
+            true_actions_1hot.requires_grad_()
         else:
             true_actions_1hot = torch.zeros(self.num_sim_steps, B, self.action_space_size, device=self.device)
 
@@ -107,6 +106,7 @@ class AgentEnvironmentSimulator(nn.Module):
                              true_actions_1hot=true_actions_1hot,
                              use_true_actions=use_true_actions,
                              true_agent_h0=true_agent_h0,
+                             use_true_agent_h0=use_true_agent_h0,
                              imagine=imagine,
                              calc_loss=calc_loss,
                              modal_sampling=modal_sampling,
@@ -278,6 +278,8 @@ class AgentEnvironmentSimulator(nn.Module):
         samples = []
         agent_hs = []
         recon_losses = []
+        loss_reconstr_ims = []
+        loss_reconstr_agent_hs = []
         metrics_list = []
         tensors_list = []
 
@@ -309,6 +311,8 @@ class AgentEnvironmentSimulator(nn.Module):
             (env_h, env_z),      # tensor(B, D+S+G)
             agent_h,
             loss_reconstr,
+            loss_reconstr_im,
+            loss_reconstr_agent_h,
             metrics,
             tensors) = \
                 self.agent_env_stepper.forward(embed=embed,
@@ -338,6 +342,10 @@ class AgentEnvironmentSimulator(nn.Module):
             samples.append(env_z)
             agent_hs.append(agent_h)
             recon_losses.append(loss_reconstr)
+            loss_reconstr_ims.append(loss_reconstr_im)
+            loss_reconstr_agent_hs.append(loss_reconstr_agent_h)
+
+
             metrics_list.append(metrics)
             tensors_list.append(tensors)
 
@@ -382,6 +390,8 @@ class AgentEnvironmentSimulator(nn.Module):
 
         if calc_loss:
             recon_losses = torch.stack(recon_losses).squeeze()
+            loss_reconstr_ims = torch.stack(loss_reconstr_ims).squeeze()
+            loss_reconstr_agent_hs = torch.stack(loss_reconstr_agent_hs).squeeze()
             env_update_losses = torch.stack(env_update_losses).squeeze()
 
             # KL loss
@@ -406,17 +416,19 @@ class AgentEnvironmentSimulator(nn.Module):
                          recon_losses + \
                          self.env_update_penalty_weight * env_update_losses
 
-            loss_dict_no_grad['loss_reconstruction'] = \
-                torch.mean(torch.sum(recon_losses, dim=0)).item()
-            loss_dict_no_grad['loss_kl_rssm'] = \
-                torch.mean(torch.sum(loss_kl, dim=0)).item() * self.kl_weight
-            loss_dict_no_grad['loss_env_update'] = \
-                torch.mean(torch.sum(env_update_losses, dim=0)).item() * self.env_update_penalty_weight
+            loss_dict_no_grad['loss_reconstruction'] = recon_losses
+            loss_dict_no_grad['loss_kl_rssm'] = loss_kl * self.kl_weight
+            loss_dict_no_grad['loss_env_update'] = env_update_losses * self.env_update_penalty_weight
+            loss_dict_no_grad['loss_reconstr_ims'] = loss_reconstr_ims
+            loss_dict_no_grad['loss_reconstr_agent_hs'] = loss_reconstr_agent_hs
         else:
             loss_model = 0.
             loss_dict_no_grad['loss_reconstruction'] = 0.
             loss_dict_no_grad['loss_kl_rssm'] = 0.
             loss_dict_no_grad['loss_env_update'] = 0.
+            loss_dict_no_grad['loss_reconstr_ims'] = 0.
+            loss_dict_no_grad['loss_reconstr_agent_hs'] = 0.
+
 
         # Make preds_dict
         preds_dict = {'action': pred_actions_1hot,
@@ -534,11 +546,11 @@ class AgentEnvStepper(nn.Module):
         feature = BF_to_TBIF(feature)
         if calc_loss:
             labels = {k: BF_to_TBF(v) for k, v in labels.items()}
-            loss_reconstr, metrics, tensors, pred_image, pred_rew, pred_terminal = \
+            loss_reconstr_im, metrics, tensors, pred_image, pred_rew, pred_terminal = \
                 self.decoder.training_step(feature, labels)
         else:
             labels = None
-            loss_reconstr, metrics, tensors, pred_image, pred_rew, pred_terminal = \
+            loss_reconstr_im, metrics, tensors, pred_image, pred_rew, pred_terminal = \
                 self.decoder.inference_step(feature)
 
         # Then use ims and agent_h to step the agent forward and produce an action
@@ -550,7 +562,7 @@ class AgentEnvStepper(nn.Module):
                                    retain_grads=True)
         if calc_loss:
             loss_reconstr_agent_h = self.agent_hx_loss(agent_h, labels['agent_h'], labels['before_terminal'])
-            loss_reconstr = loss_reconstr + loss_reconstr_agent_h
+            loss_reconstr = loss_reconstr_im + loss_reconstr_agent_h
 
         pred_action.retain_grad()
         pred_action_logits.retain_grad()
@@ -569,6 +581,8 @@ class AgentEnvStepper(nn.Module):
             (h, sample),      # tensor(B, D+S+G)
             agent_h,
             loss_reconstr,
+            loss_reconstr_im,
+            loss_reconstr_agent_h,
             metrics,
             tensors
         )
