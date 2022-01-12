@@ -407,6 +407,7 @@ class GenerativeModelExperiment():
                                use_true_actions=use_true_actions,
                                use_true_agent_h0=False,
                                imagine=True,
+                               calc_loss=False,
                                modal_sampling=True)
 
         pred_images, pred_terminals, pred_rews, pred_actions_1hot, \
@@ -525,6 +526,7 @@ class GenerativeModelExperiment():
                                    use_true_actions=use_true_actions,
                                    use_true_agent_h0=False,
                                    imagine=True,
+                                   calc_loss=False,
                                    modal_sampling=True)
             else:  # random bottleneck_vec --> decoder
                 bottleneck_vec = torch.randn(viz_batch_size,

@@ -49,9 +49,13 @@ class TrainingExperiment(GenerativeModelExperiment):
                 preds_dict,
                 unstacked_preds_dict,
             ) = \
-                self.gen_model(data=data, use_true_actions=True, imagine=False, modal_sampling=False)
-            # TODO check whether you can make saliency/target losses from preds_dict alone and
-            #  that they BP to the right nets
+                self.gen_model(data=data,
+                               use_true_actions=True,
+                               use_true_agent_h0=True,
+                               imagine=False,
+                               calc_loss=True,
+                               modal_sampling=False)
+
             loss_model = torch.mean(torch.sum(loss_model, dim=0))  # sum over T, mean over B
             # loss_bottleneck has no mean because already summed over b
             loss_agent_aux_init = torch.mean(loss_agent_aux_init)  # mean over B

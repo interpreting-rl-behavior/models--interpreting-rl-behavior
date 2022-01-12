@@ -64,11 +64,10 @@ class AgentEnvironmentSimulator(nn.Module):
                 use_true_actions=True,
                 use_true_agent_h0=True,
                 imagine=False,
+                calc_loss=False,
                 modal_sampling=False,
                 retain_grads=True,
                 swap_directions=None):
-
-        calc_loss = not imagine
 
         init_ims = data['ims'][0:self.num_init_steps]
         bottleneck_vec = self.encoder(init_ims)
