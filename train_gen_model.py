@@ -1,6 +1,7 @@
 import util.logger as logger  # from common.logger import Logger
 import os
 import torch
+import numpy as np
 from gen_model_experiment import GenerativeModelExperiment
 
 
@@ -56,12 +57,20 @@ class TrainingExperiment(GenerativeModelExperiment):
                                calc_loss=True,
                                modal_sampling=False)
 
-            loss_model = torch.mean(torch.sum(loss_model, dim=0))  # sum over T, mean over B
+
+            loss_model_sum = torch.mean(torch.sum(loss_model, dim=0))  # sum over T, mean over B
             # loss_bottleneck has no mean because already summed over b
             loss_agent_aux_init = torch.mean(loss_agent_aux_init)  # mean over B
-            loss = loss_model + loss_bottleneck + loss_agent_aux_init
+            loss = loss_model_sum + loss_bottleneck + loss_agent_aux_init
             loss.backward()
             torch.nn.utils.clip_grad_norm_(self.gen_model.parameters(), 100.)
+
+            # Save detached loss tensors for logging and per-timestep inspection
+            loss_dict_no_grad['loss_total'] = loss.clone().detach().cpu().numpy()
+            loss_dict_no_grad['loss_model'] = loss_model.detach().cpu().numpy()
+            loss_dict_no_grad = {k: v.clone().detach().cpu().numpy() \
+                                 for k,v in loss_dict_no_grad.items() \
+                                 if type(v)==torch.Tensor}
 
             # Freeze agent parameters but not model's.
             for p in self.gen_model.agent_env_stepper.agent.policy.parameters():
@@ -74,9 +83,10 @@ class TrainingExperiment(GenerativeModelExperiment):
                 loss.item()
                 logger.logkv('epoch', epoch)
                 logger.logkv('batches', batch_idx)
-                logger.logkv('loss_model', loss_model.item())
+                logger.logkv('loss_model', loss_model_sum.item())
                 for k, v in loss_dict_no_grad.items():
-                    logger.logkv(k, v)
+                    l = np.mean(np.sum(v, axis=0)).item()
+                    logger.logkv(k, l)
                 logger.logkv('loss total=model+bneck+aux', loss.item())
                 logger.dumpkvs()
 

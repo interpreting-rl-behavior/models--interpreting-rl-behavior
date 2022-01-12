@@ -72,7 +72,11 @@ class RecordingExperiment(GenerativeModelExperiment):
              tensors_list,
              preds_dict
              ) = \
-                self.gen_model(data=data, use_true_actions=False, imagine=True,
+                self.gen_model(data=data,
+                               use_true_actions=False,
+                               use_true_agent_h0=False,
+                               imagine=True,
+                               calc_loss=False,
                                modal_sampling=True)
         else:
             bottleneck_vec = torch.randn(self.args.batch_size,
