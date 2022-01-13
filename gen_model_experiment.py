@@ -129,6 +129,12 @@ class GenerativeModelExperiment():
             raise NotImplementedError
         policy.to(device)
 
+        self.coinrun_actions = {0: 'downleft', 1: 'left', 2: 'upleft',
+                                3: 'down', 4: None, 5: 'up',
+                                6: 'downright', 7: 'right', 8: 'upright',
+                                9: None, 10: None, 11: None,
+                                12: None, 13: None, 14: None}
+
         ## Agent's storage
         print('INITIALIZING STORAGE...')
         hidden_state_dim = model.output_dim
@@ -308,9 +314,13 @@ class GenerativeModelExperiment():
                 data.items()}  # (B, T, :...) --> (T, B, :...)
         return data
 
-    def get_single_batch(self):
+    def get_single_batch(self, train_loader=None):
         # Get a single batch from the train_loader
-        for batch_idx_new, data in enumerate(self.train_loader):
+        if train_loader is None:
+            loader = self.train_loader
+        else:
+            loader = train_loader
+        for batch_idx_new, data in enumerate(loader):
             if batch_idx_new > 0:
                 break
         data = self.preprocess_data_dict(data)
@@ -402,6 +412,7 @@ class GenerativeModelExperiment():
              metrics_list,
              tensors_list,
              preds,
+             unstacked_preds_dict,
              ) = \
                 self.gen_model(data=data,
                                use_true_actions=use_true_actions,
@@ -595,22 +606,21 @@ class GenerativeModelExperiment():
             # just --> viz preds
             pass
 
-        elif preds is not None and bottleneck_vec is not None:
-            raise ValueError("Can take only one of " + \
-                             "{preds_dict, bottleneck_vec}, but received both.")
-
 
         pred_images, pred_terminals, pred_rews, pred_actions_1hot, \
         pred_actions_inds, _, _, _, _, _ = self.postprocess_preds(preds)
         # viz_batch_size = min(int(pred_images.shape[0]), 20)
 
         if use_true_actions:  # N.b. We only ever have true actions with informed init
+            true_actions_inds = data['action'][-self.args.num_sim_steps:]
+            true_actions_inds = true_actions_inds.permute(1, 0)
             viz_actions_inds = true_actions_inds.clone().cpu().numpy()
         else:
             viz_actions_inds = pred_actions_inds  # .cpu().detach().numpy()
 
         with torch.no_grad():
             for b in range(viz_batch_size):
+                print(b)
                 pred_im = pred_images[b]
 
                 # Overlay Done and Reward

@@ -57,7 +57,6 @@ class TrainingExperiment(GenerativeModelExperiment):
                                calc_loss=True,
                                modal_sampling=False)
 
-
             loss_model_sum = torch.mean(torch.sum(loss_model, dim=0))  # sum over T, mean over B
             # loss_bottleneck has no mean because already summed over b
             loss_agent_aux_init = torch.mean(loss_agent_aux_init)  # mean over B
@@ -70,7 +69,7 @@ class TrainingExperiment(GenerativeModelExperiment):
             loss_dict_no_grad['loss_model'] = loss_model.detach().cpu().numpy()
             loss_dict_no_grad = {k: v.clone().detach().cpu().numpy() \
                                  for k,v in loss_dict_no_grad.items() \
-                                 if type(v)==torch.Tensor}
+                                 if type(v) == torch.Tensor}
 
             # Freeze agent parameters but not model's.
             for p in self.gen_model.agent_env_stepper.agent.policy.parameters():
@@ -85,6 +84,7 @@ class TrainingExperiment(GenerativeModelExperiment):
                 logger.logkv('batches', batch_idx)
                 logger.logkv('loss_model', loss_model_sum.item())
                 for k, v in loss_dict_no_grad.items():
+                    print(v.shape)
                     l = np.mean(np.sum(v, axis=0)).item()
                     logger.logkv(k, l)
                 logger.logkv('loss total=model+bneck+aux', loss.item())

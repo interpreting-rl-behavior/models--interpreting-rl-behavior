@@ -563,6 +563,9 @@ class AgentEnvStepper(nn.Module):
         if calc_loss:
             loss_reconstr_agent_h = self.agent_hx_loss(agent_h, labels['agent_h'], labels['before_terminal'])
             loss_reconstr = loss_reconstr_im + loss_reconstr_agent_h
+        else:
+            loss_reconstr = 0.
+            loss_reconstr_agent_h = 0.
 
         pred_action.retain_grad()
         pred_action_logits.retain_grad()

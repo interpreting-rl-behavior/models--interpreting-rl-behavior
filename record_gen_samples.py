@@ -3,6 +3,11 @@ import os
 import torch
 from generative.rssm.functions import safe_normalize
 import numpy as np
+from generative.procgen_dataset import ProcgenDataset
+from overlay_image import overlay_actions, overlay_box_var
+import torchvision.io as tvio
+
+
 
 class RecordingExperiment(GenerativeModelExperiment):
     """Inherits everything from GenerativeModelExperiment but adds a recording
@@ -56,7 +61,7 @@ class RecordingExperiment(GenerativeModelExperiment):
             # Make all data into floats and put on the right device
             data = self.preprocess_data_dict(data)
 
-            # Forward and backward pass generative model parameters
+            # Forward pass generative model parameters
             self.optimizer.zero_grad()
             (_,
              _,
@@ -127,15 +132,6 @@ class RecordingExperiment(GenerativeModelExperiment):
         pred_act_log_prob, pred_value, pred_agent_h, pred_bottleneck_vec, \
         pred_env_h = self.postprocess_preds(preds)
 
-        # pred_obs = preds['ims']
-        # pred_rews = preds['reward']
-        # pred_dones = preds['terminal']
-        # pred_agent_hxs = preds['hx']
-        # pred_agent_logprobs = preds['act_log_prob']
-        # pred_agent_values = preds['value']
-        # pred_env_states = preds['env_h']
-        # bottleneck_vecs = preds['bottleneck_vec']
-
         # Stack samples into single tensors and convert to numpy arrays
         pred_images = np.array(pred_images.detach().cpu().numpy() * 255,
                             dtype=np.uint8)
@@ -145,13 +141,6 @@ class RecordingExperiment(GenerativeModelExperiment):
         pred_act_log_prob = pred_act_log_prob.detach().cpu().numpy()
         pred_value = pred_value.detach().cpu().numpy()
         pred_env_h = pred_env_h.detach().cpu().numpy()
-        # pred_obs = np.array(torch.stack(pred_obs, dim=1).cpu().numpy() * 255, dtype=np.uint8)
-        # pred_rews = torch.stack(pred_rews, dim=1).cpu().numpy()
-        # pred_dones = torch.stack(pred_dones, dim=1).cpu().numpy()
-        # pred_agent_hxs = torch.stack(pred_agent_hxs, dim=1).cpu().numpy()
-        # pred_agent_logprobs = torch.stack(pred_agent_logprobs, dim=1).cpu().numpy()
-        # pred_agent_values = torch.stack(pred_agent_values, dim=1).cpu().numpy()
-        # pred_env_states = torch.stack(pred_env_states, dim=1).cpu().numpy()
 
         # no timesteps in latent vecs, so only cat not stack along time dim.
         pred_bottleneck_vec = pred_bottleneck_vec.detach().cpu().numpy()
@@ -172,7 +161,6 @@ class RecordingExperiment(GenerativeModelExperiment):
             # Maybe if you ever use this, use pred_actions_inds instead
 
         # Make dirs for these variables and save variables to dirs and save vid
-        # TODO different sample_ name for infinit and random
         sample_dir_base = os.path.join(self.recording_data_save_dir,
                                        name_root + '_')
         for i, new_sample_idx in enumerate(new_sample_indices_range):
@@ -181,7 +169,7 @@ class RecordingExperiment(GenerativeModelExperiment):
             if not (os.path.exists(sample_dir)):
                 os.makedirs(sample_dir)
 
-            # Save variables #TODO saving of not ts
+            # Save variables
             for var, var_name in zip(vars, var_names):
                 var_sample_name = os.path.join(sample_dir, var_name + '.npy')
                 np.save(var_sample_name, var[i])
@@ -197,9 +185,152 @@ class RecordingExperiment(GenerativeModelExperiment):
             save_root='sample', batch_size=b, numbering_scheme="n",
             samples_so_far=samples_so_far)
 
+    def record_manual_actions_patterned(self):
+
+        custom_acts_save_dir = './generative/rec_gen_mod_data/manual_actions/'
+        os.makedirs(custom_acts_save_dir, exist_ok=True)
+
+        # Set custom batch size and custom data loader
+        custom_bs = 9
+        num_manual_actions_samples = 10
+        num_init_steps = self.args.num_init_steps
+        num_sim_steps = self.args.num_sim_steps
+        num_steps_full = num_init_steps + num_sim_steps - 1
+        train_dataset = ProcgenDataset(self.args.data_dir,
+                                       initializer_seq_len=num_init_steps,
+                                       num_steps_full=num_steps_full)
+        train_loader = torch.utils.data.DataLoader(train_dataset,
+                                                   batch_size=custom_bs,
+                                                   shuffle=True,
+                                                   drop_last=True,
+                                                   num_workers=2)
+        for sample_idx in range(num_manual_actions_samples):
+            # Make dataset
+            data = self.get_single_batch(train_loader)
+
+            ## Modify actions
+            clockwise_actions = [2,1,0,5,4,3,8,7,6]
+            dim_inds = torch.tensor(clockwise_actions).to(self.device)
+            sim_actions = torch.stack([dim_inds] * num_sim_steps)
+            manual_actions = torch.ones_like(data['action']) * 4. # null action
+            manual_actions[-num_sim_steps:] = sim_actions
+            data['action'] = manual_actions
+
+            ## Copy 0th batch onto other batches so all are the same
+            keys_not_action = [k for k in data.keys() if k != 'action']
+            for key in keys_not_action:
+                template_tensor = data[key][:,0]
+                data[key] = torch.stack([template_tensor] * custom_bs, dim=1)
+
+            # Pass data through gen model using manual actions
+            self.optimizer.zero_grad()
+            (_,
+             _,
+             _,
+             _,
+             priors,
+             posts,
+             samples,
+             features,
+             env_states,
+             env_state,
+             metrics_list,
+             tensors_list,
+             preds_dict,
+             unstacked_preds_dict,
+             ) = \
+                self.gen_model(data=data,
+                               use_true_actions=True,
+                               use_true_agent_h0=False,
+                               imagine=True,
+                               calc_loss=False,
+                               modal_sampling=True)
+
+
+            # Save tensors and video
+            pred_images, _, _, _, \
+            _, _, _, _, pred_bottleneck_vec, \
+            _ = self.postprocess_preds(preds_dict)
+            pred_images = np.array(pred_images.detach().cpu().numpy() * 255,
+                                   dtype=np.uint8)
+            pred_bottleneck_vec = pred_bottleneck_vec.detach().cpu().numpy()
+            vars = [pred_images, pred_bottleneck_vec]
+            var_names = ['ims', 'bottleneck_vec']
+
+            # Save variables
+            for var, var_name in zip(vars, var_names):
+                for batch_idx in range(0,custom_bs):
+                    var_sample_name = os.path.join(custom_acts_save_dir, var_name + f'_{sample_idx:05d}.npy')
+                    np.save(var_sample_name, var[batch_idx])
+
+
+            self.visualize_single(
+                epoch=0, batch_idx=sample_idx, data=data, preds=preds_dict,
+                bottleneck_vec=None, use_true_actions=True,
+                save_dir=custom_acts_save_dir,
+                save_root='sample', batch_size=custom_bs, numbering_scheme="ebi",
+                samples_so_far=0)
+
+            self.save_grid_video(preds_dict, data, custom_acts_save_dir, sample_idx)
+
+    def save_grid_video(self, preds, data, save_dir, idx, use_true_actions=True):
+
+        viz_batch_size = preds['ims'].shape[1]
+        is_square_number = lambda x: np.sqrt(x) % 1 == 0
+        assert is_square_number(viz_batch_size)
+
+        pred_images, pred_terminals, pred_rews, pred_actions_1hot, \
+        pred_actions_inds, _, _, _, _, _ = self.postprocess_preds(preds)
+        # viz_batch_size = min(int(pred_images.shape[0]), 20)
+
+        if use_true_actions:  # N.b. We only ever have true actions with informed init
+            true_actions_inds = data['action'][-self.args.num_sim_steps:]
+            true_actions_inds = true_actions_inds.permute(1, 0)
+            viz_actions_inds = true_actions_inds.clone().cpu().numpy()
+        else:
+            viz_actions_inds = pred_actions_inds  # .cpu().detach().numpy()
+
+        prepped_vid_tensors = []
+        for b in range(viz_batch_size):
+            print(b)
+            pred_im = pred_images[b]
+
+            # Overlay Done and Reward
+            pred_im = overlay_box_var(pred_im, pred_terminals[b], 'left',
+                                      max=1.)
+            pred_im = overlay_box_var(pred_im, pred_rews[b], 'right',
+                                      max=10.)
+
+            # Make predictions and ground truth into right format for
+            #  video saving
+            pred_im = pred_im * 255
+            pred_im = torch.clip(pred_im, 0, 255)
+            pred_im = pred_im.clone().detach().type(
+                torch.uint8).cpu().numpy()
+            pred_im = overlay_actions(pred_im, viz_actions_inds[b], size=16)
+
+            prepped_vid_tensors.append(pred_im)
+
+        # Put vids into grid
+        grid_patches_hw = np.sqrt(viz_batch_size).astype(np.int8)
+        top_column_inds = np.arange(0, viz_batch_size, grid_patches_hw).astype(np.int8)
+        top_column_inds = list(top_column_inds)
+        grid_vid_columns = [
+            np.concatenate(prepped_vid_tensors[i:i+grid_patches_hw], axis=1)
+            for i in top_column_inds]
+        grid_vid = np.concatenate(grid_vid_columns, axis=2)
+
+
+        # Save vid
+        save_str = os.path.join(
+            save_dir,
+            f'grid_manual_actions_{idx}.mp4')
+        tvio.write_video(save_str, grid_vid, fps=14)
+
 if __name__ == "__main__":
     recording_exp = RecordingExperiment()
-    recording_exp.run_recording_loop()
+    # recording_exp.run_recording_loop()
+    recording_exp.record_manual_actions_patterned()
 
 # Keeping the below because it has template code for manual actions and
 # direction swapping

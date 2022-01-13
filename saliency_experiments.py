@@ -267,6 +267,8 @@ class SaliencyExperiment(GenerativeModelExperiment):
         bottleneck_vecs = safe_normalize(bottleneck_vecs)
         return bottleneck_vecs
 
+# TODO maybe actually throw away the last hx instead of the 0th. It depends
+# on how the deletang diagram indexes ims and hx
 
 class SaliencyFunction():
     def __init__(self, saliency_func_type, args, device='cuda'):
