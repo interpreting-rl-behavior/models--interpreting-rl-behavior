@@ -48,7 +48,7 @@ class RecordingExperiment(GenerativeModelExperiment):
             samples_so_far += self.args.batch_size
             print(samples_so_far)
         print("Dataset fully recorded. You probably shouldn't be seeing this."+\
-              "You've made too much data.")
+              "You've probably made too much data.")
             # TODO swap directions (will want to record several similar samples:
             #  one with same init but with and without direction swapping.
             #  These will each need different names)
@@ -75,7 +75,8 @@ class RecordingExperiment(GenerativeModelExperiment):
              env_state,
              metrics_list,
              tensors_list,
-             preds_dict
+             preds_dict,
+             unstacked_preds_dict,
              ) = \
                 self.gen_model(data=data,
                                use_true_actions=False,
@@ -329,8 +330,8 @@ class RecordingExperiment(GenerativeModelExperiment):
 
 if __name__ == "__main__":
     recording_exp = RecordingExperiment()
-    # recording_exp.run_recording_loop()
-    recording_exp.record_manual_actions_patterned()
+    recording_exp.run_recording_loop()
+    # recording_exp.record_manual_actions_patterned()
 
 # Keeping the below because it has template code for manual actions and
 # direction swapping
