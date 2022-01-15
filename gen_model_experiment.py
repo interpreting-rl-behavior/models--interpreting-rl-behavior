@@ -299,7 +299,7 @@ class GenerativeModelExperiment():
         parser.add_argument('--saliency_func_type', nargs='+')
         parser.add_argument('--combine_samples_not_iterate', dest='combine_samples_not_iterate', action='store_true')
         parser.set_defaults(combine_samples_not_iterate=False)
-        parser.add_argument('--saliency_direction_idx', type=int, default=1)
+        parser.add_argument('--saliency_direction_ids', nargs='+', default=[])
         parser.add_argument('--saliency_batch_size', type=int, default=9)
         parser.add_argument('--saliency_sample_ids', nargs='+', default=[])
 

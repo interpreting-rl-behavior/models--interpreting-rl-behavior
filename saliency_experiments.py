@@ -40,6 +40,25 @@ class SaliencyExperiment(GenerativeModelExperiment):
         # Determine what to iterate over (func types, samples)
         self.combine_samples_not_iterate = self.args.combine_samples_not_iterate
         self.saliency_func_types = self.args.saliency_func_type
+
+        ## Automatically make hx_direction names so you don't have to type them
+        ## into the CLI args manually
+        if 'hx_direction' in self.saliency_func_types:
+            rm_ind = self.saliency_func_types.index('hx_direction')
+            self.saliency_func_types.pop(rm_ind)
+            assert 'hx_direction' not in self.saliency_func_types
+
+            if 'to' in self.args.saliency_direction_ids:
+                self.saliency_direction_ids = range(
+                    int(self.args.saliency_direction_ids[0]),
+                    int(self.args.saliency_direction_ids[2]))
+            else:
+                self.saliency_direction_ids = self.args.saliency_direction_ids
+
+            for direction_id in self.saliency_direction_ids:
+                direction_name = f'hx_direction_{direction_id}'
+                self.saliency_func_types.append(direction_name)
+
         ## Get the sample IDs for the samples that we'll use to make saliency maps
         if 'to' in self.args.saliency_sample_ids:
             self.saliency_sample_ids = range(int(self.args.saliency_sample_ids[0]), int(self.args.saliency_sample_ids[2]))
@@ -161,9 +180,9 @@ class SaliencyExperiment(GenerativeModelExperiment):
             np.save(save_str, grads_dict[key].clone().detach().cpu().numpy())
 
         # Visualize the optimized latent vectors
-        sample_obs = preds_dict['ims'].mean(1).permute(0, 2, 3, 1)
-        obs_grad = grads_dict['ims'].permute(0, 2, 3, 1)
-        obs_grad = obs_grad.mean(3).unsqueeze(dim=3)  # mean over channel dim
+        sample_ims = preds_dict['ims'].mean(1).permute(0, 2, 3, 1)
+        ims_grad = grads_dict['ims'].permute(0, 2, 3, 1)
+        ims_grad = ims_grad.mean(3).unsqueeze(dim=3)  # mean over channel dim
 
         # Collect actions together and take the average over the batches,
         # yielding the average action per timestep.
@@ -174,48 +193,48 @@ class SaliencyExperiment(GenerativeModelExperiment):
         actions = np.mean(actions, axis=0).astype(int)
 
         # Scale according to typical grad sizes for each timestep
-        # obs_grad = obs_grad / torch.abs(obs_grad).mean([1, 2]).unsqueeze(
+        # ims_grad = ims_grad / torch.abs(ims_grad).mean([1, 2]).unsqueeze(
         #     -1).unsqueeze(-1)
-        obs_grad = obs_grad / torch.abs(obs_grad).mean()
+        ims_grad = ims_grad / torch.abs(ims_grad).mean()
         blurrer = tv.transforms.GaussianBlur(5, sigma=(5., 6.))
-        obs_grad = blurrer(obs_grad.squeeze()).unsqueeze(-1)
+        ims_grad = blurrer(ims_grad.squeeze()).unsqueeze(-1)
 
-        pos_grads = obs_grad.where(obs_grad > 0., torch.zeros_like(obs_grad))
-        neg_grads = obs_grad.where(obs_grad < 0.,
-                                   torch.zeros_like(obs_grad)).abs()
+        pos_grads = ims_grad.where(ims_grad > 0., torch.zeros_like(ims_grad))
+        neg_grads = ims_grad.where(ims_grad < 0.,
+                                   torch.zeros_like(ims_grad)).abs()
 
-        # Make a couple of copies of the original observation for later
-        sample_obs_faint = sample_obs.clone().detach() * 0.2
-        sample_obs_faint = sample_obs_faint.mean(3)
-        sample_obs_faint = torch.stack([sample_obs_faint] * 3, dim=-1)
-        sample_obs_faint = sample_obs_faint * 255
-        sample_obs_faint = sample_obs_faint.clone().detach().type(
+        # Make a couple of copies of the original imservation for later
+        sample_ims_faint = sample_ims.clone().detach() * 0.2
+        sample_ims_faint = sample_ims_faint.mean(3)
+        sample_ims_faint = torch.stack([sample_ims_faint] * 3, dim=-1)
+        sample_ims_faint = sample_ims_faint * 255
+        sample_ims_faint = sample_ims_faint.clone().detach().type(
             torch.uint8).cpu().numpy()
 
-        sample_obs_copy = sample_obs.clone().detach()
+        sample_ims_copy = sample_ims.clone().detach()
         # Colour a patch green so that we know then the gradient is being taken from
-        sample_obs_copy[timesteps, 5:11, 18:30, 1] = 1.
-        sample_obs_copy = sample_obs_copy * 255
-        sample_obs_copy = sample_obs_copy.clone().detach().type(
+        sample_ims_copy[timesteps, 5:11, 18:30, 1] = 1.
+        sample_ims_copy = sample_ims_copy * 255
+        sample_ims_copy = sample_ims_copy.clone().detach().type(
             torch.uint8).cpu().numpy()
-        sample_obs_copy = overlay_actions(sample_obs_copy, actions, size=16)
+        sample_ims_copy = overlay_actions(sample_ims_copy, actions, size=16)
 
         # Make the gradient video and save as uint8
-        grad_vid = np.zeros_like(sample_obs_copy)
+        grad_vid = np.zeros_like(sample_ims_copy)
         pos_grads = pos_grads * 0.2 * 255
         neg_grads = neg_grads * 0.2 * 255
         grad_vid[:, :, :, 2] = pos_grads.squeeze().clone().detach().type(
             torch.uint8).cpu().numpy()
         grad_vid[:, :, :, 0] = neg_grads.squeeze().clone().detach().type(
             torch.uint8).cpu().numpy()
-        grad_vid = grad_vid + sample_obs_faint
+        grad_vid = grad_vid + sample_ims_faint
         grad_vid_name = os.path.join(savedir,
-                                     f'grad_processed_obs_{saliency_func_type}.npy')
+                                     f'grad_processed_ims_{saliency_func_type}.npy')
         np.save(grad_vid_name, grad_vid)
 
         # Save a side-by-side vid
-        # Join the prediction and the true observation side-by-side
-        combined_vid = np.concatenate([sample_obs_copy, grad_vid], axis=2)
+        # Join the prediction and the true image side-by-side
+        combined_vid = np.concatenate([sample_ims_copy, grad_vid], axis=2)
 
         # Save vid
         # combined_vid = combined_vid.clone().detach().type(torch.uint8).cpu().numpy()
@@ -268,7 +287,7 @@ class SaliencyExperiment(GenerativeModelExperiment):
         return bottleneck_vecs
 
 # TODO maybe actually throw away the last hx instead of the 0th. It depends
-# on how the deletang diagram indexes ims and hx
+#  on how the deletang diagram indexes ims and hx
 
 class SaliencyFunction():
     def __init__(self, saliency_func_type, args, device='cuda'):
@@ -285,83 +304,95 @@ class SaliencyFunction():
                                 9: None, 10: None, 11: None,
                                 12: None, 13: None, 14: None}
 
-        directions_transformer = HiddenStateDimensionalityReducer('pca', 100)
+        directions_transformer = HiddenStateDimensionalityReducer('pca', 2000)
 
         # Set settings for specific saliency functions
         common_timesteps = (11,)#tuple(range(0,28))
-        common_timesteps_min_one = tuple([t - 1 for t in common_timesteps])
         if self.saliency_func_type == 'action':
             self.loss_func = self.action_saliency_loss_function
-            self.timesteps = common_timesteps_min_one # because there's no act_0 in this agent
+            self.timesteps = common_timesteps
         elif self.saliency_func_type == 'leftwards':
             self.loss_func = self.action_leftwards_saliency_loss_function
-            self.timesteps = common_timesteps_min_one
+            self.timesteps = common_timesteps
         elif self.saliency_func_type == 'jumping_up':
             self.loss_func = self.action_jumping_up_saliency_loss_function
-            self.timesteps = common_timesteps_min_one
+            self.timesteps = common_timesteps
         elif self.saliency_func_type == 'jumping_right':
             self.loss_func = self.action_jumping_right_saliency_loss_function
-            self.timesteps = common_timesteps_min_one
+            self.timesteps = common_timesteps
         elif self.saliency_func_type == 'value': # because there's no v_0 in this agent
             self.loss_func = self.value_saliency_loss_function
-            self.timesteps = common_timesteps_min_one
+            self.timesteps = common_timesteps
         elif self.saliency_func_type == 'value_delta':
             self.loss_func = self.value_delta_saliency_loss_function
-        elif self.saliency_func_type == 'hx_direction':
-            self.timesteps = common_timesteps
-            self.direction_idx = self.args.saliency_direction_idx
+        # elif self.saliency_func_type == 'hx_direction':
+        #     self.timesteps = common_timesteps # TODO define the index outside the class so that you can loop over directions too
+        #     self.direction_ids = self.args.saliency_direction_ids
+        #     self.directions_transformer = directions_transformer
+        #     self.loss_func = self.make_direction_saliency_function(
+        #         self.direction_ids,
+        #         self.timesteps,
+        #         self.directions_transformer)
+        elif 'hx_direction_' in self.saliency_func_type:
+            self.timesteps = common_timesteps # TODO define the index outside the class so that you can loop over directions too
+            direction_id = int(''.join(filter(str.isdigit, self.saliency_func_type)))
             self.directions_transformer = directions_transformer
             self.loss_func = self.make_direction_saliency_function(
-                self.direction_idx,
+                direction_id,
                 self.timesteps,
                 self.directions_transformer)
 
     def make_direction_saliency_function(self,
-                                         direction_idx,
+                                         direction_id,
                                          timesteps,
                                          directions_transformer
                                          ):
         def hx_direction_saliency_loss_function(preds_dict):
             preds = preds_dict['hx']
+            preds = torch.stack(preds, dim=1)
             preds = preds[:, timesteps, :]
 
             # Scale and project hx onto direction
             preds = directions_transformer.transform(preds)
 
             # Then just pick the direction we want to take the saliency of
-            preds = preds[:, :, direction_idx]
+            preds = preds[:, :, direction_id]
 
             loss_sum = preds.mean()
             return loss_sum
-        self.saliency_func_type = self.saliency_func_type + '_' + str(direction_idx)
         return hx_direction_saliency_loss_function
 
     def action_saliency_loss_function(self, preds_dict):
         preds = preds_dict['act_log_prob']
+        preds = torch.stack(preds, dim=1)
         preds = preds[:, self.timesteps].max(dim=2)[0].squeeze()
         loss_sum = preds.mean()
         return loss_sum
 
     def action_leftwards_saliency_loss_function(self, preds_dict):
         preds = preds_dict['act_log_prob']
+        preds = torch.stack(preds, dim=1)
         preds = preds[:,self.timesteps,:][:,:,(0,1,2)].squeeze()
         loss_sum = preds.mean()
         return loss_sum
 
     def action_jumping_up_saliency_loss_function(self, preds_dict):
         preds = preds_dict['act_log_prob']
+        preds = torch.stack(preds, dim=1)
         preds = preds[:,self.timesteps,(5,)].squeeze()
         loss_sum = preds.mean()
         return loss_sum
 
     def action_jumping_right_saliency_loss_function(self, preds_dict):
         preds = preds_dict['act_log_prob']
+        preds = torch.stack(preds, dim=1)
         preds = preds[:,self.timesteps,(8,)].squeeze()
         loss_sum = preds.mean()
         return loss_sum
 
     def value_delta_saliency_loss_function(self, preds_dict):
         preds = preds_dict['value']
+        preds = torch.stack(preds, dim=1)
         losses = []
         for t in range(preds.shape[1]-1):
             pred_t_plus_1 = preds[:,t+1]
@@ -411,7 +442,7 @@ class HiddenStateDimensionalityReducer():
     def pca_transform(self, hx):
         # Scale and project hx onto direction
         hx_z = (hx - self.hx_mu) / self.hx_std
-        pc_loadings = hx_z @ self.directions
+        pc_loadings = hx_z @ self.pcs
         return pc_loadings
 
     def ica_transform(self, hx):
