@@ -15,7 +15,7 @@ def parse_args():
         default="data/")
     parser.add_argument(
         '--generated_data_dir', type=str,
-        default='generative/recorded_informinit_gen_samples')
+        default='generative/rec_gen_mod_data/informed_init')
 
     args = parser.parse_args()
     return args
@@ -24,12 +24,13 @@ def parse_args():
 # EPISODE_STRINGS = {v:str(v) for v in range(3431)}
 def run():
     args = parse_args()
-    num_samples = 4000 # number of generated samples to use
+    num_samples_hx = 2000 # number of generated samples to use
+    num_samples_env_h = 2000
     n_components_hx = 64
     n_components_env_h = 64
-    env_components = np.load('analysis/env_analysis_precomp/pcomponents_env_20000.npy')
-    hx_components = np.load('analysis/hx_analysis_precomp/pcomponents_4000.npy')
-    ts_per_sample = 28
+    env_components = np.load(f'analysis/env_analysis_precomp/pcomponents_env_{num_samples_env_h}.npy')
+    hx_components = np.load(f'analysis/hx_analysis_precomp/pcomponents_{num_samples_hx}.npy')
+    ts_per_sample = 32
 
 
     # Prepare load and save dirs
@@ -45,12 +46,12 @@ def run():
     print("Collecting env data together...")
     samples_data_env = []
     samples_data_hx = []
-    hx_mu = np.load(os.path.join('analysis', 'hx_analysis_precomp') + '/hx_mu_4000.npy')
-    hx_std = np.load(os.path.join('analysis', 'hx_analysis_precomp') + '/hx_std_4000.npy')
-    env_pca_data = np.load(os.path.join('analysis', 'env_analysis_precomp') + '/pca_data_env_4000.npy')
+    hx_mu = np.load(os.path.join('analysis', 'hx_analysis_precomp') + f'/hx_mu_{num_samples_hx}.npy')
+    hx_std = np.load(os.path.join('analysis', 'hx_analysis_precomp') + f'/hx_std_{num_samples_hx}.npy')
+    env_pca_data = np.load(os.path.join('analysis', 'env_analysis_precomp') + f'/pca_data_env_{num_samples_env_h}.npy')
 
     print("Collecting data together...")
-    for ep in range(0, num_samples):
+    for ep in range(0, min(num_samples_hx, num_samples_env_h)):
         # Env
         start_ts = (ep * ts_per_sample)
         stop_ts = (ep * ts_per_sample) + ts_per_sample
@@ -59,7 +60,7 @@ def run():
 
         # Agent hx
         hx = np.load(os.path.join(generated_data_path,
-                                  f'sample_{ep:05d}/agent_hxs.npy'))
+                                  f'sample_{ep:05d}/agent_hs.npy'))
         hx = (hx - hx_mu) / hx_std
         hx_vecs = hx_components @ hx.transpose()
         samples_data_hx.append(hx_vecs)
