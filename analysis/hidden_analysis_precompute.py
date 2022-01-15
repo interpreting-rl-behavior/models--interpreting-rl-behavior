@@ -29,7 +29,7 @@ def parse_args():
 
 def run():
     args = parse_args()
-    num_episodes = 100  # number of episodes to make plots for
+    num_episodes = 2000  # number of episodes to make plots for
     num_generated_samples = 200 # number of generated samples to use
     num_epi_paths = 9  # Number of episode to plot paths through time for. Arrow plots.
     n_components_pca = 64
@@ -55,6 +55,7 @@ def run():
     hx = np.load(os.path.join(main_data_path, 'episode_00000/hx.npy'))
     hx = hx[1:] # Cut 0th timestep
     for ep in range(1, num_episodes):
+        print(ep)
         hx_to_cat = np.load(os.path.join(main_data_path,
                                          f'episode_{ep:05d}/hx.npy'))
         hx_to_cat = hx_to_cat[1:]  # Cut 0th timestep
@@ -104,12 +105,6 @@ def run():
         plot_variance_expl_plot(pca_obj, n_components_pca, plot_save_path,
                                 "hx", num_episodes)
 
-    # ICA
-    print("Starting ICA")
-    ica_then_save(centred_scaled_hx_pca, save_path,
-                  "hx", num_episodes, max_iter=1000, tol=1e-3)
-    print("ICA finished")
-
 
     # k-means clustering
     print('Starting clustering...')
@@ -134,6 +129,12 @@ def run():
     nmf_then_save(hx, n_components_nmf_or_ica, save_path, "hx", num_episodes,
                   max_iter=5000, tol=1e-4)
     print("NMF finished.")
+
+    # ICA
+    print("Starting ICA")
+    ica_then_save(centred_scaled_hx_pca, save_path,
+                  "hx", num_episodes, max_iter=2000, tol=1e-3)
+    print("ICA finished")
 
 
 if __name__ == "__main__":
