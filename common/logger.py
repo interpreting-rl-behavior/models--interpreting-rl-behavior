@@ -5,12 +5,18 @@ from collections import deque
 import time
 import csv
 
+try:
+    import wandb
+except ImportError:
+    pass
+
 class Logger(object):
 
-    def __init__(self, n_envs, logdir):
+    def __init__(self, n_envs, logdir, use_wandb=False):
         self.start_time = time.time()
         self.n_envs = n_envs
         self.logdir = logdir
+        self.use_wandb = use_wandb
 
         # training
         self.episode_rewards = []
@@ -97,6 +103,9 @@ class Logger(object):
 
         #print(self.log)
         print(self.log.loc[len(self.log)-1])
+
+        if self.use_wandb:
+            wandb.log({k: v for k, v in zip(self.log.columns, log)})
 
     def _get_episode_statistics(self):
         episode_statistics = {}

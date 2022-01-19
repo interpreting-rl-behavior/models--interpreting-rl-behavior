@@ -11,6 +11,11 @@ from procgen import ProcgenEnv
 import random
 import torch
 
+try:
+    import wandb
+except ImportError:
+    pass
+
 
 if __name__=='__main__':
     parser = argparse.ArgumentParser()
@@ -29,6 +34,7 @@ if __name__=='__main__':
     parser.add_argument('--num_checkpoints',  type=int, default = int(1), help='number of checkpoints to store')
     parser.add_argument('--model_file', type=str)
     parser.add_argument('--random_percent',   type=float, default=0., help='percent of environments in which coin is randomized (only for coinrun)')
+    parser.add_argument('--use_wandb',        action="store_true")
 
     #multi threading
     parser.add_argument('--num_threads', type=int, default=8)
@@ -111,7 +117,11 @@ if __name__=='__main__':
     if not (os.path.exists(logdir)):
         os.makedirs(logdir)
     print(f'Logging to {logdir}')
-    logger = Logger(n_envs, logdir)
+    if args.use_wandb:
+        cfg = vars(args)
+        cfg.update(hyperparameters)
+        wandb.init(project="objective-robustness", config=cfg, tags=[])
+    logger = Logger(n_envs, logdir, use_wandb=args.use_wandb)
 
     ###########
     ## MODEL ##
@@ -155,8 +165,11 @@ if __name__=='__main__':
         from agents.ppo import PPO as AGENT
     else:
         raise NotImplementedError
-    agent = AGENT(env, policy, logger, storage, device, num_checkpoints,
-                  env_valid, storage_valid,  **hyperparameters)
+    agent = AGENT(env, policy, logger, storage, device,
+                  num_checkpoints,
+                  env_valid=env_valid, 
+                  storage_valid=storage_valid,  
+                  **hyperparameters)
     if args.model_file is not None:
         print("Loading agent from %s" % args.model_file)
         checkpoint = torch.load(args.model_file)
