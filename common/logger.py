@@ -1,7 +1,6 @@
 import numpy as np
 import pandas as pd
 from collections import deque
-#from torch.utils.tensorboard import SummaryWriter
 import time
 import csv
 
@@ -43,7 +42,6 @@ class Logger(object):
         self.log = pd.DataFrame(columns = time_metrics + episode_metrics + \
                                     ["val_"+m for m in episode_metrics])
 
-#        self.writer = SummaryWriter(logdir)
         self.timesteps = 0
         self.num_episodes = 0
 
@@ -77,23 +75,12 @@ class Logger(object):
 
         self.timesteps += (self.n_envs * steps)
 
-    def write_summary(self, summary):
-#        for key, value in summary.items():
-#            self.writer.add_scalar(key, value, self.timesteps)
-        pass
-
     def dump(self):
         wall_time = time.time() - self.start_time
         episode_statistics = self._get_episode_statistics()
         episode_statistics_list = list(episode_statistics.values())
-#        for key, value in episode_statistics.items():
-#            self.writer.add_scalar(key, value, self.timesteps)
         log = [self.timesteps, wall_time, self.num_episodes] + episode_statistics_list
         self.log.loc[len(self.log)] = log
-
-#        # TODO: logger to append, not write!
-#        with open(self.logdir + '/log.csv', 'w') as f:
-#            self.log.to_csv(f, index = False)
 
         with open(self.logdir + '/log-append.csv', 'a') as f:
             writer = csv.writer(f)
@@ -101,7 +88,6 @@ class Logger(object):
                 writer.writerow(self.log.columns)
             writer.writerow(log)
 
-        #print(self.log)
         print(self.log.loc[len(self.log)-1])
 
         if self.use_wandb:
