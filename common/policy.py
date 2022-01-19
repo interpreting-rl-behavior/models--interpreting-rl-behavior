@@ -32,7 +32,8 @@ class CategoricalPolicy(nn.Module):
         return self.recurrent
 
     def forward(self, x, hx, masks, retain_grads=False):
-        hidden = self.embedder(x)
+        im_embedding = self.embedder(x)
+        hidden = im_embedding
         if self.recurrent:
             # Fill in init hx to get grads right (it's a hacky solution to use
             #  trainable initial hidden states, but it's hard to get it to work
@@ -43,7 +44,7 @@ class CategoricalPolicy(nn.Module):
                 hx[inithx_mask] = self.init_hx
             hidden, hx = self.gru(hidden, hx, masks)
         logits = self.fc_policy(hidden)
-        if self.action_noise:
+        if self.action_noise: # TODO make game-env agnostic. Perhaps sticky actions would be most general.
             # For recording purposes in order to train the gen model
             # on diverse data
             logits = logits * 0.7
@@ -52,7 +53,7 @@ class CategoricalPolicy(nn.Module):
             logits[:,7] = 0.1 # make right quite likely so that agent doesn't get too stuck
         log_probs = F.log_softmax(logits, dim=1)
 
-        p = Categorical(logits=log_probs) # TODO LEE potentially need to make this StraightThrough
+        p = Categorical(logits=log_probs)
         v = self.fc_value(hidden).reshape(-1)
 
         if retain_grads:
