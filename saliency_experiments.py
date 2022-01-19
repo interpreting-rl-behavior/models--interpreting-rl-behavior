@@ -196,14 +196,14 @@ class SaliencyExperiment(GenerativeModelExperiment):
         # ims_grad = ims_grad / torch.abs(ims_grad).mean([1, 2]).unsqueeze(
         #     -1).unsqueeze(-1)
         ims_grad = ims_grad / torch.abs(ims_grad).mean()
-        blurrer = tv.transforms.GaussianBlur(5, sigma=(5., 6.))
+        blurrer = tv.transforms.GaussianBlur(3, sigma=1.)#(5, sigma=(5., 6.))
         ims_grad = blurrer(ims_grad.squeeze()).unsqueeze(-1)
 
         pos_grads = ims_grad.where(ims_grad > 0., torch.zeros_like(ims_grad))
         neg_grads = ims_grad.where(ims_grad < 0.,
                                    torch.zeros_like(ims_grad)).abs()
 
-        # Make a couple of copies of the original imservation for later
+        # Make a couple of copies of the original im for later
         sample_ims_faint = sample_ims.clone().detach() * 0.2
         sample_ims_faint = sample_ims_faint.mean(3)
         sample_ims_faint = torch.stack([sample_ims_faint] * 3, dim=-1)
@@ -242,6 +242,81 @@ class SaliencyExperiment(GenerativeModelExperiment):
         combo_vid_name = os.path.join(self.recording_data_save_dir,
                                       combo_vid_name)
         tvio.write_video(combo_vid_name, combined_vid, fps=13)
+
+    def change_blur_in_saved_ims(self):
+        max_samples = 300
+        saliency_func_types = ['value', 'action']
+        saliency_func_types.extend(['hx_direction_%d' % i for i in range(0, 9)])
+        timesteps_used_in_saliency_exp = (9,)
+
+        for sample_idx in range(max_samples):
+            for saliency_func_type in saliency_func_types:
+                sample_name = f"sample_{int(sample_idx):05d}"
+                load_dir = os.path.join(self.recording_data_save_dir,
+                                       sample_name)
+                sample_im = np.load(os.path.join(load_dir, f'ims.npy'))
+                ims_grad_name = os.path.join(load_dir,
+                                        f'grad_ims_{saliency_func_type}.npy')
+                ims_grad = np.load(ims_grad_name)
+                ims_grad = torch.tensor(ims_grad)
+                sample_im = torch.tensor(sample_im)
+                ims_grad = ims_grad.permute(0, 2, 3, 1)
+                ims_grad = ims_grad.mean(3).unsqueeze(
+                    dim=3)  # mean over channel dim
+
+                # Scale according to typical grad sizes for each timestep
+
+                # ims_grad = ims_grad / torch.abs(ims_grad).mean([1, 2]).unsqueeze(
+                #     -1).unsqueeze(-1)
+
+
+                ims_grad = ims_grad / torch.abs(ims_grad).mean()
+                # blurrer = tv.transforms.GaussianBlur(5, sigma=(5., 6.))
+                blurrer = tv.transforms.GaussianBlur(3, sigma=1.)#(1., 1.1))
+
+                ims_grad = blurrer(ims_grad.squeeze()).unsqueeze(-1)
+
+                pos_grads = ims_grad.where(ims_grad > 0.,
+                                           torch.zeros_like(ims_grad))
+                neg_grads = ims_grad.where(ims_grad < 0.,
+                                           torch.zeros_like(ims_grad)).abs()
+
+                # Make a couple of copies of the original im for later
+                sample_ims_faint = sample_im.clone().detach() * 0.2
+                sample_ims_faint = sample_ims_faint.mean(3)
+                sample_ims_faint = torch.stack([sample_ims_faint] * 3, dim=-1)
+                # sample_ims_faint = sample_ims_faint * 255
+                sample_ims_faint = sample_ims_faint.clone().detach().type(
+                    torch.uint8).cpu().numpy()
+                #
+                sample_ims_copy = sample_im.clone().detach()
+                #
+                # # Make the gradient video and save as uint8
+                grad_vid = np.zeros_like(sample_ims_copy)
+                pos_grads = pos_grads * 0.2 * 255
+                neg_grads = neg_grads * 0.2 * 255
+                grad_vid[:, :, :, 2] = pos_grads.squeeze().clone().detach().type(
+                    torch.uint8).cpu().numpy()
+                grad_vid[:, :, :, 0] = neg_grads.squeeze().clone().detach().type(
+                    torch.uint8).cpu().numpy()
+                grad_vid = grad_vid + sample_ims_faint
+                # grad_vid = grad_vid.to(torch.uint8)
+                grad_vid = grad_vid.astype(np.int8)
+                grad_vid_name = os.path.join(load_dir,
+                                             f'grad_processed_ims_{saliency_func_type}.npy')
+                np.save(grad_vid_name, grad_vid)
+
+                # Save a side-by-side vid
+                # Join the prediction and the true image side-by-side
+                combined_vid = np.concatenate([sample_ims_copy, grad_vid], axis=2)
+
+                # Save vid
+                # combined_vid = combined_vid.clone().detach().type(torch.uint8).cpu().numpy()
+                combo_vid_name = f'{sample_name}_saliency_{saliency_func_type}.mp4'
+                combo_vid_name = os.path.join(self.recording_data_save_dir,
+                                              combo_vid_name)
+                tvio.write_video(combo_vid_name, combined_vid, fps=13)
+
 
     def get_bottleneck_vecs(self, sample_id):
         sample_dir = os.path.join(self.recording_data_save_dir,
@@ -286,6 +361,8 @@ class SaliencyExperiment(GenerativeModelExperiment):
         bottleneck_vecs = safe_normalize(bottleneck_vecs)
         return bottleneck_vecs
 
+
+
 # TODO maybe actually throw away the last hx instead of the 0th. It depends
 #  on how the deletang diagram indexes ims and hx
 
@@ -307,7 +384,7 @@ class SaliencyFunction():
         directions_transformer = HiddenStateDimensionalityReducer('pca', 2000)
 
         # Set settings for specific saliency functions
-        common_timesteps = (11,)#tuple(range(0,28))
+        common_timesteps = (9,)#tuple(range(0,28))
         if self.saliency_func_type == 'action':
             self.loss_func = self.action_saliency_loss_function
             self.timesteps = common_timesteps
@@ -334,7 +411,7 @@ class SaliencyFunction():
         #         self.timesteps,
         #         self.directions_transformer)
         elif 'hx_direction_' in self.saliency_func_type:
-            self.timesteps = common_timesteps # TODO define the index outside the class so that you can loop over directions too
+            self.timesteps = common_timesteps
             direction_id = int(''.join(filter(str.isdigit, self.saliency_func_type)))
             self.directions_transformer = directions_transformer
             self.loss_func = self.make_direction_saliency_function(
@@ -455,3 +532,4 @@ class HiddenStateDimensionalityReducer():
 if __name__ == "__main__":
     saliency_exp = SaliencyExperiment()
     saliency_exp.run_saliency_recording_loop()
+    #saliency_exp.change_blur_in_saved_ims()
