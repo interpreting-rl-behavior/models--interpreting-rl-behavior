@@ -620,7 +620,6 @@ class GenerativeModelExperiment():
 
         with torch.no_grad():
             for b in range(viz_batch_size):
-                print(b)
                 pred_im = pred_images[b]
 
                 # Overlay Done and Reward
