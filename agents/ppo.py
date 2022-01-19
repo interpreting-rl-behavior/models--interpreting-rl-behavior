@@ -166,7 +166,6 @@ class PPO(BaseAgent):
             else:
                 rew_batch_v = done_batch_v = None
             self.logger.feed(rew_batch, done_batch, rew_batch_v, done_batch_v)
-            self.logger.write_summary(summary)
             self.logger.dump()
             self.optimizer = adjust_lr(self.optimizer, self.learning_rate, self.t, num_timesteps)
             # Save the model
