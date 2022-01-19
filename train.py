@@ -36,6 +36,8 @@ if __name__=='__main__':
     parser.add_argument('--random_percent',   type=float, default=0., help='percent of environments in which coin is randomized (only for coinrun)')
     parser.add_argument('--use_wandb',        action="store_true")
 
+    parser.add_argument('--wandb_tags',       type=str, nargs='+')
+
     #multi threading
     parser.add_argument('--num_threads', type=int, default=8)
 
@@ -49,7 +51,7 @@ if __name__=='__main__':
     distribution_mode = args.distribution_mode
     param_name = args.param_name
     gpu_device = args.gpu_device
-    num_timesteps = args.num_timesteps
+    num_timesteps = int(args.num_timesteps)
     seed = args.seed
     log_level = args.log_level
     num_checkpoints = args.num_checkpoints
@@ -120,7 +122,7 @@ if __name__=='__main__':
     if args.use_wandb:
         cfg = vars(args)
         cfg.update(hyperparameters)
-        wandb.init(project="objective-robustness", config=cfg, tags=[])
+        wandb.init(project="objective-robustness", config=cfg, tags=args.wandb_tags)
     logger = Logger(n_envs, logdir, use_wandb=args.use_wandb)
 
     ###########
