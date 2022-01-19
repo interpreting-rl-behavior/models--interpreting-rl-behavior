@@ -5,6 +5,7 @@ from gen_model_experiment import GenerativeModelExperiment
 import numpy as np
 from datetime import datetime
 import matplotlib.pyplot as plt
+from generative.rssm.functions import terminal_labels_to_mask
 
 
 class LossOverTimeExperiment(GenerativeModelExperiment):
@@ -64,13 +65,28 @@ class LossOverTimeExperiment(GenerativeModelExperiment):
                                calc_loss=True,  # This is the only instance where imagine and calc_loss are both true
                                modal_sampling=False)
 
-            loss_model = torch.mean(torch.sum(loss_model, dim=0))  # sum over T, mean over B
+            # terminals = torch.cat([tensors_list[i]['pred_terminal']
+            #                          for i in range(len(tensors_list))]) # (T, B)
+            # terminals = torch.isclose(terminals, torch.ones_like(terminals),
+            #                           rtol=1e-02).float()
+            # terminal_mask = terminal_labels_to_mask(terminals)
+            # Was going to use the above for silencing the ts where
+            # sample was terminated, but this would be a real pain to
+            # implement and we can validly say that it's still making
+            # correct predictions (it's just the prediction problem becomes
+            # easier over time because the probability of all black image
+            # increases)
+
+
+            loss_model_sum = torch.mean(torch.sum(loss_model, dim=0))  # sum over T, mean over B
             # loss_bottleneck has no mean because already summed over b
             loss_agent_aux_init = torch.mean(loss_agent_aux_init)  # mean over B
-            loss = loss_model + loss_bottleneck + loss_agent_aux_init
+            loss = loss_model_sum + loss_bottleneck + loss_agent_aux_init
 
             # Save detached loss tensors for logging and per-timestep inspection
             loss_dict_no_grad['loss_model'] = loss_model.detach().cpu().numpy()
+
+            # Apply masks so that you're not
             loss_dict_no_grad = {k: v.clone().detach().cpu().numpy() \
                                  for k,v in loss_dict_no_grad.items() \
                                  if type(v) == torch.Tensor}
@@ -83,7 +99,7 @@ class LossOverTimeExperiment(GenerativeModelExperiment):
             # Logging and saving info
             if batch_idx % self.args.log_interval == 0:
                 logger.logkv('batches', batch_idx)
-                logger.logkv('loss_model', loss_model.item())
+                logger.logkv('loss_model', loss_model_sum.item())
                 for k, v in loss_dict_no_grad.items():
                     if type(v) == np.ndarray:
                         l = np.mean(np.sum(v, axis=0))
@@ -119,8 +135,8 @@ class LossOverTimeExperiment(GenerativeModelExperiment):
             lower = np.min(data[key], axis=1)
             std = np.std(data[key], axis=1)
             plt.plot(x_vals, mean, label=key)
-            plt.fill_between(x_vals, mean - lower, mean + higher, alpha=0.3)
-            plt.fill_between(x_vals, mean - std, mean + std, alpha=0.3)
+            plt.fill_between(x_vals, lower, higher, alpha=0.3)
+            # plt.fill_between(x_vals, mean - std, mean + std, alpha=0.3)
 
         plt.legend(loc="upper center", bbox_to_anchor=(0.5, 1.05))
         plt.xlabel("Simulation Step")
