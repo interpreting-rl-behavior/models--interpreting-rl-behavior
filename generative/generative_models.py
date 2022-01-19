@@ -261,7 +261,7 @@ class AgentEnvironmentSimulator(nn.Module):
         # Finished getting initializing vectors.
 
         # Next, encode all the images to get the embeddings for the priors
-        if imagine: # i.e. no need to calc loss therefore no need to have im_labels
+        if not calc_loss: #TODO remove this comment for its hubris # i.e. no need to calc loss therefore no need to have im_labels
             embeds = [None] * self.num_sim_steps
         else:
             embeds = self.conv_in(im_labels)
@@ -301,7 +301,8 @@ class AgentEnvironmentSimulator(nn.Module):
                 labels = None
             embed = embeds[i]
 
-            (post,    # tensor(B, 2*S)
+            (post,    # tensor(B, 2*S) # TODO currently only posts if imagine = False. But when imagine = True then this is the prior.
+            prior,    # tensor(B, 2*S)
             pred_action_1hot,
             pred_action_log_prob,
             pred_value,
@@ -331,6 +332,7 @@ class AgentEnvironmentSimulator(nn.Module):
                 pred_action_log_prob.retain_grad()
                 env_h.retain_grad()
 
+            priors.append(prior)
             posts.append(post)
             pred_actions_1hot.append(pred_action_1hot)
             pred_action_log_probs.append(pred_action_log_prob)
@@ -375,6 +377,7 @@ class AgentEnvironmentSimulator(nn.Module):
 
 
         posts = torch.stack(posts)                  # (T,B,2S)
+        priors = torch.stack(priors)                  # (T,B,2S)
         pred_actions_1hot = torch.stack(pred_actions_1hot)
         pred_action_log_probs = torch.stack(pred_action_log_probs)
         pred_values = torch.stack(pred_values)
@@ -384,7 +387,7 @@ class AgentEnvironmentSimulator(nn.Module):
         states_env_h = torch.stack(states_env_h)    # (T,B,D)
         samples = torch.stack(samples)              # (T,B,S)
         agent_hs = torch.stack(agent_hs)
-        priors = self.agent_env_stepper.batch_prior(states_env_h)  # (T,B,2S)
+        # priors = self.agent_env_stepper.batch_prior(states_env_h)  # (T,B,2S) # Now doing this within stepper so that we can calculate the kl_rssm loss, whether imagine=True OR False.
         features = torch.cat([states_env_h, samples], dim=-1)   # (T,B,D+S)
         env_states = (states_env_h, samples)
 
@@ -496,6 +499,34 @@ class AgentEnvStepper(nn.Module):
         self.agent = agent
         self.device = agent.device
 
+    def get_prior(self, h):
+        x = self.prior_mlp_h(h)
+        x = self.prior_norm(x)
+        x = F.elu(x)
+        prior = self.prior_mlp(x)  # (B,2S)
+        return prior
+
+    def get_post(self, h, embed):
+        x = self.post_mlp_h(h) + self.post_mlp_e(embed)
+        x = self.post_norm(x)
+        post_in = F.elu(x)
+        post = self.post_mlp(post_in)  # (B, S*S)
+        return post
+
+    def sample_from_distr(self, distr, batch_size, modal_sampling=False):
+        if modal_sampling:
+            # Uses Straight Through Gradients
+            inds = distr.mean.argmax(dim=2)
+            mode_one_hot = torch.nn.functional.one_hot(inds,
+                                                       num_classes=self.stoch_discrete).to(
+                self.agent.device)
+            sample = distr.mean + \
+                     (mode_one_hot - distr.mean).detach()
+            sample = sample.reshape(batch_size, -1)
+        else:
+            sample = distr.rsample().reshape(batch_size, -1)
+        return sample
+
     def forward(self,
                 embed: Tensor,                    # tensor(B,E)
                 action_prev: Tensor,                   # tensor(B,A)
@@ -515,30 +546,37 @@ class AgentEnvStepper(nn.Module):
         za = F.elu(x)
         h = self.gru(za, in_h)              # (B, D)
 
-        if imagine:
-            x = self.prior_mlp_h(h)
-            x = self.prior_norm(x)
-            x = F.elu(x)
-            prior = self.prior_mlp(x)       # (B,2S)
+        # Summary of the below 2-level if tree: If we calc loss, then we always
+        # need to calculate both prior and post, but what we sample from is
+        # determined by whether or not we're imagining.
+        # OTOH, if we're not calcing loss, then we only need the sample from the
+        # distribution we care about, which is determined by whether or not
+        # we're imagining.
+
+        if calc_loss:
+            prior = self.get_prior(h)
             prior_distr = self.zdistr(prior)
-            if modal_sampling:
-                # Uses Straight Through Gradients
-                inds = prior_distr.mean.argmax(dim=2)
-                mode_one_hot = torch.nn.functional.one_hot(inds, num_classes=self.stoch_discrete).to(self.agent.device)
-                sample = prior_distr.mean + \
-                      (mode_one_hot - prior_distr.mean).detach()
-                sample = sample.reshape(B, -1)
-            else:
-                sample = prior_distr.rsample().reshape(B, -1)
-            post_or_prior = prior
-        else:
-            x = self.post_mlp_h(h) + self.post_mlp_e(embed)
-            x = self.post_norm(x)
-            post_in = F.elu(x)
-            post = self.post_mlp(post_in)   # (B, S*S)
+            post = self.get_post(h, embed)
             post_distr = self.zdistr(post)
-            sample = post_distr.rsample().reshape(B, -1)
-            post_or_prior = post
+            if imagine:
+                sample = self.sample_from_distr(prior_distr, B,
+                                                modal_sampling=modal_sampling)
+            else:
+                sample = self.sample_from_distr(post_distr, B,
+                                                modal_sampling=False)
+        else:
+            if imagine:
+                prior = self.get_prior(h)
+                prior_distr = self.zdistr(prior)
+                post = None
+                sample = self.sample_from_distr(prior_distr, B,
+                                                modal_sampling=modal_sampling)
+            else:
+                prior = None
+                post = self.get_post(h, embed)
+                post_distr = self.zdistr(post)
+                sample = self.sample_from_distr(post_distr, B,
+                                                modal_sampling=False)
 
         feature = torch.cat([h, sample], dim=-1)
         BF_to_TBIF = lambda x: torch.unsqueeze(torch.unsqueeze(x, 1), 0)
@@ -574,7 +612,8 @@ class AgentEnvStepper(nn.Module):
         agent_h.retain_grad()
 
         return (
-            post_or_prior,    # tensor(B, 2*S)
+            post,     # tensor(B, 2*S)
+            prior,    # tensor(B, 2*S)
             pred_action,
             pred_action_logits,
             pred_value,
