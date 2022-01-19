@@ -84,7 +84,6 @@ class TrainingExperiment(GenerativeModelExperiment):
                 logger.logkv('batches', batch_idx)
                 logger.logkv('loss_model', loss_model_sum.item())
                 for k, v in loss_dict_no_grad.items():
-                    print(v.shape)
                     l = np.mean(np.sum(v, axis=0)).item()
                     logger.logkv(k, l)
                 logger.logkv('loss total=model+bneck+aux', loss.item())
