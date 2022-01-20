@@ -33,10 +33,15 @@ if __name__=='__main__':
     parser.add_argument('--log_level',        type=int, default = int(40), help='[10,20,30,40]')
     parser.add_argument('--num_checkpoints',  type=int, default = int(1), help='number of checkpoints to store')
     parser.add_argument('--model_file', type=str)
-    parser.add_argument('--random_percent',   type=float, default=0., help='percent of environments in which coin is randomized (only for coinrun)')
     parser.add_argument('--use_wandb',        action="store_true")
 
     parser.add_argument('--wandb_tags',       type=str, nargs='+')
+
+
+    parser.add_argument('--random_percent',   type=int, default=0, help='percent of environments in which coin is randomized (only for coinrun)')
+    parser.add_argument('--key_penalty',   type=int, default=0, help='Penalty for picking up keys (divided by 10)')
+    parser.add_argument('--step_penalty',   type=int, default=0, help='Time penalty per step (divided by 1000)')
+
 
     #multi threading
     parser.add_argument('--num_threads', type=int, default=8)
@@ -95,7 +100,9 @@ if __name__=='__main__':
                           start_level=start_level_val if is_valid else args.start_level,
                           distribution_mode=args.distribution_mode,
                           num_threads=args.num_threads,
-                          random_percent=args.random_percent)
+                          random_percent=args.random_percent,
+                          step_penalty=args.step_penalty,
+                          key_penalty=args.key_penalty,)
         venv = VecExtractDictObs(venv, "rgb")
         normalize_rew = hyperparameters.get('normalize_rew', True)
         if normalize_rew:
