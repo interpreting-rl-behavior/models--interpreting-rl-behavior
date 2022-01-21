@@ -183,14 +183,11 @@ def run_env(
         column_names = ["seed", "steps", "rand_coin", "coin_collected", "inv_coin_collected", "died", "timed_out"]
         metrics = [int(m) for m in metrics]
         if append_to_csv:
-            if os.path.isfile(logfile):
-                with open(logfile, "a") as f:
-                    w = csv.writer(f)
-                    w.writerow(metrics)
-            else:  # write header first
-                with open(logfile, "w") as f:
-                    w = csv.writer(f)
+            with open(logfile, "a") as f:
+                w = csv.writer(f)
+                if f.tell() == 0: # write header first
                     w.writerow(column_names)
+                w.writerow(metrics)
 
 
     def log_metrics(done: bool, info: dict):
