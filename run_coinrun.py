@@ -1,9 +1,6 @@
 from common.env.procgen_wrappers import *
 from common import set_global_seeds, set_global_log_levels
-
-from pathlib import Path
-import os, time, argparse
-from procgen import ProcgenEnv
+import os, argparse
 import random
 from tqdm import tqdm
 import config
@@ -22,6 +19,8 @@ if __name__=='__main__':
     parser.add_argument('--logdir',           type=str, default = None)
     parser.add_argument('--start_level_seed', type=int, default = 0)
     parser.add_argument('--num_seeds',        type=int, default = 10)
+    parser.add_argument('--random_percent',   type=int, default = 0)
+    parser.add_argument('--seed_file',        type=str, help="path to text file with env seeds to run on.")
 
     #multi threading
     parser.add_argument('--num_threads', type=int, default=8)
@@ -32,28 +31,43 @@ if __name__=='__main__':
     parser.add_argument('--model_file', type=str)
     parser.add_argument('--save_value', action='store_true')
 
+
     args = parser.parse_args()
 
     set_global_seeds(args.agent_seed)
     set_global_log_levels(args.log_level)
 
-    vanilla_env_seeds = np.arange(args.num_seeds) + args.start_level_seed
+    if args.seed_file:
+        print(f"Loading env seeds from {args.seed_file}")
+        with open(args.seed_file, 'r') as f:
+            seeds = f.read()
+        seeds = [int(s) for s in seeds.split()]
+    else:
+        print(f"Running on env seeds {args.start_level_seed} to {args.start_level_seed + args.num_seeds}.")
+        seeds = np.arange(args.num_seeds) + args.start_level_seed
     metrics = []
 
-    logpath = config.results_dir + "vanilla-coinrun/"
+    if args.random_percent == 0:
+        logpath = config.results_dir + "vanilla-coinrun/"
+    elif args.random_percent == 100:
+        logpath = config.results_dir + "modified-coinrun/"
+    else:
+        logpath = config.results_dir + f"coinrun-random_percent={args.random_percent}/"
+
+
     if not (os.path.exists(logpath)):
         os.makedirs(logpath)
 
     #logfile = logpath + f"agent_seed_{args.agent_seed}__date_" + time.strftime("%d-%m-%Y_%H-%M-%S.csv")
     logfile = logpath + "metrics.csv"
     print(f"Saving metrics to {logfile}.")
-    print("Running vanilla environment...")
-    for env_seed in tqdm(vanilla_env_seeds):
+    print(f"Running coinrun with random_percent={args.random_percent}...")
+    for env_seed in tqdm(seeds):
         run_env(exp_name=args.exp_name,
             logfile=logfile,
             model_file=args.model_file,
             level_seed=env_seed,
             device=args.device,
             gpu_device=args.gpu_device,
-            random_percent=0,
+            random_percent=args.random_percent,
             reset_mode="inv_coin")
