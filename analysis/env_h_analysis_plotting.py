@@ -7,32 +7,36 @@ import seaborn as sns
 import os
 import time
 import imageio
+import yaml, munch
+
 
 pd.options.mode.chained_assignment = None  # default='warn'
 
 COINRUN_ACTIONS = {0: 'downleft', 1: 'left', 2: 'upleft', 3: 'down', 4: None, 5: 'up',
                    6: 'downright', 7: 'right', 8: 'upright', 9: None, 10: None, 11: None,
                    12: None, 13: None, 14: None}
+
 def parse_args():
     parser = argparse.ArgumentParser(
         description='args for plotting')
     parser.add_argument(
-        '--agent_env_data_dir', type=str,
-        default="data")
-    parser.add_argument(
-        '--precomputed_analysis_data_path', type=str, default="analysis/env_analysis_precomp")
-    parser.add_argument(
-        '--generated_data_dir', type=str,
-        default='generative/rec_gen_mod_data/informed_init')
-    parser.add_argument(
-        '--presaved_data_path', type=str, default="/media/lee/DATA/DDocs/AI_neuro_work/assurance_project_stuff/data/precollected/")
+        '--interpreting_params_name', type=str,
+        default='defaults')
     args = parser.parse_args()
     return args
 
 
 def run():
     args = parse_args()
-    num_samples = 2000#20000  # number of episodes to make plots for. Needs to be
+
+    print('[Loading interpretation hyperparameters]')
+    with open('hyperparams/interpreting_configs.yml', 'r') as f:
+        hp = yaml.safe_load(f)[args.interpreting_params_name]
+    for key, value in hp.items():
+        print(key, ':', value)
+    hp = munch.munchify(hp)
+
+    num_samples = hp.analysis.env_h.num_samples #2000#20000  # number of episodes to make plots for. Needs to be
     # the same as the precomputed data you want to use
     plot_pca = True
     plot_3d_pca_all = False
@@ -41,14 +45,16 @@ def run():
     plot_3d_pca = True
     plot_tsne = True
 
-    first_PC_ind = 0
-    second_PC_ind = 1
-    third_pc_ind = 2
+    first_pc_ind = hp.analysis.env_h.first_pc_ind
+    second_pc_ind = hp.analysis.env_h.second_pc_ind
+    third_pc_ind = hp.analysis.env_h.third_pc_ind
+
+    precomputed_analysis_data_path = hp.precomputed_analysis_data_path
 
     data = {}
 
     # Prepare load and save dirs
-    generated_data_path = args.generated_data_dir
+    generated_data_path = os.path.join(hp.generated_data_dir, 'informed_init')
     save_path = 'analysis/env_plots'
 
     # Load the non vector outputs
@@ -121,13 +127,13 @@ def run():
     # -  value delta (not plotted currently)
 
     # nmf max factor
-    env_h_nmf = np.load(args.precomputed_analysis_data_path + \
+    env_h_nmf = np.load(precomputed_analysis_data_path + \
                      '/nmf_env_%i.npy' % num_samples)
     nmf_max_factor = np.argmax(env_h_nmf, axis=1)
     data['nmf_max_factor'] = nmf_max_factor.squeeze()
 
     # cluster identity
-    env_h_cluster = np.load(args.precomputed_analysis_data_path + \
+    env_h_cluster = np.load(precomputed_analysis_data_path + \
                      '/clusters_env_%i.npy' % num_samples)
     data['cluster_id'] = env_h_cluster
 
@@ -161,11 +167,11 @@ def run():
     # Plotting
     if plot_pca:
         print("Plotting PCAs")
-        env_h_pca = np.load(args.precomputed_analysis_data_path + \
+        env_h_pca = np.load(precomputed_analysis_data_path + \
                          '/pca_data_env_%i.npy' % num_samples)
 
-        data['pca_X'] = env_h_pca[:, first_PC_ind]
-        data['pca_Y'] = env_h_pca[:, second_PC_ind]
+        data['pca_X'] = env_h_pca[:, first_pc_ind]
+        data['pca_Y'] = env_h_pca[:, second_pc_ind]
 
         # Create grid of plots
         pca_alpha = 0.95
@@ -186,7 +192,7 @@ def run():
 
 
         fig.tight_layout()
-        fig.savefig(f'{save_path}/env_h_pca_PC{first_PC_ind}vsPC{second_PC_ind}_epsd{num_samples}_at{time.strftime("%Y%m%d-%H%M%S")}.png')
+        fig.savefig(f'{save_path}/env_h_pca_PC{first_pc_ind}vsPC{second_pc_ind}_epsd{num_samples}_at{time.strftime("%Y%m%d-%H%M%S")}.png')
         plt.close()
 
         # Now plot paths of individual samples, connecting points by arrows
@@ -285,7 +291,7 @@ def run():
             plt.close()
 
     if plot_tsne:
-        env_h_tsne = np.load(args.precomputed_analysis_data_path + \
+        env_h_tsne = np.load(precomputed_analysis_data_path + \
                          '/tsne_env_%i.npy' % num_samples)
         print('Starting tSNE...')
         # _pca_for_tsne = PCA(n_components=64)

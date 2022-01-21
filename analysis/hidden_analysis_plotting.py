@@ -10,6 +10,7 @@ import seaborn as sns
 import os
 import time
 import imageio
+import yaml, munch
 
 pd.options.mode.chained_assignment = None  # default='warn'
 
@@ -20,20 +21,23 @@ def parse_args():
     parser = argparse.ArgumentParser(
         description='args for plotting')
     parser.add_argument(
-        '--agent_env_data_dir', type=str,
-        default="data/")
-    parser.add_argument(
-        '--precomputed_analysis_data_path', type=str, default="analysis/hx_analysis_precomp")
-    parser.add_argument(
-        '--presaved_data_path', type=str, default="/media/lee/DATA/DDocs/AI_neuro_work/assurance_project_stuff/data/precollected/")
+        '--interpreting_params_name', type=str,
+        default='defaults')
     args = parser.parse_args()
     return args
 
 
 def run():
     args = parse_args()
-    num_episodes = 100#4000#2000  # number of episodes to make plots for. Needs to be
-    num_generated_samples = 200
+    print('[Loading interpretation hyperparameters]')
+    with open('hyperparams/interpreting_configs.yml', 'r') as f:
+        hp = yaml.safe_load(f)[args.interpreting_params_name]
+    for key, value in hp.items():
+        print(key, ':', value)
+    hp = munch.munchify(hp)
+
+    num_episodes = hp.analysis.agent_h.num_episodes #2000#100#4000#2000  # number of episodes to make plots for. Needs to be
+    num_generated_samples = hp.analysis.agent_h.num_generated_samples
     # the same as the precomputed data you want to use
     plot_pca = True
     plot_3d_pca_all = True
@@ -48,12 +52,12 @@ def run():
     # Prepare load and save dirs
     save_path = 'analysis/hx_plots'
 
-    presaved_data_path = args.presaved_data_path
+    presaved_data_path = hp.analysis.presaved_data_path
     hx_presaved_filepath = presaved_data_path + "hxs_%i.npy" % num_episodes
     lp_presaved_filepath = presaved_data_path + "lp_%i.npy" % num_episodes
 
     # Load the non vector outputs
-    main_data_path = args.agent_env_data_dir
+    main_data_path = hp.data_dir
     data = pd.read_csv(os.path.join(main_data_path, 'data_gen_model_00000.csv'))
     for ep in range(1, num_episodes):
         data_epi = pd.read_csv(os.path.join(main_data_path,
@@ -68,17 +72,19 @@ def run():
     if os.path.isfile(hx_presaved_filepath):
         # Load if already done before
         hx = np.load(hx_presaved_filepath)
+        print("USING PRESAVED DATA PATH %s" % hx_presaved_filepath)
     else:
         # Collect them one by one
         hx = np.load(os.path.join(main_data_path, 'episode_00000/hx.npy'))
+        hx = hx[1:]  # Cut 0th timestep
         for ep in range(1, num_episodes):
             hx_to_cat = np.load(os.path.join(main_data_path,
                                              f'episode_{ep:05d}/hx.npy'))
+            hx_to_cat = hx_to_cat[1:]  # Cut 0th timestep
             hx = np.concatenate((hx, hx_to_cat))
-        # TODO save
 
     if plot_gen_hx_pca:
-        gen_hx_pca = np.load(args.precomputed_analysis_data_path + \
+        gen_hx_pca = np.load(hp.analysis.agent_h.precomputed_analysis_data_path + \
                              '/gen_hx_projected_real%i_gen%i.npy' % (num_episodes,
                                                                 num_generated_samples))
 
@@ -95,7 +101,6 @@ def run():
     lp_max = np.argmax(lp, axis=1)
     entropy = -1 * np.sum(np.exp(lp)*lp, axis=1)
     del lp
-    # TODO consider adding UMAP
 
     # Add extra columns for further analyses variables
     # -  % way through episode

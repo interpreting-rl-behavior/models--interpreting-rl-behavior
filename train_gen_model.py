@@ -15,7 +15,7 @@ class TrainingExperiment(GenerativeModelExperiment):
 
         # Training cycle (Train, Save visualized random samples, Demonstrate
         #  reconstruction quality)
-        for epoch in range(0, self.args.epochs + 1):
+        for epoch in range(0, self.hp.gen_model.epochs + 1):
             self.train(epoch)
 
     def train(self, epoch):
@@ -78,7 +78,7 @@ class TrainingExperiment(GenerativeModelExperiment):
             self.optimizer.step()
 
             # Logging and saving info
-            if batch_idx % self.args.log_interval == 0:
+            if batch_idx % self.hp.gen_model.log_interval == 0:
                 loss.item()
                 logger.logkv('epoch', epoch)
                 logger.logkv('batches', batch_idx)
@@ -90,7 +90,7 @@ class TrainingExperiment(GenerativeModelExperiment):
                 logger.dumpkvs()
 
             # Saving model
-            if batch_idx % self.args.save_interval == 0:
+            if batch_idx % self.hp.gen_model.save_interval == 0:
                 model_path = os.path.join(
                     self.sess_dir,
                     'model_epoch{}_batch{}.pt'.format(epoch, batch_idx))
@@ -101,10 +101,11 @@ class TrainingExperiment(GenerativeModelExperiment):
                 logger.info('Generative model saved to {}'.format(model_path))
 
             B = data['ims'].shape[1]
-            # self.save_preds( preds_dict, range(0,3), manual_action=None)
 
             # Demo recon quality without using true images
-            if (epoch >= 1 and batch_idx % 20000 == 0) or (epoch < 1 and batch_idx % 5000 == 0):
+            if (epoch >= 1 and batch_idx % 20000 == 0) or \
+                    (epoch < 1 and batch_idx % 5000 == 0) or \
+                    (epoch < 1 and batch_idx <= 10000 and batch_idx % 5000 == 0):
                 save_dir = self.sess_dir + '/recons_v_preds/'
                 self.visualize(epoch, batch_idx=batch_idx, data=data, preds=preds_dict, use_true_actions=True, save_dir=save_dir, save_root='sample_true_ims_true_acts')
                 self.visualize(epoch, batch_idx=batch_idx, data=None, preds=None, use_true_actions=True, save_dir=save_dir, save_root='sample_sim_ims_true_acts')

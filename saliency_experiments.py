@@ -3,10 +3,10 @@ import os, argparse
 import torch
 from gen_model_experiment import GenerativeModelExperiment
 from generative.rssm.functions import safe_normalize
-
 from overlay_image import overlay_actions
 import torchvision as tv
 import torchvision.io as tvio
+
 
 class SaliencyExperiment(GenerativeModelExperiment):
     """Inherits everything from GenerativeModelExperiment but several methods
@@ -19,11 +19,12 @@ class SaliencyExperiment(GenerativeModelExperiment):
         super(SaliencyExperiment, self).__init__()
 
         # Set some hyperparams
-        self.saliency_batch_size = self.args.saliency_batch_size
+        self.saliency_batch_size = self.hp.analysis.saliency.batch_size
+        self.gen_model.num_sim_steps = self.hp.analysis.saliency.num_sim_steps
         is_square_number = lambda x: np.sqrt(x) % 1 == 0
         assert is_square_number(self.saliency_batch_size)
-        self.bottleneck_vec_size = self.hyperparams.bottleneck_vec_size
-        self.perturbation_scale = 0.0001  #was0.01# 2e-2
+        self.bottleneck_vec_size = self.hp.gen_model.bottleneck_vec_size
+        self.perturbation_scale = self.hp.analysis.saliency.perturbation_scale #0.0001  #was0.01# 2e-2
 
         # Whether to use rand init vectors or informed init vectors
         if False:
@@ -38,32 +39,32 @@ class SaliencyExperiment(GenerativeModelExperiment):
         self.gen_model.requires_grad = False
 
         # Determine what to iterate over (func types, samples)
-        self.combine_samples_not_iterate = self.args.combine_samples_not_iterate
-        self.saliency_func_types = self.args.saliency_func_type
+        self.combine_samples_not_iterate = self.hp.analysis.saliency.combine_samples_not_iterate
+        self.saliency_func_types = self.hp.analysis.saliency.func_type
 
         ## Automatically make hx_direction names so you don't have to type them
-        ## into the CLI args manually
+        ## manually
         if 'hx_direction' in self.saliency_func_types:
             rm_ind = self.saliency_func_types.index('hx_direction')
             self.saliency_func_types.pop(rm_ind)
             assert 'hx_direction' not in self.saliency_func_types
 
-            if 'to' in self.args.saliency_direction_ids:
+            if 'to' in self.hp.analysis.saliency_direction_ids:
                 self.saliency_direction_ids = range(
-                    int(self.args.saliency_direction_ids[0]),
-                    int(self.args.saliency_direction_ids[2]))
+                    int(self.hp.analysis.saliency.direction_ids[0]),
+                    int(self.hp.analysis.saliency.direction_ids[2]))
             else:
-                self.saliency_direction_ids = self.args.saliency_direction_ids
+                self.saliency_direction_ids = self.hp.analysis.saliency.direction_ids
 
             for direction_id in self.saliency_direction_ids:
                 direction_name = f'hx_direction_{direction_id}'
                 self.saliency_func_types.append(direction_name)
 
         ## Get the sample IDs for the samples that we'll use to make saliency maps
-        if 'to' in self.args.saliency_sample_ids:
-            self.saliency_sample_ids = range(int(self.args.saliency_sample_ids[0]), int(self.args.saliency_sample_ids[2]))
+        if 'to' in self.hp.analysis.saliency.sample_ids:
+            self.saliency_sample_ids = range(int(self.hp.analysis.saliency.sample_ids[0]), int(self.hp.analysis.saliency.sample_ids[2]))
         else:
-            self.saliency_sample_ids = self.args.saliency_sample_ids
+            self.saliency_sample_ids = self.hp.analysis.saliency.sample_ids
 
         # Load up the desired samples and their bottleneck vecs
 
@@ -77,7 +78,7 @@ class SaliencyExperiment(GenerativeModelExperiment):
         for saliency_func_type in self.saliency_func_types:
             print(f"Saliency function type: {saliency_func_type}")
             saliency_func = SaliencyFunction(saliency_func_type=saliency_func_type,
-                                             args=self.args,
+                                             hyperparams=self.hp,
                                              device=self.device)
 
             if self.combine_samples_not_iterate:
@@ -196,7 +197,9 @@ class SaliencyExperiment(GenerativeModelExperiment):
         # ims_grad = ims_grad / torch.abs(ims_grad).mean([1, 2]).unsqueeze(
         #     -1).unsqueeze(-1)
         ims_grad = ims_grad / torch.abs(ims_grad).mean()
-        blurrer = tv.transforms.GaussianBlur(3, sigma=1.)#(5, sigma=(5., 6.))
+        blurrer = tv.transforms.GaussianBlur(
+            kernel_size=self.hp.analysis.saliency.gaussian_kernel_size,
+            sigma=self.hp.analysis.saliency.sigma)#(5, sigma=(5., 6.))
         ims_grad = blurrer(ims_grad.squeeze()).unsqueeze(-1)
 
         pos_grads = ims_grad.where(ims_grad > 0., torch.zeros_like(ims_grad))
@@ -241,13 +244,13 @@ class SaliencyExperiment(GenerativeModelExperiment):
         combo_vid_name = f'{bottleneck_vec_name}_saliency_{saliency_func_type}.mp4'
         combo_vid_name = os.path.join(self.recording_data_save_dir,
                                       combo_vid_name)
-        tvio.write_video(combo_vid_name, combined_vid, fps=13)
+        tvio.write_video(combo_vid_name, combined_vid, fps=14)
 
     def change_blur_in_saved_ims(self):
         max_samples = 300
         saliency_func_types = ['value', 'action']
         saliency_func_types.extend(['hx_direction_%d' % i for i in range(0, 9)])
-        timesteps_used_in_saliency_exp = (9,)
+        timesteps_used_in_saliency_exp = self.hp.analysis.saliency.common_timesteps
 
         for sample_idx in range(max_samples):
             for saliency_func_type in saliency_func_types:
@@ -315,7 +318,7 @@ class SaliencyExperiment(GenerativeModelExperiment):
                 combo_vid_name = f'{sample_name}_saliency_{saliency_func_type}.mp4'
                 combo_vid_name = os.path.join(self.recording_data_save_dir,
                                               combo_vid_name)
-                tvio.write_video(combo_vid_name, combined_vid, fps=13)
+                tvio.write_video(combo_vid_name, combined_vid, fps=14)
 
 
     def get_bottleneck_vecs(self, sample_id):
@@ -323,7 +326,7 @@ class SaliencyExperiment(GenerativeModelExperiment):
                                   f'sample_{int(sample_id):05d}')
         bottleneck_vec_path = os.path.join(sample_dir, 'bottleneck_vec.npy')
         bottleneck_vecs = np.load(bottleneck_vec_path)
-        bottleneck_vecs = np.stack([bottleneck_vecs] * self.args.batch_size)
+        bottleneck_vecs = np.stack([bottleneck_vecs] * self.saliency_batch_size)
         bottleneck_vecs = torch.tensor(bottleneck_vecs, device=self.device)
         bottleneck_vecs = torch.nn.Parameter(bottleneck_vecs)
         bottleneck_vecs.requires_grad = True
@@ -345,7 +348,7 @@ class SaliencyExperiment(GenerativeModelExperiment):
         bottleneck_vecs = np.stack(bottleneck_vecs)
         bottleneck_vecs = np.mean(bottleneck_vecs, axis=0)  # Take their mean
         bottleneck_vecs = np.stack([
-                                       bottleneck_vecs] * self.args.batch_size)  # Create copies of the mean sample vec
+                                       bottleneck_vecs] * self.saliency_batch_size)  # Create copies of the mean sample vec
         bottleneck_vecs = torch.tensor(bottleneck_vecs, device=self.device)
         bottleneck_vecs = torch.nn.Parameter(bottleneck_vecs)
         # Normalize first so that adding the perturbation below doesn't cause
@@ -361,18 +364,16 @@ class SaliencyExperiment(GenerativeModelExperiment):
         bottleneck_vecs = safe_normalize(bottleneck_vecs)
         return bottleneck_vecs
 
-
-
 # TODO maybe actually throw away the last hx instead of the 0th. It depends
 #  on how the deletang diagram indexes ims and hx
 
 class SaliencyFunction():
-    def __init__(self, saliency_func_type, args, device='cuda'):
+    def __init__(self, saliency_func_type, hyperparams, device='cuda'):
         """
         """
         super(SaliencyFunction, self).__init__()
         self.device = device
-        self.args = args
+        self.hp = hyperparams
 
         self.saliency_func_type = saliency_func_type
         self.coinrun_actions = {0: 'downleft', 1: 'left', 2: 'upleft',
@@ -381,10 +382,13 @@ class SaliencyFunction():
                                 9: None, 10: None, 11: None,
                                 12: None, 13: None, 14: None}
 
-        directions_transformer = HiddenStateDimensionalityReducer('pca', 2000)
+        num_analysis_samples = self.hp.analysis.agent_h.num_episodes
+        directions_transformer = \
+            HiddenStateDimensionalityReducer('pca', num_analysis_samples)
 
         # Set settings for specific saliency functions
-        common_timesteps = (9,)#tuple(range(0,28))
+        common_timesteps = self.hp.analysis.saliency.common_timesteps #tuple(range(0,28))
+        common_timesteps = tuple(common_timesteps)
         if self.saliency_func_type == 'action':
             self.loss_func = self.action_saliency_loss_function
             self.timesteps = common_timesteps
@@ -397,19 +401,11 @@ class SaliencyFunction():
         elif self.saliency_func_type == 'jumping_right':
             self.loss_func = self.action_jumping_right_saliency_loss_function
             self.timesteps = common_timesteps
-        elif self.saliency_func_type == 'value': # because there's no v_0 in this agent
+        elif self.saliency_func_type == 'value':
             self.loss_func = self.value_saliency_loss_function
             self.timesteps = common_timesteps
         elif self.saliency_func_type == 'value_delta':
             self.loss_func = self.value_delta_saliency_loss_function
-        # elif self.saliency_func_type == 'hx_direction':
-        #     self.timesteps = common_timesteps # TODO define the index outside the class so that you can loop over directions too
-        #     self.direction_ids = self.args.saliency_direction_ids
-        #     self.directions_transformer = directions_transformer
-        #     self.loss_func = self.make_direction_saliency_function(
-        #         self.direction_ids,
-        #         self.timesteps,
-        #         self.directions_transformer)
         elif 'hx_direction_' in self.saliency_func_type:
             self.timesteps = common_timesteps
             direction_id = int(''.join(filter(str.isdigit, self.saliency_func_type)))

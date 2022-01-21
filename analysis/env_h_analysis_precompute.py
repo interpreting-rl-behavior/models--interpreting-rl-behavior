@@ -3,6 +3,7 @@ import numpy as np
 from precomput_analysis_funcs import scale_then_pca_then_save, plot_variance_expl_plot, clustering_after_pca, tsne_after_pca, nmf_then_save
 import argparse
 import os
+import yaml, munch
 
 pd.options.mode.chained_assignment = None  # default='warn'
 
@@ -13,24 +14,28 @@ def parse_args():
     parser = argparse.ArgumentParser(
         description='args for plotting')
     parser.add_argument(
-        '--agent_env_data_dir', type=str,
-        default="data/")
-    parser.add_argument(
-        '--generated_data_dir', type=str,
-        default='generative/rec_gen_mod_data/informed_init')
-
+        '--interpreting_params_name', type=str,
+        default='defaults')
     args = parser.parse_args()
     return args
 
 
 def run():
     args = parse_args()
-    num_samples = 2000#100#4000 # number of generated samples to use
-    num_epi_paths = 9  # Number of episode to plot paths through time for. Arrow plots.
-    n_components_pca = 64
-    n_components_tsne = 2
-    n_components_nmf = 64
-    n_clusters = 40#400
+
+    print('[Loading interpretation hyperparameters]')
+    with open('hyperparams/interpreting_configs.yml', 'r') as f:
+        hp = yaml.safe_load(f)[args.interpreting_params_name]
+    for key, value in hp.items():
+        print(key, ':', value)
+    hp = munch.munchify(hp)
+
+    num_samples = hp.analysis.env_h.num_sample # number of generated samples to use
+    num_epi_paths = hp.analysis.env_h.num_epi_paths  # Number of episode to plot paths through time for. Arrow plots.
+    n_components_pca = hp.analysis.env_h.n_components_pca
+    n_components_tsne = hp.analysis.env_h.n_components_tsne
+    n_components_nmf = hp.analysis.env_h.n_components_nmf
+    n_clusters = hp.analysis.env_h.n_clusters
 
     # Prepare load and save dirs
     generated_data_path = args.generated_data_dir
@@ -88,7 +93,9 @@ def run():
     # print("tSNE finished.")
 
     print('Starting NMF...')
-    nmf_then_save(env_h, n_components_nmf, save_path, "env", num_samples, tol=1e-4)
+    nmf_then_save(env_h, n_components_nmf, save_path, "env", num_samples,
+                  max_iter=hp.analysis.env_h.max_iter,
+                  tol=hp.analysis.env_h.nmf_tol)
     print("NMF finished.")
 
 if __name__ == "__main__":

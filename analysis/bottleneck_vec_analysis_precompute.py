@@ -13,6 +13,7 @@ import matplotlib
 import matplotlib.pyplot as plt
 import os
 import time
+import yaml, munch
 
 pd.options.mode.chained_assignment = None  # default='warn'
 
@@ -21,12 +22,8 @@ def parse_args():
     parser = argparse.ArgumentParser(
         description='args for plotting')
     parser.add_argument(
-        '--agent_env_data_dir', type=str,
-        default="data/")
-    parser.add_argument(
-        '--generated_data_dir', type=str,
-        default='generative/rec_gen_mod_data')
-
+        '--interpreting_params_name', type=str,
+        default='defaults')
     args = parser.parse_args()
     return args
 
@@ -34,15 +31,21 @@ def parse_args():
 # EPISODE_STRINGS = {v:str(v) for v in range(3431)}
 def run():
     args = parse_args()
-    num_samples = 1000 # number of generated samples to use
-    n_components_pca = 128
-    n_components_tsne = 2
-    n_clusters = 100
 
-    seed = 42  # for the tSNE algo
+    print('[Loading interpretation hyperparameters]')
+    with open('hyperparams/interpreting_configs.yml', 'r') as f:
+        hp = yaml.safe_load(f)[args.interpreting_params_name]
+    for key, value in hp.items():
+        print(key, ':', value)
+    hp = munch.munchify(hp)
+
+    num_samples = hp.analysis.bottlneck.num_samples # number of generated samples to use
+    n_components_pca = hp.analysis.bottlneck.num_components_pca
+    n_components_tsne = hp.analysis.bottlneck.num_components_tsne
+    n_clusters = hp.analysis.bottlneck.n_clusters
 
     # Prepare load and save dirs
-    generated_data_dir = args.generated_data_dir
+    generated_data_dir = hp.generated_data_dir
     generated_data_path_rand = os.path.join(
         generated_data_dir,
         'rand_init')
@@ -178,16 +181,6 @@ def run():
     # lv_inf_tsne = TSNE(n_components=n_components_tsne, random_state=seed).fit_transform(pca_for_tsne)
     # np.save(save_path + 'lv_inf_tsne_%i.npy' % num_samples, lv_inf_tsne)
     # print("tSNE finished.")
-
-
-
-
-
-
-
-
-
-
 
 
 

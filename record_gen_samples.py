@@ -27,13 +27,13 @@ class RecordingExperiment(GenerativeModelExperiment):
     """
     def __init__(self):
         super(RecordingExperiment, self).__init__()
-        if self.args.recording_rand_init:
+        if self.hp.gen_model.recording_rand_init:
             self.informed_initialization = False
             self.recording_data_save_dir = self.recording_data_save_dir_rand_init
         else:
             self.informed_initialization = True
             self.recording_data_save_dir = self.recording_data_save_dir_informed_init
-
+        self.gen_model.num_sim_steps = self.hp.analysis.saliency.num_sim_steps
 
     def run_recording_loop(self):
         # TODO manual actions
@@ -45,7 +45,7 @@ class RecordingExperiment(GenerativeModelExperiment):
         for batch_idx, data in enumerate(self.train_loader):
             self.record(data, batch_idx, samples_so_far,
                         informed_initialization=self.informed_initialization )
-            samples_so_far += self.args.batch_size
+            samples_so_far += self.hp.gen_model.batch_size
             print(samples_so_far)
         print("Dataset fully recorded. You probably shouldn't be seeing this."+\
               "You've probably made too much data.")
@@ -85,7 +85,7 @@ class RecordingExperiment(GenerativeModelExperiment):
                                calc_loss=False,
                                modal_sampling=True)
         else:
-            bottleneck_vec = torch.randn(self.args.batch_size,
+            bottleneck_vec = torch.randn(self.hp.gen_model.batch_size,
                                          self.gen_model.bottleneck_vec_size,
                                          device=self.device)
             bottleneck_vec = safe_normalize(bottleneck_vec)
@@ -116,10 +116,10 @@ class RecordingExperiment(GenerativeModelExperiment):
                     retain_grads=True, )
 
         # Logging and saving info
-        if batch_idx % self.args.log_interval == 0:
+        if batch_idx % self.hp.gen_model.log_interval == 0:
             self.logger.logkv('batches', batch_idx)
             self.logger.dumpkvs()
-        batch_size = self.args.batch_size
+        batch_size = self.hp.gen_model.batch_size
         new_sample_indices = range(samples_so_far,
                                    samples_so_far + batch_size)
 
@@ -156,7 +156,7 @@ class RecordingExperiment(GenerativeModelExperiment):
         # Recover the actions for use in the action overlay
         if manual_actions is not None:
             actions = np.ones(
-                (self.args.batch_size, self.args.num_sim_steps)) * manual_actions
+                (self.hp.gen_model.batch_size, self.hp.analysis.saliency.num_sim_steps)) * manual_actions
         else:
             actions = np.argmax(pred_act_log_prob, axis=-1)
             # Maybe if you ever use this, use pred_actions_inds instead
@@ -194,10 +194,11 @@ class RecordingExperiment(GenerativeModelExperiment):
         # Set custom batch size and custom data loader
         custom_bs = 9
         num_manual_actions_samples = 10
-        num_init_steps = self.args.num_init_steps
-        num_sim_steps = self.args.num_sim_steps
+        num_init_steps = self.hp.gen_model.num_init_steps
+        num_sim_steps = self.hp.analysis.saliency.num_sim_steps_manual_actions
+        self.gen_model.num_sim_steps = self.hp.analysis.saliency.num_sim_steps_manual_actions
         num_steps_full = num_init_steps + num_sim_steps - 1
-        train_dataset = ProcgenDataset(self.args.data_dir,
+        train_dataset = ProcgenDataset(self.hp.data_dir,
                                        initializer_seq_len=num_init_steps,
                                        num_steps_full=num_steps_full)
         train_loader = torch.utils.data.DataLoader(train_dataset,
@@ -285,7 +286,7 @@ class RecordingExperiment(GenerativeModelExperiment):
         # viz_batch_size = min(int(pred_images.shape[0]), 20)
 
         if use_true_actions:  # N.b. We only ever have true actions with informed init
-            true_actions_inds = data['action'][-self.args.num_sim_steps:]
+            true_actions_inds = data['action'][-self.gen_model.num_sim_steps:]
             true_actions_inds = true_actions_inds.permute(1, 0)
             viz_actions_inds = true_actions_inds.clone().cpu().numpy()
         else:

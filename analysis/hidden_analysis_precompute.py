@@ -7,6 +7,7 @@ from precomput_analysis_funcs import \
     nmf_then_save, ica_then_save
 import argparse
 import os
+import yaml, munch
 
 pd.options.mode.chained_assignment = None  # default='warn'
 
@@ -17,32 +18,34 @@ def parse_args():
     parser = argparse.ArgumentParser(
         description='args for plotting')
     parser.add_argument(
-        '--agent_env_data_dir', type=str,
-        default="data/")
-    parser.add_argument(
-        '--generated_data_dir', type=str,
-        default='generative/rec_gen_mod_data/informed_init')
-
+        '--interpreting_params_name', type=str,
+        default='defaults')
     args = parser.parse_args()
     return args
 
 
 def run():
     args = parse_args()
-    num_episodes = 2000  # number of episodes to make plots for
-    num_generated_samples = 200 # number of generated samples to use
-    num_epi_paths = 9  # Number of episode to plot paths through time for. Arrow plots.
-    n_components_pca = 64
-    n_components_tsne = 2
-    n_components_nmf_or_ica = 20#32
-    n_clusters = 20#40##100
+
+    print('[Loading interpretation hyperparameters]')
+    with open('hyperparams/interpreting_configs.yml', 'r') as f:
+        hp = yaml.safe_load(f)[args.interpreting_params_name]
+    for key, value in hp.items():
+        print(key, ':', value)
+    hp = munch.munchify(hp)
+
+    num_episodes = hp.analysis.agent_h.num_episodes  # number of episodes to make plots for
+    num_generated_samples = hp.analysis.agent_h.num_generated_samples # number of generated samples to use
+    num_epi_paths = hp.analysis.agent_h.num_epi_paths  # Number of episode to plot paths through time for. Arrow plots.
+    n_components_pca = hp.analysis.agent_h.n_components_pca
+    n_components_tsne = hp.analysis.agent_h.n_components_tsne
+    n_components_nmf_or_ica = hp.analysis.agent_h.n_components_nmf_or_ica#32
+    n_clusters = hp.analysis.agent_h.n_clusters#40##100
     path_epis = list(range(num_epi_paths))
 
-    seed = 42  # for the tSNE algo
-
     # Prepare load and save dirs
-    main_data_path = args.agent_env_data_dir
-    generated_data_path = args.generated_data_dir
+    main_data_path = hp.data_dir
+    generated_data_path = hp.generated_data_dir
     save_path = 'hx_analysis_precomp/'
     save_path = os.path.join(os.getcwd(), "analysis", save_path)
     plot_save_path = 'hx_plots'
@@ -118,22 +121,19 @@ def run():
                    save_path, "hx", num_episodes)
     print("tSNE finished.")
 
-    # print('Starting UMAP...')
-    # pca_for_umap = pca_for_tsne
-    # reducer = umap.UMAP()
-    # env_h_umap = reducer.fit_transform(pca_for_umap)
-    # np.save(save_path + 'env_h_umap_%i.npy' % num_samples, env_h_umap)
-    # print("tSNE finished.")
-
+    # NMF
     print('Starting NMF...')
     nmf_then_save(hx, n_components_nmf_or_ica, save_path, "hx", num_episodes,
-                  max_iter=5000, tol=1e-4)
+                  max_iter=hp.analysis.agent_h.nmf_max_iter,
+                  tol=hp.analysis.agent_h.nmf_tol)
     print("NMF finished.")
 
     # ICA
     print("Starting ICA")
     ica_then_save(centred_scaled_hx_pca, save_path,
-                  "hx", num_episodes, max_iter=2000, tol=1e-3)
+                  "hx", num_episodes,
+                  max_iter=hp.analysis.agent_h.ica_max_iter,
+                  tol=hp.analysis.agent_h.ica_tol)
     print("ICA finished")
 
 

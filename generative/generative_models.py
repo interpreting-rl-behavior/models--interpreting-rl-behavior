@@ -31,7 +31,7 @@ class AgentEnvironmentSimulator(nn.Module):
 
         # Networks
         self.conv_in = MultiEncoder(cnn_depth=32, image_channels=3)
-        hyperparams.__dict__.update({'embed_dim': self.conv_in.out_dim})
+        hyperparams.embed_dim = self.conv_in.out_dim
         self.encoder = AEEncoder(hyperparams, device)
         self.bottleneck_vec_converter_env = NLayerPerceptron(
             [hyperparams.bottleneck_vec_size,
@@ -375,7 +375,6 @@ class AgentEnvironmentSimulator(nn.Module):
                                 'bottleneck_vec': bottleneck_vec,
                                 'env_h': states_env_h}
 
-
         posts = torch.stack(posts)                  # (T,B,2S)
         priors = torch.stack(priors)                  # (T,B,2S)
         pred_actions_1hot = torch.stack(pred_actions_1hot)
@@ -568,11 +567,11 @@ class AgentEnvStepper(nn.Module):
             if imagine:
                 prior = self.get_prior(h)
                 prior_distr = self.zdistr(prior)
-                post = None
+                post = torch.tensor(float('nan'))
                 sample = self.sample_from_distr(prior_distr, B,
                                                 modal_sampling=modal_sampling)
             else:
-                prior = None
+                prior = torch.tensor(float('nan'))
                 post = self.get_post(h, embed)
                 post_distr = self.zdistr(post)
                 sample = self.sample_from_distr(post_distr, B,

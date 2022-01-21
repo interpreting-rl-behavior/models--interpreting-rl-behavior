@@ -14,7 +14,7 @@ class LossOverTimeExperiment(GenerativeModelExperiment):
     def __init__(self):
         super(LossOverTimeExperiment, self).__init__()
 
-        self.num_batches_collect = 16
+        self.num_batches_collect = self.hp.num_batches
         save_path = 'loss_over_time/'
         save_path = os.path.join(os.getcwd(), "analysis", save_path)
         loss_sess_name = datetime.now().strftime("%Y%m%d_%H%M%S")
@@ -97,7 +97,7 @@ class LossOverTimeExperiment(GenerativeModelExperiment):
             loss_dict_list.append(loss_dict_no_grad)
 
             # Logging and saving info
-            if batch_idx % self.args.log_interval == 0:
+            if batch_idx % self.hp.gen_model.log_interval == 0:
                 logger.logkv('batches', batch_idx)
                 logger.logkv('loss_model', loss_model_sum.item())
                 for k, v in loss_dict_no_grad.items():

@@ -16,6 +16,8 @@ from overlay_image import overlay_actions, overlay_box_var
 
 from util.namespace import Namespace
 from datetime import datetime
+import yaml
+import munch
 
 
 class GenerativeModelExperiment():
@@ -42,17 +44,24 @@ class GenerativeModelExperiment():
         super(GenerativeModelExperiment, self).__init__()
 
         args = self.parse_the_args()
+        print('[Loading interpretation hyperparameters]')
+        with open('hyperparams/interpreting_configs.yml', 'r') as f:
+            hp = yaml.safe_load(f)[args.interpreting_params_name]
+        for key, value in hp.items():
+            print(key, ':', value)
+
+        hp = munch.munchify(hp)
 
         # Collect hyperparams from arguments
-        param_name = args.param_name
-        device = args.device
-        gpu_device = args.gpu_device
+        device = hp.device
+        gpu_device = hp.gpu_device
         seed = args.seed
-        log_level = args.log_level
-        num_checkpoints = args.num_checkpoints
-        batch_size = args.batch_size
-        num_init_steps = args.num_init_steps
-        num_sim_steps = args.num_sim_steps
+        log_level = hp.agent_gm.log_level
+        num_checkpoints = hp.agent_gm.num_checkpoints
+
+        batch_size = hp.gen_model.batch_size
+        num_init_steps = hp.gen_model.num_init_steps
+        num_sim_steps = hp.gen_model.num_sim_steps
         num_steps_full = num_init_steps + num_sim_steps - 1
         # minus one because the first simulated image is the last
         # initializing context ims.
@@ -60,28 +69,22 @@ class GenerativeModelExperiment():
         set_global_seeds(seed)
         set_global_log_levels(log_level)
 
-        print('[LOADING AGENT HYPERPARAMETERS...]')
-        with open('hyperparams/procgen/config.yml', 'r') as f:
-            agent_hyperparams = yaml.safe_load(f)[param_name]
-        for key, value in agent_hyperparams.items():
-            print(key, ':', value)
-
         # Device
         os.environ["CUDA_VISIBLE_DEVICES"] = str(gpu_device)
-        if args.device == 'gpu':
+        if hp.device == 'gpu':
             device = torch.device('cuda')
-        elif args.device == 'cpu':
+        elif hp.device == 'cpu':
             device = torch.device('cpu')
 
         # Set up environment (Only used for initializing agent)
         print('INITIALIZING ENVIRONMENTS...')
-        n_steps = 1
-        n_envs = agent_hyperparams.get('n_envs', 64)
-        env = create_venv(args, agent_hyperparams)
+        n_steps = hp.agent_gm.n_steps
+        n_envs = hp.agent_gm.n_envs
+        env = create_venv(args, hp.agent_gm)
 
         # Make save dirs
         print('INITIALIZING LOGGER...')
-        log_dir_base = args.log_dir_base
+        log_dir_base = hp.log_dir_base
         # log_dir_base = 'generative/'   # for training
         # log_dir_base = 'experiments/'  # for experiments
         if not (os.path.exists(log_dir_base)):
@@ -103,6 +106,9 @@ class GenerativeModelExperiment():
             if not (os.path.exists(reconpred_dir)):
                 os.makedirs(reconpred_dir)
 
+        # TODO consider having a function that saves the sessname and exp name
+        #  to the configs file and then saves it in a configs record folder
+
         # Logger
         logger.configure(dir=sess_dir, format_strs=['csv', 'stdout'])
 
@@ -110,7 +116,7 @@ class GenerativeModelExperiment():
         print('INITIALIZING AGENT MODEL...')
         observation_space = env.observation_space
         observation_shape = observation_space.shape
-        architecture = agent_hyperparams.get('architecture', 'impala')
+        architecture = hp.agent_gm.architecture
         in_channels = observation_shape[0]
         action_space = env.action_space
 
@@ -121,7 +127,7 @@ class GenerativeModelExperiment():
             model = ImpalaModel(in_channels=in_channels)
 
         ## Agent's discrete action space
-        recurrent = agent_hyperparams.get('recurrent', False)
+        recurrent = hp.agent_gm.recurrent
         if isinstance(action_space, gym.spaces.Discrete):
             action_space_size = action_space.n
             policy = CategoricalPolicy(model, recurrent, action_space_size)
@@ -143,13 +149,13 @@ class GenerativeModelExperiment():
 
         ## And, finally, the agent itself
         print('INTIALIZING AGENT...')
-        algo = agent_hyperparams.get('algo', 'ppo')
+        algo = hp.agent_gm.algo
         if algo == 'ppo':
             from agents.ppo import PPO as AGENT
         else:
             raise NotImplementedError
         agent = AGENT(env, policy, logger, storage, device, num_checkpoints,
-                      **agent_hyperparams)
+                      **hp.agent_gm)
         if args.agent_file is not None:
             logger.info("Loading agent from %s" % args.agent_file)
             checkpoint = torch.load(args.agent_file, map_location=device)
@@ -160,7 +166,7 @@ class GenerativeModelExperiment():
 
         # Set up generative model
         ## Make dataset
-        train_dataset = ProcgenDataset(args.data_dir,
+        train_dataset = ProcgenDataset(hp.data_dir,
                                        initializer_seq_len=num_init_steps,
                                        num_steps_full=num_steps_full, )
         train_loader = torch.utils.data.DataLoader(train_dataset,
@@ -169,36 +175,10 @@ class GenerativeModelExperiment():
                                                    drop_last=True,
                                                    num_workers=2)
 
-        ## Make or load generative model and optimizer
-        gen_model_hyperparams = Namespace(
-            # TODO maybe put all configs like this and CLI args in a single configs file
-            num_init_steps=num_init_steps,
-            num_steps_full=num_steps_full,
-            num_sim_steps=num_sim_steps,
-            stoch_discrete=32,
-            stoch_dim=32,
-            env_h_stoch_size=32 * 32,
-            agent_hidden_size=64,
-            action_space_size=action_space_size,
-            deter_dim=512,  # 2048
-            initializer_rnn_hidden_size=512,
-            layer_norm=True,
-            hidden_dim=1000,
-            image_channels=3,
-            cnn_depth=48,
-            reward_decoder_layers=4,
-            terminal_decoder_layers=4,
-            kl_weight=12.,
-            kl_balance=0.8,
-            bottleneck_loss_weight=100.,
-            bottleneck_vec_size=128,
-            env_update_penalty_weight=0.5
-        )
-
         gen_model = AgentEnvironmentSimulator(agent, device,
-                                              gen_model_hyperparams)
+                                              hp.gen_model)
         gen_model = gen_model.to(device)
-        optimizer = torch.optim.Adam(gen_model.parameters(), lr=args.lr)
+        optimizer = torch.optim.Adam(gen_model.parameters(), lr=hp.gen_model.lr)
 
         if args.model_file is not None:
             logger.info("Loading generative model from %s" % args.model_file)
@@ -211,19 +191,19 @@ class GenerativeModelExperiment():
         else:
             logger.info('Using an UNTRAINED generative model')
 
+        self.hp = hp
         self.args = args
         self.gen_model = gen_model
         self.agent = agent
         self.train_loader = train_loader
         self.resdir = resdir
         self.sess_dir = sess_dir
-        self.data_save_dir = args.data_dir
+        self.data_save_dir = hp.data_dir
         self.device = device
         self.logger = logger
         self.optimizer = optimizer
-        self.hyperparams = gen_model_hyperparams
 
-        self.recording_data_root_dir = args.generated_data_dir
+        self.recording_data_root_dir = hp.generated_data_dir
         self.recording_data_save_dir_rand_init = os.path.join(
             self.recording_data_root_dir,
             'rand_init'
@@ -234,7 +214,10 @@ class GenerativeModelExperiment():
         )
 
     def parse_the_args(self):
-        parser = argparse.ArgumentParser()
+        parser = argparse.ArgumentParser() # TODO clean up these CLI args Most stuff is already in the yaml file
+        parser.add_argument('--interpreting_params_name', type=str, default='defaults',
+                            help='which set of configs to use from the ' + \
+                                 'hyperparams/interpreting_configs.yml file.')
         parser.add_argument('--exp_name', type=str, default='test',
                             help='experiment name')  # TODO can we get rid of this?
         parser.add_argument('--gen_mod_exp_name', type=str, default='test_tgm',
@@ -249,7 +232,7 @@ class GenerativeModelExperiment():
                             help='number of training levels for environment')
         parser.add_argument('--distribution_mode', type=str, default='easy',
                             help='distribution mode for environment')
-        parser.add_argument('--param_name', type=str, default='hard-rec',
+        parser.add_argument('--agent_param_name', type=str, default='hard-rec',
                             help='hyper-parameter ID')
         parser.add_argument('--device', type=str, default='gpu', required=False,
                             help='whether to use gpu')
@@ -265,43 +248,16 @@ class GenerativeModelExperiment():
                             help='number of checkpoints to store')
         parser.add_argument('--model_file', type=str)
         parser.add_argument('--agent_file', type=str)
-        parser.add_argument('--data_dir', type=str, default='data/')
-        parser.add_argument('--log_dir_base', type=str, default='generative/')
-        # log_dir_base = 'generative/'   # for training
-        # log_dir_base = 'experiments/'  # for experiments
-        parser.add_argument('--save_interval', type=int, default=100)
-        parser.add_argument('--log_interval', type=int, default=100)
-        parser.add_argument('--lr', type=float, default=5e-4)
-        parser.add_argument('--batch_size', type=int, default=128)
-        parser.add_argument('--num_init_steps', type=int, default=8)
-        parser.add_argument('--num_sim_steps', type=int, default=22)
-        parser.add_argument('--layer_norm', type=int, default=0)
+
 
         # multi threading
         parser.add_argument('--num_threads', type=int, default=8)
-
-        # Loss function hyperparams
-        parser.add_argument('--loss_scale_ims', type=float, default=1.)
-        parser.add_argument('--loss_scale_hx', type=float, default=1.)
-        parser.add_argument('--loss_scale_reward', type=float, default=1.)
-        parser.add_argument('--loss_scale_terminal', type=float, default=1.)
-        parser.add_argument('--loss_scale_act_log_probs', type=float,default=1.)
-        parser.add_argument('--loss_scale_gen_adv', type=float, default=1.)
-        parser.add_argument('--loss_scale_kl', type=float, default=1.)
 
         # Recording experiments
         parser.add_argument('--recording_rand_init', dest='recording_rand_init', action='store_true')
         parser.set_defaults(recording_rand_init=False)
         parser.add_argument('--generated_data_dir', type=str, default='./generative/rec_gen_mod_data/')
 
-
-        # Saliency experiments
-        parser.add_argument('--saliency_func_type', nargs='+')
-        parser.add_argument('--combine_samples_not_iterate', dest='combine_samples_not_iterate', action='store_true')
-        parser.set_defaults(combine_samples_not_iterate=False)
-        parser.add_argument('--saliency_direction_ids', nargs='+', default=[])
-        parser.add_argument('--saliency_batch_size', type=int, default=9)
-        parser.add_argument('--saliency_sample_ids', nargs='+', default=[])
 
 
         # Collect hyperparams from arguments
@@ -359,16 +315,16 @@ class GenerativeModelExperiment():
 
     def extract_from_data(self, data):
         full_ims = data['ims']
-        full_ims = full_ims[-self.args.num_sim_steps:]
+        full_ims = full_ims[-self.hp.gen_model.num_sim_steps:]
         full_ims = full_ims.permute(1, 0, 3, 4, 2)
 
-        true_actions_inds = data['action'][-self.args.num_sim_steps:]
+        true_actions_inds = data['action'][-self.hp.gen_model.num_sim_steps:]
         true_actions_inds = true_actions_inds.permute(1, 0)
 
-        true_terminals = data['terminal'][-self.args.num_sim_steps:]
+        true_terminals = data['terminal'][-self.hp.gen_model.num_sim_steps:]
         true_terminals = true_terminals.permute(1, 0)
 
-        true_rews = data['reward'][-self.args.num_sim_steps:]
+        true_rews = data['reward'][-self.hp.gen_model.num_sim_steps:]
         true_rews = true_rews.permute(1, 0)
         return full_ims, true_actions_inds, true_terminals, true_rews
 
@@ -612,7 +568,7 @@ class GenerativeModelExperiment():
         # viz_batch_size = min(int(pred_images.shape[0]), 20)
 
         if use_true_actions:  # N.b. We only ever have true actions with informed init
-            true_actions_inds = data['action'][-self.args.num_sim_steps:]
+            true_actions_inds = data['action'][-self.gen_model.num_sim_steps:]
             true_actions_inds = true_actions_inds.permute(1, 0)
             viz_actions_inds = true_actions_inds.clone().cpu().numpy()
         else:
@@ -651,14 +607,14 @@ class GenerativeModelExperiment():
                 tvio.write_video(save_str, pred_im, fps=14)
 
     def get_swap_directions(self):
-        if self.args.swap_directions_from is not None:
-            assert len(self.args.swap_directions_from) == \
-                   len(self.args.swap_directions_to)
+        if self.hp.gen_model.swap_directions_from is not None:
+            assert len(self.hp.gen_model.swap_directions_from) == \
+                   len(self.hp.gen_model.swap_directions_to)
             from_dircs = []
             to_dircs = []
             # Convert from strings into the right type (int or None)
-            for from_dirc, to_dirc in zip(self.args.swap_directions_from,
-                                          self.args.swap_directions_to):
+            for from_dirc, to_dirc in zip(self.hp.gen_model.swap_directions_from,
+                                          self.hp.gen_model.swap_directions_to):
                 if from_dirc == 'None':
                     from_dircs.append(None)
                 else:
