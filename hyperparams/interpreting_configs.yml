@@ -1,0 +1,123 @@
+defaults:
+    device: gpu
+    gpu_device: 0
+    data_dir: ./data/
+    log_dir_base: generative/
+    generated_data_dir: ./generative/rec_gen_mod_data/
+
+    agent_gm: # Separate from the configs dedicated to training and rendering the agent because they're just dummy configs here for instantiating the agent
+        log_level: 40
+        num_checkpoints: 1
+        num_threads: 8
+        env_name: coinrun
+        distribution_mode: hard
+        algo: ppo
+        n_envs: 16
+        n_steps: 1
+        epoch: 3
+        mini_batch_per_epoch: 8
+        mini_batch_size: 8192
+        gamma: 0.999
+        lmbda: 0.95
+        learning_rate: 0.0005
+        grad_clip_norm: 0.5
+        eps_clip: 0.2
+        value_coef: 0.5
+        entropy_coef: 0.01
+        normalize_adv: True
+        normalize_rew: True
+        use_gae: True
+        architecture: impala
+        recurrent: True
+
+    gen_model:
+        log_interval: 10
+        save_interval: 10000
+        lr: 0.0005
+        batch_size: 2
+        epochs: 1000
+        num_init_steps: 3
+        num_steps_full:
+        num_sim_steps: 32
+        stoch_discrete: 32
+        stoch_dim: 32
+        env_h_stoch_size: 1024
+        agent_hidden_size: 64
+        action_space_size: 15
+        deter_dim: 512
+        initializer_rnn_hidden_size: 512
+        layer_norm: True
+        hidden_dim: 1000
+        image_channels: 3
+        cnn_depth: 48
+        reward_decoder_layers: 4
+        terminal_decoder_layers: 4
+        kl_weight: 12.0
+        kl_balance: 0.8
+        bottleneck_loss_weight: 100.0
+        bottleneck_vec_size: 128
+        env_update_penalty_weight: 0.5
+        recording_rand_init: False
+        swap_directions_from: null
+        swap_directions_to: null
+    analysis:
+        tsne_seed: 42
+        presaved_data_path: /media/lee/DATA/DDocs/AI_neuro_work/assurance_project_stuff/data/precollected/
+        agent_h:
+            informed_or_random_init: informed_init
+            num_episodes: 2000
+            num_generated_samples: 200
+            num_epi_paths: 9
+            n_components_pca: 64
+            n_components_tsne: 2
+            n_components_nmf_or_ica: 20
+            n_clusters: 20
+            nmf_max_iter: 5000
+            nmf_tol: 0.0001
+            ica_max_iter: 2000
+            ica_tol: 0.001
+            precomputed_analysis_data_path: analysis/hx_analysis_precomp/
+        env_h:
+            num_samples: 2000 # Number of generated samples to use
+            num_epi_paths: 9 # Number of episode to plot paths through time for. Arrow plots.
+            n_components_pca: 64
+            n_components_tsne: 2
+            n_components_nmf: 64
+            n_clusters: 40
+            nmf_max_iter: 5000
+            nmf_tol: 0.0001
+            first_pc_ind: 0
+            second_pc_ind: 1
+            third_pc_ind: 2
+            precomputed_analysis_data_path: analysis/env_h_analysis_precomp/
+        bottleneck:
+            num_samples: 1000
+            n_components_pca: 128
+            n_components_tsne: 2
+            n_clusters: 100
+            plot_pca: True
+            plot_3d_pca_all: True
+            plot_clusters: True
+            plot_tsne: True
+            first_pc_ind: 0
+            second_pc_ind: 1
+            precomputed_analysis_data_path: analysis/bottleneck_vec_analysis_precomp/
+        loss_over_time:
+            num_batches: 16
+        saliency:
+            num_sim_steps: 10
+            num_sim_steps_manual_actions: 32
+            common_timesteps: [5]
+            func_type: [value, action]
+            direction_ids: ['0', 'to', '9']
+            sample_ids: ['0', 'to', '3']
+            batch_size: 9
+            combine_samples_not_iterate: False
+            perturbation_scale: 0.0001
+            gaussian_kernel_size: 3.
+            sigma: 1.
+
+
+
+walter:
+    algo: ppo
