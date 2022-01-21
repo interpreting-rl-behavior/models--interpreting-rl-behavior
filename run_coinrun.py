@@ -28,7 +28,8 @@ if __name__=='__main__':
     #render parameters
     parser.add_argument('--num_envs', type=int, default=1)
     parser.add_argument('--vid_dir', type=str, default=None)
-    parser.add_argument('--model_file', type=str)
+    parser.add_argument('--model_file', type=str, help="Can be either a path to a model file, or an "
+                                       "integer. Integer is interpreted as random_percent in training")
     parser.add_argument('--save_value', action='store_true')
 
 
@@ -47,13 +48,30 @@ if __name__=='__main__':
         seeds = np.arange(args.num_seeds) + args.start_level_seed
     metrics = []
 
+    def get_model_path(random_percent):
+        """saved model trained with random_percent"""
+        assert random_percent in [0,1,2,3,6,11]
+        base_path = "../results/random_percent/"
+        if random_percent > 0:
+            # correct for off by one error during training
+            return base_path + f"random_percent_{random_percent-1}/model_200015872.pth"
+        else:
+            return "../model-files/coinrun.pth"
+    
+    try:
+        model_file = get_model_path(int(args.model_file))
+    except (ValueError, AssertionError):
+        model_file = args.model_file
+
     if args.random_percent == 0:
         logpath = config.results_dir + "vanilla-coinrun/"
     elif args.random_percent == 100:
         logpath = config.results_dir + "modified-coinrun/"
     else:
-        logpath = config.results_dir + f"coinrun-random_percent={args.random_percent}/"
+        logpath = config.results_dir + f"coinrun-random_percent_{args.random_percent}/"
 
+    assert int(args.model_file) in range(12)  # TODO allow for arbitrary model_file
+    logpath += f"model_rand_percent_{args.model_file}/"
 
     if not (os.path.exists(logpath)):
         os.makedirs(logpath)
@@ -65,7 +83,7 @@ if __name__=='__main__':
     for env_seed in tqdm(seeds):
         run_env(exp_name=args.exp_name,
             logfile=logfile,
-            model_file=args.model_file,
+            model_file=model_file,
             level_seed=env_seed,
             device=args.device,
             gpu_device=args.gpu_device,
