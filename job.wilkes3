@@ -53,19 +53,17 @@ module purge                               # Removes all modules still loaded
 module load rhel8/default-amp              # REQUIRED - loads the basic environment
 
 #! Insert additional module load commands after this line if needed:
-nvcc --version
-##  module load cuda/11.2 cudnn/8.0_cuda-11.2
 
 #! Full path to application executable: 
 application="python train.py"
 
 #! Run options for the application:
 #let n_steps=2*10**8
-let n_steps=2*10**8
+n_steps=170000000
 seed=0
 n_checkpoints=5
 n_threads=32 # 32 CPUs per GPU
-wandb_tags="hpc testing_batchsize"
+wandb_tags="hpc normal-hparams"
 options="\
 	--env_name heist_aisc_many_chests --val_env_name heist_aisc_many_keys \
 	--use_wandb \
@@ -74,7 +72,8 @@ options="\
 	--num_timesteps $n_steps \
 	--num_checkpoints $n_checkpoints\
 	--num_threads $n_threads
-	--key_penalty 3"
+	--key_penalty 3\
+	--wandb_tags $wandb_tags"
 
 #! Work directory (i.e. where the job will run):
 workdir="$SLURM_SUBMIT_DIR"  # The value of SLURM_SUBMIT_DIR sets workdir to the directory
