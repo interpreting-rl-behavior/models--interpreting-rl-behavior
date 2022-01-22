@@ -30,7 +30,7 @@
 
 
 #SBATCH --array=0-10
-#SBATCH --output=slurm-out/%x.%A-%a.out
+#SBATCH --output=slurm-out/array-jobs/%x.%A-%a.out
 #!#SBATCH --output=slurm-out/%x.%j.out
 
 
@@ -72,7 +72,7 @@ wandb_tags="hpc large-model freq-sweep"
 let random_percent=2*$SLURM_ARRAY_TASK_ID
 
 keys_and_chests_opt="--env_name heist_aisc_many_chests --val_env_name heist_aisc_many_keys --key_penalty 3"
-coinrun_opt="--env_name coinrun --random-percent $random_percent --val_env_name coinrun_aisc" # coinrun_aisc ignores random_percent
+coinrun_opt="--env_name coinrun --random_percent $random_percent --val_env_name coinrun_aisc" # coinrun_aisc ignores random_percent
 options="\
 	$coinrun_opt \
 	--use_wandb \
