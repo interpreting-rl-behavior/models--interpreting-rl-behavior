@@ -91,15 +91,16 @@ class ImpalaBlock(nn.Module):
         x = self.res2(x)
         return x
 
+scale = 4
 class ImpalaModel(nn.Module):
     def __init__(self,
                  in_channels,
                  **kwargs):
         super(ImpalaModel, self).__init__()
-        self.block1 = ImpalaBlock(in_channels=in_channels, out_channels=16)
-        self.block2 = ImpalaBlock(in_channels=16, out_channels=32)
-        self.block3 = ImpalaBlock(in_channels=32, out_channels=32)
-        self.fc = nn.Linear(in_features=32 * 8 * 8, out_features=256)
+        self.block1 = ImpalaBlock(in_channels=in_channels, out_channels=16*scale)
+        self.block2 = ImpalaBlock(in_channels=16*scale, out_channels=32*scale)
+        self.block3 = ImpalaBlock(in_channels=32*scale, out_channels=32*scale)
+        self.fc = nn.Linear(in_features=32*scale * 8 * 8, out_features=256)
 
         self.output_dim = 256
         self.apply(xavier_uniform_init)

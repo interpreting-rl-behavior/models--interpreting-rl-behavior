@@ -63,7 +63,7 @@ n_steps=170000000
 seed=0
 n_checkpoints=5
 n_threads=32 # 32 CPUs per GPU
-wandb_tags="hpc normal-hparams"
+wandb_tags="hpc large-model"
 options="\
 	--env_name heist_aisc_many_chests --val_env_name heist_aisc_many_keys \
 	--use_wandb \
