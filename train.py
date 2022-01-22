@@ -120,8 +120,8 @@ if __name__=='__main__':
     ## LOGGER ##
     ############
     print('INITIALIZING LOGGER...')
-    logdir = 'train/' + env_name + '/' + exp_name + '/' + 'seed' + '_' + \
-             str(seed) + '_' + time.strftime("%d-%m-%Y_%H-%M-%S")
+    run_name = time.strftime("%Y-%m-%d__%H-%M-%S") + f'__seed_{seed}'
+    logdir = 'train/' + env_name + '/' + exp_name + '/' + run_name 
     logdir = os.path.join('logs', logdir)
     if not (os.path.exists(logdir)):
         os.makedirs(logdir)
