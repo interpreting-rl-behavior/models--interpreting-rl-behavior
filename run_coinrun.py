@@ -74,13 +74,13 @@ if __name__=='__main__':
     logpath += f"model_rand_percent_{args.model_file}/"
 
     if not (os.path.exists(logpath)):
-        os.makedirs(logpath)
+        os.makedirs(logpath, exist_ok=True)
 
     #logfile = logpath + f"agent_seed_{args.agent_seed}__date_" + time.strftime("%d-%m-%Y_%H-%M-%S.csv")
     logfile = logpath + "metrics.csv"
     print(f"Saving metrics to {logfile}.")
     print(f"Running coinrun with random_percent={args.random_percent}...")
-    for env_seed in tqdm(seeds):
+    for env_seed in tqdm(seeds, disable=True):
         run_env(exp_name=args.exp_name,
             logfile=logfile,
             model_file=model_file,
