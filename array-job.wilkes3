@@ -9,7 +9,7 @@
 
 #! sbatch directives begin here ###############################
 #! Name of the job:
-#SBATCH -J keys-and-chests
+#SBATCH -J coinrun-sweep
 #! Which project should be charged (NB Wilkes2 projects end in '-GPU'):
 #SBATCH -A KRUEGER-SL3-GPU
 #! How many whole nodes should be allocated?
@@ -28,7 +28,10 @@
 #! interrupted by node failure or system downtime):
 ##SBATCH --no-requeue
 
-#SBATCH --output=slurm-out/%x.%j.out
+
+#SBATCH --array=0-10
+#SBATCH --output=slurm-out/%x.%A-%a.out
+#!#SBATCH --output=slurm-out/%x.%j.out
 
 
 #! Do not change:
@@ -66,12 +69,12 @@ let n_steps=80*10**6
 n_checkpoints=4
 n_threads=32 # 32 CPUs per GPU
 wandb_tags="hpc large-model freq-sweep"
-random_percent=0
+let random_percent=2*$SLURM_ARRAY_TASK_ID
 
 keys_and_chests_opt="--env_name heist_aisc_many_chests --val_env_name heist_aisc_many_keys --key_penalty 3"
 coinrun_opt="--env_name coinrun --random-percent $random_percent --val_env_name coinrun_aisc" # coinrun_aisc ignores random_percent
 options="\
-	$keys_and_chests_opt \
+	$coinrun_opt \
 	--use_wandb \
 	--param_name A100 \
 	--distribution_mode hard \
