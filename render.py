@@ -169,21 +169,30 @@ if __name__=='__main__':
     agent.policy.load_state_dict(torch.load(args.model_file, map_location=device)["model_state_dict"])
     agent.n_envs = n_envs
 
-    ##############
-    ## TRAINING ##
-    ##############
+    ############
+    ## RENDER ##
+    ############
+
+    # save observations and value estimates
+    def save_value_estimates(storage, epoch_idx):
+        """write observations and value estimates to npy / csv file"""
+        print(f"Saving observations and values to {logdir}")
+        np.save(logdir + f"/observations_{epoch_idx}", storage.obs_batch)
+        np.save(logdir + f"/value_{epoch_idx}", storage.value_batch)
+        return
+
+    def write_scalar(scalar, filename):
+        """write scalar to filename"""
+        with open(logdir + "/" + filename, "w") as f:
+            f.write(str(scalar))
+
 
     obs = agent.env.reset()
     hidden_state = np.zeros((agent.n_envs, agent.storage.hidden_state_size))
     done = np.zeros(agent.n_envs)
 
 
-    num = 0
-    total_done = 0
-    n_steps_since_last_done = 0
-    n_timeouts = 0
-    step = 0
-
+    epoch_idx = 0
     while True:
         agent.policy.eval()
         for _ in range(agent.n_steps):  # = 256
@@ -194,23 +203,12 @@ if __name__=='__main__':
             obs = next_obs
             hidden_state = next_hidden_state
 
-            if n_steps_since_last_done == 998:
-                n_timeouts += 1
-                print('timed out')
-
-            if done:
-                print('------------------')
-                print('previous seed:')
-                print(info[0]['prev_level_seed'])
-                print()
-                total_done += 1
-                n_steps_since_last_done = 0
-            else:
-                n_steps_since_last_done += 1
-
-
         _, _, last_val, hidden_state = agent.predict(obs, hidden_state, done)
         agent.storage.store_last(obs, hidden_state, last_val)
+
+        if args.save_value:
+            save_value_estimates(agent.storage, epoch_idx)
+            epoch_idx += 1
 
         agent.storage.compute_estimates(agent.gamma, agent.lmbda, agent.use_gae,
                                        agent.normalize_adv)
