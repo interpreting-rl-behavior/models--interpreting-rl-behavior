@@ -62,14 +62,13 @@ module load rhel8/default-amp              # REQUIRED - loads the basic environm
 application="python train.py"
 
 #! Run options for the application:
-#let n_steps=2*10**8
-
-experiment_name="freq-sweep"
 let n_steps=80*10**6
+
+let random_percent=2*$SLURM_ARRAY_TASK_ID
+experiment_name="freq-sweep-random-percent-$random_percent"
 n_checkpoints=4
 n_threads=32 # 32 CPUs per GPU
 wandb_tags="hpc large-model freq-sweep"
-let random_percent=2*$SLURM_ARRAY_TASK_ID
 
 keys_and_chests_opt="--env_name heist_aisc_many_chests --val_env_name heist_aisc_many_keys --key_penalty 3"
 coinrun_opt="--env_name coinrun --random_percent $random_percent --val_env_name coinrun_aisc" # coinrun_aisc ignores random_percent

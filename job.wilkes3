@@ -61,14 +61,16 @@ application="python train.py"
 #! Run options for the application:
 #let n_steps=2*10**8
 
-experiment_name="freq-sweep"
+#experiment_name="key-penalty"
+experiment_name="time-penalty"
 let n_steps=80*10**6
 n_checkpoints=4
 n_threads=32 # 32 CPUs per GPU
 wandb_tags="hpc large-model freq-sweep"
 random_percent=0
 
-keys_and_chests_opt="--env_name heist_aisc_many_chests --val_env_name heist_aisc_many_keys --key_penalty 3"
+
+keys_and_chests_opt="--env_name heist_aisc_many_chests --val_env_name heist_aisc_many_keys --time-penalty 3"
 coinrun_opt="--env_name coinrun --random-percent $random_percent --val_env_name coinrun_aisc" # coinrun_aisc ignores random_percent
 options="\
 	$keys_and_chests_opt \
