@@ -116,15 +116,37 @@ if __name__=='__main__':
     env_valid = create_venv(args, hyperparameters, is_valid=True)
 
 
+
+
     ############
     ## LOGGER ##
     ############
+    def listdir(path):
+        return [os.path.join(path, d) for d in os.listdir(path)]
+
+    def get_latest_model(model_dir):
+        """given model_dir with files named model_n.pth where n is an integer,
+        return the filename with largest n"""
+        steps = [int(filename[6:-4]) for filename in os.listdir(model_dir) if filename.startswith("model_")]
+        return list(os.listdir(model_dir))[np.argmax(steps)]
+
     print('INITIALIZING LOGGER...')
-    run_name = time.strftime("%Y-%m-%d__%H-%M-%S") + f'__seed_{seed}'
-    logdir = 'train/' + env_name + '/' + exp_name + '/' + run_name 
-    logdir = os.path.join('logs', logdir)
+
+    logdir = os.path.join('logs', 'train', env_name, exp_name)
+    if args.model_file == "auto":  # try to figure out which file to load
+        logdirs_with_model = [d for d in listdir(logdir) if any(['model' in filename for filename in os.listdir(d)])] 
+        if len(logdirs_with_model) > 1:
+            raise ValueError("Received args.model_file = 'auto', but there are multiple experiments"
+                                f" with saved models under experiment_name {exp_name}.")
+        model_dir = logdirs_with_model[0]
+        args.model_file = os.path.join(model_dir, get_latest_model(model_dir))
+        logdir = model_dir # reuse logdir
+    else:
+        run_name = time.strftime("%Y-%m-%d__%H-%M-%S") + f'__seed_{seed}'
+        logdir = os.path.join(logdir, run_name)
     if not (os.path.exists(logdir)):
         os.makedirs(logdir)
+
     print(f'Logging to {logdir}')
     if args.use_wandb:
         cfg = vars(args)
