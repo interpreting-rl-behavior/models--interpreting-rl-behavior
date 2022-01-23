@@ -18,6 +18,7 @@ from util.namespace import Namespace
 from datetime import datetime
 import yaml
 import munch
+import hyperparam_functions as hpf
 
 
 class GenerativeModelExperiment():
@@ -44,13 +45,14 @@ class GenerativeModelExperiment():
         super(GenerativeModelExperiment, self).__init__()
 
         args = self.parse_the_args()
-        print('[Loading interpretation hyperparameters]')
-        with open('hyperparams/interpreting_configs.yml', 'r') as f:
-            hp = yaml.safe_load(f)[args.interpreting_params_name]
-        for key, value in hp.items():
-            print(key, ':', value)
-
-        hp = munch.munchify(hp)
+        hp = hpf.load_interp_configs(args.interpreting_params_name)
+        # print('[Loading interpretation hyperparameters]')
+        # with open('hyperparams/interpreting_configs.yml', 'r') as f:
+        #     hp = yaml.safe_load(f)[args.interpreting_params_name]
+        # for key, value in hp.items():
+        #     print(key, ':', value)
+        #
+        # hp = munch.munchify(hp)
 
         # Collect hyperparams from arguments
         device = hp.device
@@ -108,6 +110,7 @@ class GenerativeModelExperiment():
 
         # TODO consider having a function that saves the sessname and exp name
         #  to the configs file and then saves it in a configs record folder
+        hpf.save_interp_configs_file(gen_model_session_name)
 
         # Logger
         logger.configure(dir=sess_dir, format_strs=['csv', 'stdout'])
