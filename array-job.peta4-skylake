@@ -21,7 +21,7 @@
 #! For 6GB per CPU, set "-p skylake"; for 12GB per CPU, set "-p skylake-himem": 
 #SBATCH -p skylake
 
-#SBATCH --array=1-10
+#SBATCH --array=1-16
 
 #SBATCH --output=slurm-out/%x.%A-%a.out
 
@@ -52,9 +52,8 @@ module load rhel7/default-peta4            # REQUIRED - loads the basic environm
 
 #! Insert additional module load commands after this line if needed:
 
-application="python train.py"
 #! Full path to application executable: 
-application="get-fig2-data.sh"
+application="./get-fig2-data.sh"
 
 #! Run options for the application:
 options=""

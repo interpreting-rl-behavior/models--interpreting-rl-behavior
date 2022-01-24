@@ -72,7 +72,7 @@ wandb_tags="hpc large-model resume"
 random_percent=0
 
 
-keys_and_chests_opt="--env_name heist_aisc_many_chests --val_env_name heist_aisc_many_keys --key-penalty $key_penalty"
+keys_and_chests_opt="--env_name heist_aisc_many_chests --val_env_name heist_aisc_many_keys --key_penalty $key_penalty"
 coinrun_opt="--env_name coinrun --random-percent $random_percent --val_env_name coinrun_aisc" # coinrun_aisc ignores random_percent
 options="\
 	$keys_and_chests_opt \
