@@ -158,7 +158,7 @@ def run_env(
     Reset modes:
         - inv_coin returns when agent gets the inv coin OR finishes the level
         - complete returns when the agent finishes the level
-        - off resets only when max_num_timesteps is reached (always same level)
+        - off resets only when max_num_timesteps is reached (repeating always the same level)
     
     returns level metrics. If logfile (csv) is supplied, metrics are also
     appended there.
@@ -192,7 +192,6 @@ def run_env(
 
     def log_metrics(done: bool, info: dict):
         """
-        Run this every step.
         When run complete, log metrics in the 
         following format:
         seed, steps, randomize_goal, collected_coin, collected_inv_coin, died, timed_out
@@ -211,7 +210,7 @@ def run_env(
             metrics = [info[key] for key in keys]
             metrics.extend([-1, True, -1, -1])
         else:
-            pass
+            raise
         log_to_csv(metrics)
         return metrics
 
@@ -239,8 +238,8 @@ def run_env(
             obs = next_obs
             hidden_state = next_hidden_state
 
-            log_metrics(done[0], info[0])
             if check_if_break(done[0], info[0]):
+                log_metrics(done[0], info[0])
                 return
     return
 
