@@ -53,7 +53,8 @@ if __name__=='__main__':
     def get_model_path(random_percent):
         """return path of saved model trained with random_percent"""
         assert random_percent in range(101)
-        logpath = f"./hpc-logs/train/coinrun/freq-sweep-random-percent-{random_percent}/"
+        logpath = "./logs" if config.on_cluster else "./hpc-logs"
+        logpath = os.path.join(logpath, f"train/coinrun/freq-sweep-random-percent-{random_percent}")
         run = list(os.listdir(logpath))[0]
         return os.path.join(logpath, run, "model_80084992.pth")
 
