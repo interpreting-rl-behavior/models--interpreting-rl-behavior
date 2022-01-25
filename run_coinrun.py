@@ -71,7 +71,7 @@ if __name__=='__main__':
     with open(os.path.join(logpath, "metadata.txt"), "a") as f:
         f.write(time.strftime("%Y-%m-%d %H:%M:%S") + f", modelfile {path_to_model_file}\n")
 
-    logfile = os.path.join(logpath, "metrics.csv")
+    logfile = os.path.join(logpath, f"metrics_agent_seed_{args.agent_seed}.csv")
     print(f"Saving metrics to {logfile}.")
     print(f"Running coinrun with random_percent={args.random_percent}...")
     for env_seed in tqdm(seeds, disable=True):
