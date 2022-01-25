@@ -73,15 +73,7 @@ def load_env_and_agent(exp_name,
     ############
     ## LOGGER ##
     ############
-    if logdir is None:
-        logdir = Path('logs') / "2022" # TODO change to absolute path from config
-        run_name = 'deploy_saved_model' + time.strftime("%d-%m-%Y_%H:%M:%s")
-        logdir = logdir / env_name / exp_name / run_name
-    else:
-        logdir = Path(logdir)
-    if not (os.path.exists(logdir)):
-        os.makedirs(logdir)
-    logger = Logger(num_envs, logdir)
+    logger = Logger(num_envs, "/dev/null")
 
     ###########
     ## MODEL ##
