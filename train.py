@@ -138,6 +138,9 @@ if __name__=='__main__':
         if len(logdirs_with_model) > 1:
             raise ValueError("Received args.model_file = 'auto', but there are multiple experiments"
                                 f" with saved models under experiment_name {exp_name}.")
+        elif len(logdirs_with_model) == 0:
+            raise ValueError("Received args.model_file = 'auto', but there are"
+                                f" no saved models under experiment_name {exp_name}.")
         model_dir = logdirs_with_model[0]
         args.model_file = os.path.join(model_dir, get_latest_model(model_dir))
         logdir = model_dir # reuse logdir

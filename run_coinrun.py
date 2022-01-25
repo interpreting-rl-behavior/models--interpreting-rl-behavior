@@ -21,6 +21,9 @@ if __name__=='__main__':
     parser.add_argument('--num_seeds',        type=int, default = 10)
     parser.add_argument('--random_percent',   type=int, default = 0)
     parser.add_argument('--seed_file',        type=str, help="path to text file with env seeds to run on.")
+    parser.add_argument('--reset_mode',       type=str, default="inv_coin", help="Reset modes:"
+                                                            "- inv_coin returns when agent gets the inv coin OR finishes the level"
+                                                            "- complete returns when the agent finishes the level")
 
     #multi threading
     parser.add_argument('--num_threads', type=int, default=8)
@@ -30,11 +33,10 @@ if __name__=='__main__':
     parser.add_argument('--vid_dir', type=str, default=None)
     parser.add_argument('--model_file', type=str, help="Can be either a path to a model file, or an "
                                        "integer. Integer is interpreted as random_percent in training")
-    parser.add_argument('--save_value', action='store_true')
-
 
     args = parser.parse_args()
 
+    # Seeds
     set_global_seeds(args.agent_seed)
     set_global_log_levels(args.log_level)
 
@@ -46,46 +48,38 @@ if __name__=='__main__':
     else:
         print(f"Running on env seeds {args.start_level_seed} to {args.start_level_seed + args.num_seeds}.")
         seeds = np.arange(args.num_seeds) + args.start_level_seed
-    metrics = []
 
+    # Model file
     def get_model_path(random_percent):
-        """saved model trained with random_percent"""
-        assert random_percent in [0,1,2,3,6,11]
-        base_path = "../results/random_percent/"
-        if random_percent > 0:
-            # correct for off by one error during training
-            return base_path + f"random_percent_{random_percent-1}/model_200015872.pth"
-        else:
-            return "../model-files/coinrun.pth"
-    
+        """return path of saved model trained with random_percent"""
+        assert random_percent in range(101)
+        logpath = "./logs" if config.on_cluster else "./hpc-logs"
+        logpath = os.path.join(logpath, f"train/coinrun/freq-sweep-random-percent-{random_percent}")
+        run = list(os.listdir(logpath))[0]
+        return os.path.join(logpath, run, "model_80084992.pth")
+
+    datestr = time.strftime("%Y-%m-%d_%H:%M:%S")
+    logpath = os.path.join(config.results_dir, f"test_rand_percent_{args.random_percent}")
     try:
-        model_file = get_model_path(int(args.model_file))
+        path_to_model_file = get_model_path(int(args.model_file))
+        logpath  = os.path.join(logpath, f"train_rand_percent_{args.model_file}") 
     except (ValueError, AssertionError):
-        model_file = args.model_file
+        path_to_model_file = args.model_file
+        logpath = os.path.join(logpath, f"unkown_model__" + datestr)
 
-    if args.random_percent == 0:
-        logpath = config.results_dir + "vanilla-coinrun/"
-    elif args.random_percent == 100:
-        logpath = config.results_dir + "modified-coinrun/"
-    else:
-        logpath = config.results_dir + f"coinrun-random_percent_{args.random_percent}/"
+    os.makedirs(logpath, exist_ok=True)
+    with open(os.path.join(logpath, "metadata.txt"), "a") as f:
+        f.write(time.strftime("%Y-%m-%d %H:%M:%S") + f", modelfile {path_to_model_file}\n")
 
-    assert int(args.model_file) in range(12)  # TODO allow for arbitrary model_file
-    logpath += f"model_rand_percent_{args.model_file}/"
-
-    if not (os.path.exists(logpath)):
-        os.makedirs(logpath, exist_ok=True)
-
-    #logfile = logpath + f"agent_seed_{args.agent_seed}__date_" + time.strftime("%d-%m-%Y_%H-%M-%S.csv")
-    logfile = logpath + "metrics.csv"
+    logfile = os.path.join(logpath, f"metrics_agent_seed_{args.agent_seed}.csv")
     print(f"Saving metrics to {logfile}.")
     print(f"Running coinrun with random_percent={args.random_percent}...")
     for env_seed in tqdm(seeds, disable=True):
         run_env(exp_name=args.exp_name,
             logfile=logfile,
-            model_file=model_file,
+            model_file=path_to_model_file,
             level_seed=env_seed,
             device=args.device,
             gpu_device=args.gpu_device,
             random_percent=args.random_percent,
-            reset_mode="inv_coin")
+            reset_mode=args.reset_mode)

@@ -11,7 +11,7 @@
 #! The skylake/skylake-himem nodes have 32 CPUs (cores) each.
 #SBATCH --ntasks=1
 #! How much wallclock time will be required?
-#SBATCH --time=08:00:00
+#SBATCH --time=12:00:00
 #! What types of email messages do you wish to receive?
 #SBATCH --mail-type=ALL
 #! Uncomment this to prevent the job from being requeued (e.g. if
@@ -21,9 +21,9 @@
 #! For 6GB per CPU, set "-p skylake"; for 12GB per CPU, set "-p skylake-himem": 
 #SBATCH -p skylake
 
-#SBATCH --array=1-10
+#SBATCH --array=0-20:2
 
-#SBATCH --output=slurm-out/%x.%A-%a.out
+#SBATCH --output=slurm-out/array-jobs/%x.%A-%a.out
 
 #! sbatch directives end here (put any additional directives above this line)
 
@@ -52,12 +52,11 @@ module load rhel7/default-peta4            # REQUIRED - loads the basic environm
 
 #! Insert additional module load commands after this line if needed:
 
-application="python train.py"
 #! Full path to application executable: 
-application="get-fig2-data.sh"
+application="./get-fig2-data.sh"
 
 #! Run options for the application:
-options=""
+options="standard"
 
 #! Work directory (i.e. where the job will run):
 workdir="$SLURM_SUBMIT_DIR"  # The value of SLURM_SUBMIT_DIR sets workdir to the directory
