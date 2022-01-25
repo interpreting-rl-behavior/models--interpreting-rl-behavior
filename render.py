@@ -11,6 +11,8 @@ from procgen import ProcgenGym3Env
 import random
 import torch
 
+from PIL import Image
+
 from gym3 import ViewerWrapper, VideoRecorderWrapper, ToBaselinesVecEnv
 
 if __name__=='__main__':
@@ -37,6 +39,9 @@ if __name__=='__main__':
     parser.add_argument('--vid_dir', type=str, default=None)
     parser.add_argument('--model_file', type=str)
     parser.add_argument('--save_value', action='store_true')
+    parser.add_argument('--save_value_individual', action='store_true')
+
+
 
     args = parser.parse_args()
     exp_name = args.exp_name
@@ -87,7 +92,7 @@ if __name__=='__main__':
                           num_threads=1,
                           render_mode="rgb_array",
                           random_percent=args.random_percent)
-        venv = ViewerWrapper(venv, tps=args.tps, info_key="rgb")
+        venv = ViewerWrapper(venv, tps=args.tps, info_key="rgb") # N.B. this line caused issues for me. I just commented it out, but it's uncommented in the pushed version in case it's just me (Lee).
         if args.vid_dir is not None:
             venv = VideoRecorderWrapper(venv, directory=args.vid_dir,
                                         info_key="rgb", fps=args.tps)
@@ -119,6 +124,9 @@ if __name__=='__main__':
         logdir = args.logdir
     if not (os.path.exists(logdir)):
         os.makedirs(logdir)
+    logdir_indiv_value = os.path.join(logdir, 'value_individual')
+    if not (os.path.exists(logdir_indiv_value)) and args.save_value_individual:
+        os.makedirs(logdir_indiv_value)
     print(f'Logging to {logdir}')
     logger = Logger(n_envs, logdir)
 
@@ -181,6 +189,23 @@ if __name__=='__main__':
         np.save(logdir + f"/value_{epoch_idx}", storage.value_batch)
         return
 
+    def save_value_estimates_individual(storage, epoch_idx, individual_value_idx):
+        """write individual observations and value estimates to npy / csv file"""
+        print(f"Saving random samples of observations and values to {logdir}")
+        obs = storage.obs_batch.clone().detach().squeeze().permute(0, 2, 3, 1)
+        obs = (obs * 255 ).cpu().numpy().astype(np.uint8)
+        vals = storage.value_batch.squeeze()
+
+        random_idxs = np.random.choice(obs.shape[0], 5, replace=False)
+        for rand_id in random_idxs:
+            im = obs[rand_id]
+            val = vals[rand_id]
+            im = Image.fromarray(im)
+            im.save(logdir_indiv_value + f"/obs_{individual_value_idx:05d}.png")
+            np.save(logdir_indiv_value + f"/val_{individual_value_idx:05d}.npy", val)
+            individual_value_idx += 1
+        return individual_value_idx
+
     def write_scalar(scalar, filename):
         """write scalar to filename"""
         with open(logdir + "/" + filename, "w") as f:
@@ -191,7 +216,7 @@ if __name__=='__main__':
     hidden_state = np.zeros((agent.n_envs, agent.storage.hidden_state_size))
     done = np.zeros(agent.n_envs)
 
-
+    individual_value_idx = 0
     epoch_idx = 0
     while True:
         agent.policy.eval()
@@ -205,6 +230,9 @@ if __name__=='__main__':
 
         _, _, last_val, hidden_state = agent.predict(obs, hidden_state, done)
         agent.storage.store_last(obs, hidden_state, last_val)
+
+        if args.save_value_individual:
+            individual_value_idx = save_value_estimates_individual(agent.storage, epoch_idx, individual_value_idx)
 
         if args.save_value:
             save_value_estimates(agent.storage, epoch_idx)
