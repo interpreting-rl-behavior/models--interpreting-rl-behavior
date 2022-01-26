@@ -42,6 +42,11 @@ if __name__=='__main__':
     parser.add_argument('--save_value_individual', action='store_true')
 
 
+    parser.add_argument('--corruption_type',  type=str, default = None)
+    parser.add_argument('--corruption_severity',  type=str, default = 1)
+    parser.add_argument('--agent_view', action="store_true", help="see what the agent sees")
+
+
 
     args = parser.parse_args()
     exp_name = args.exp_name
@@ -91,11 +96,15 @@ if __name__=='__main__':
                           distribution_mode=args.distribution_mode,
                           num_threads=1,
                           render_mode="rgb_array",
-                          random_percent=args.random_percent)
-        venv = ViewerWrapper(venv, tps=args.tps, info_key="rgb") # N.B. this line caused issues for me. I just commented it out, but it's uncommented in the pushed version in case it's just me (Lee).
+                          random_percent=args.random_percent,
+                          corruption_type=args.corruption_type,
+                          corruption_severity=int(args.corruption_severity))
+        info_key = None if args.agent_view else "rgb"
+        ob_key = "rgb" if args.agent_view else None
+        venv = ViewerWrapper(venv, tps=args.tps, info_key=info_key, ob_key=ob_key) # N.B. this line caused issues for me. I just commented it out, but it's uncommented in the pushed version in case it's just me (Lee).
         if args.vid_dir is not None:
             venv = VideoRecorderWrapper(venv, directory=args.vid_dir,
-                                        info_key="rgb", fps=args.tps)
+                                        info_key=info_key, ob_key=ob_key, fps=args.tps)
         venv = ToBaselinesVecEnv(venv)
         venv = VecExtractDictObs(venv, "rgb")
         normalize_rew = hyperparameters.get('normalize_rew', True)
