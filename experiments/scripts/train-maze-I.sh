@@ -1,19 +1,22 @@
 #!/bin/bash
 set -o errexit
 
-# this script trains on the heist_aisc_many_chests environment
-# applying a small penalty for picking up keys.
+# This script trains on maze_aisc, where goal position
+# is randomized within a region of size --rand-region
 
-experiment_name="key-penalty"
-key_penalty=3
+
+rand_region=$SLURM_ARRAY_TASK_ID
+experiment_name="maze-I-sweep-rand-region-$rand_region"
 
 let n_steps=80*10**6
 n_checkpoints=4
 n_threads=32 # 32 CPUs per GPU
-wandb_tags="hpc large-model"
 
-keys_and_chests_opt="--env_name heist_aisc_many_chests --val_env_name heist_aisc_many_keys --key_penalty $key_penalty"
+wandb_tags="hpc large-model rand-region-sweep"
+export WANDB_RUN_ID="maze-sweep-rand-region-$rand_region"
 
+
+maze_opt="--env_name maze_aisc --rand_region $rand_region --val_env_name maze" # coinrun_aisc ignores random_percent arg
 
 # include the option
 #       --model_file auto
@@ -21,9 +24,9 @@ keys_and_chests_opt="--env_name heist_aisc_many_chests --val_env_name heist_aisc
 # saved under $experiment_name
 
 options="
-	$keys_and_chests_opt
-	--param_name A100
+	$maze_opt
 	--use_wandb
+	--param_name A100
 	--distribution_mode hard
 	--num_timesteps $n_steps
 	--num_checkpoints $n_checkpoints
@@ -31,5 +34,6 @@ options="
 	--wandb_tags $wandb_tags
 	--exp_name $experiment_name
         "
+
 
 python train.py $options

@@ -4,7 +4,7 @@ set -o errexit
 # gather metrics for figure 2
 # load trained coinrun models and deploy them in the test environment.
 # to do this without specifying the model_file every time, trained coinrun
-# models must be stored in logs with exp_name 'freq-sweep-random-percent'
+# models must be stored in logs with exp_name 'freq-sweep-random-percent-$random_percent'
 # write output metrics to csv files in ./experiments/results/
 
 num_seeds=10000
