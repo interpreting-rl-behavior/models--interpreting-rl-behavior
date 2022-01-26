@@ -2,7 +2,7 @@
 set -o errexit
 
 num_seeds=10000
-# num_seeds=10
+#num_seeds=10
 
 random_percent=$SLURM_ARRAY_TASK_ID
 
