@@ -12,8 +12,10 @@ import random
 import torch
 
 from PIL import Image
+import torchvision as tv
 
 from gym3 import ViewerWrapper, VideoRecorderWrapper, ToBaselinesVecEnv
+
 
 if __name__=='__main__':
     parser = argparse.ArgumentParser()
@@ -40,6 +42,8 @@ if __name__=='__main__':
     parser.add_argument('--model_file', type=str)
     parser.add_argument('--save_value', action='store_true')
     parser.add_argument('--save_value_individual', action='store_true')
+    parser.add_argument('--value_saliency', action='store_true')
+
 
 
 
@@ -127,6 +131,9 @@ if __name__=='__main__':
     logdir_indiv_value = os.path.join(logdir, 'value_individual')
     if not (os.path.exists(logdir_indiv_value)) and args.save_value_individual:
         os.makedirs(logdir_indiv_value)
+    logdir_saliency_value = os.path.join(logdir, 'value_saliency_traindistrib')
+    if not (os.path.exists(logdir_saliency_value)) and args.value_saliency:
+        os.makedirs(logdir_saliency_value)
     print(f'Logging to {logdir}')
     logger = Logger(n_envs, logdir)
 
@@ -217,11 +224,65 @@ if __name__=='__main__':
     done = np.zeros(agent.n_envs)
 
     individual_value_idx = 0
+    saliency_save_idx = 0
     epoch_idx = 0
     while True:
         agent.policy.eval()
         for _ in range(agent.n_steps):  # = 256
-            act, log_prob_act, value, next_hidden_state = agent.predict(obs, hidden_state, done)
+            if not args.value_saliency:
+                act, log_prob_act, value, next_hidden_state = agent.predict(obs, hidden_state, done)
+            else:
+                act, log_prob_act, value, next_hidden_state, value_saliency_obs = agent.predict_w_value_saliency(obs, hidden_state, done)
+                if saliency_save_idx % 3 == 0:
+
+                    value_saliency_obs = value_saliency_obs.swapaxes(1, 3)
+                    obs_copy = obs.swapaxes(1, 3)
+
+                    ims_grad = value_saliency_obs.mean(axis=-1)
+
+                    percentile = np.percentile(np.abs(ims_grad), 99.9999999)
+                    ims_grad = ims_grad.clip(-percentile, percentile) / percentile
+                    ims_grad = torch.tensor(ims_grad)
+                    blurrer = tv.transforms.GaussianBlur(
+                        kernel_size=5,
+                        sigma=5.)  # (5, sigma=(5., 6.))
+                    ims_grad = blurrer(ims_grad).squeeze().unsqueeze(-1)
+
+                    pos_grads = ims_grad.where(ims_grad > 0.,
+                                               torch.zeros_like(ims_grad))
+                    neg_grads = ims_grad.where(ims_grad < 0.,
+                                               torch.zeros_like(ims_grad)).abs()
+
+
+                    # Make a couple of copies of the original im for later
+                    sample_ims_faint = torch.tensor(obs_copy.mean(-1)) * 0.2
+                    sample_ims_faint = torch.stack([sample_ims_faint] * 3, axis=-1)
+                    sample_ims_faint = sample_ims_faint * 255
+                    sample_ims_faint = sample_ims_faint.clone().detach().type(
+                        torch.uint8).cpu().numpy()
+
+                    grad_scale = 9.
+                    grad_vid = np.zeros_like(sample_ims_faint)
+                    pos_grads = pos_grads * grad_scale * 255
+                    neg_grads = neg_grads * grad_scale * 255
+                    grad_vid[:, :, :, 2] = pos_grads.squeeze().clone().detach().type(
+                        torch.uint8).cpu().numpy()
+                    grad_vid[:, :, :, 0] = neg_grads.squeeze().clone().detach().type(
+                        torch.uint8).cpu().numpy()
+
+                    grad_vid = grad_vid + sample_ims_faint
+
+                    grad_vid = Image.fromarray(grad_vid.swapaxes(0,2).squeeze())
+                    grad_vid.save(logdir_saliency_value + f"/sal_obs_{saliency_save_idx:05d}_grad.png")
+
+                    obs_copy = (obs_copy * 255).astype(np.uint8)
+                    obs_copy = Image.fromarray(obs_copy.swapaxes(0,2).squeeze())
+                    obs_copy.save(logdir_saliency_value + f"/sal_obs_{saliency_save_idx:05d}_raw.png")
+
+                saliency_save_idx += 1
+
+
+
             next_obs, rew, done, info = agent.env.step(act)
 
             agent.storage.store(obs, hidden_state, act, rew, done, info, log_prob_act, value)
