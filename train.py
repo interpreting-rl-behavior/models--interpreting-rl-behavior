@@ -38,9 +38,10 @@ if __name__=='__main__':
     parser.add_argument('--wandb_tags',       type=str, nargs='+')
 
 
-    parser.add_argument('--random_percent',   type=int, default=0, help='percent of environments in which coin is randomized (only for coinrun)')
-    parser.add_argument('--key_penalty',   type=int, default=0, help='Penalty for picking up keys (divided by 10)')
-    parser.add_argument('--step_penalty',   type=int, default=0, help='Time penalty per step (divided by 1000)')
+    parser.add_argument('--random_percent',   type=int, default=0, help='COINRUN: percent of environments in which coin is randomized (only for coinrun)')
+    parser.add_argument('--key_penalty',   type=int, default=0, help='HEIST_AISC: Penalty for picking up keys (divided by 10)')
+    parser.add_argument('--step_penalty',   type=int, default=0, help='HEIST_AISC: Time penalty per step (divided by 1000)')
+    parser.add_argument('--rand_region',   type=int, default=0, help='MAZE: size of region (in upper left corner) in which goal is sampled.')
 
 
     #multi threading
@@ -102,7 +103,8 @@ if __name__=='__main__':
                           num_threads=args.num_threads,
                           random_percent=args.random_percent,
                           step_penalty=args.step_penalty,
-                          key_penalty=args.key_penalty,)
+                          key_penalty=args.key_penalty,
+                          rand_region=args.rand_region)
         venv = VecExtractDictObs(venv, "rgb")
         normalize_rew = hyperparameters.get('normalize_rew', True)
         if normalize_rew:
@@ -154,7 +156,8 @@ if __name__=='__main__':
     if args.use_wandb:
         cfg = vars(args)
         cfg.update(hyperparameters)
-        wandb.init(project="objective-robustness", config=cfg, tags=args.wandb_tags)
+        wb_resume = "allow" if args.model_file is None else "must"
+        wandb.init(project="objective-robustness", config=cfg, tags=args.wandb_tags, resume=wb_resume)
     logger = Logger(n_envs, logdir, use_wandb=args.use_wandb)
 
     ###########

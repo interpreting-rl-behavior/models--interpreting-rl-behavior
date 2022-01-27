@@ -9,7 +9,7 @@
 
 #! sbatch directives begin here ###############################
 #! Name of the job:
-#SBATCH -J coinrun-sweep
+#SBATCH -J maze-sweep
 #! Which project should be charged (NB Wilkes2 projects end in '-GPU'):
 #SBATCH -A KRUEGER-SL3-GPU
 #! How many whole nodes should be allocated?
@@ -29,9 +29,8 @@
 ##SBATCH --no-requeue
 
 
-#SBATCH --array=0-10
-#SBATCH --output=slurm-out/array-jobs/%x.%A-%a.out
-#!#SBATCH --output=slurm-out/%x.%j.out
+#SBATCH --array=1-15
+#SBATCH --output=slurm-out/gpu-array-jobs/%x.%A-%a.out
 
 
 #! Do not change:
@@ -59,29 +58,9 @@ module load rhel8/default-amp              # REQUIRED - loads the basic environm
 #! Insert additional module load commands after this line if needed:
 
 #! Full path to application executable: 
-application="python train.py"
+application="./experiments/scripts/train-maze-I.sh"
 
-#! Run options for the application:
-let n_steps=80*10**6
-
-let random_percent=2*$SLURM_ARRAY_TASK_ID
-experiment_name="freq-sweep-random-percent-$random_percent"
-n_checkpoints=4
-n_threads=32 # 32 CPUs per GPU
-wandb_tags="hpc large-model freq-sweep"
-
-keys_and_chests_opt="--env_name heist_aisc_many_chests --val_env_name heist_aisc_many_keys --key_penalty 3"
-coinrun_opt="--env_name coinrun --random_percent $random_percent --val_env_name coinrun_aisc" # coinrun_aisc ignores random_percent
-options="\
-	$coinrun_opt \
-	--use_wandb \
-	--param_name A100 \
-	--distribution_mode hard \
-	--num_timesteps $n_steps \
-	--num_checkpoints $n_checkpoints\
-	--num_threads $n_threads
-	--wandb_tags $wandb_tags
-	--exp_name $experiment_name"
+options=""
 
 #! Work directory (i.e. where the job will run):
 workdir="$SLURM_SUBMIT_DIR"  # The value of SLURM_SUBMIT_DIR sets workdir to the directory

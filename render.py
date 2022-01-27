@@ -23,9 +23,9 @@ if __name__=='__main__':
     parser.add_argument('--env_name',         type=str, default = 'coinrun', help='environment ID')
     parser.add_argument('--start_level',      type=int, default = int(0), help='start-level for environment')
     parser.add_argument('--num_levels',       type=int, default = int(0), help='number of training levels for environment')
-    parser.add_argument('--distribution_mode',type=str, default = 'easy', help='distribution mode for environment')
+    parser.add_argument('--distribution_mode',type=str, default = 'hard', help='distribution mode for environment')
     parser.add_argument('--param_name',       type=str, default = 'easy-200', help='hyper-parameter ID')
-    parser.add_argument('--device',           type=str, default = 'gpu', required = False, help='whether to use gpu')
+    parser.add_argument('--device',           type=str, default = 'cpu', required = False, help='whether to use gpu')
     parser.add_argument('--gpu_device',       type=int, default = int(0), required = False, help = 'visible device in CUDA')
     parser.add_argument('--seed',             type=int, default = random.randint(0,9999), help='Random generator seed')
     parser.add_argument('--log_level',        type=int, default = int(40), help='[10,20,30,40]')
@@ -44,6 +44,11 @@ if __name__=='__main__':
     parser.add_argument('--save_value_individual', action='store_true')
     parser.add_argument('--value_saliency', action='store_true')
 
+
+
+    parser.add_argument('--corruption_type',  type=str, default = None)
+    parser.add_argument('--corruption_severity',  type=str, default = 1)
+    parser.add_argument('--agent_view', action="store_true", help="see what the agent sees")
 
 
 
@@ -95,11 +100,15 @@ if __name__=='__main__':
                           distribution_mode=args.distribution_mode,
                           num_threads=1,
                           render_mode="rgb_array",
-                          random_percent=args.random_percent)
-        venv = ViewerWrapper(venv, tps=args.tps, info_key="rgb") # N.B. this line caused issues for me. I just commented it out, but it's uncommented in the pushed version in case it's just me (Lee).
+                          random_percent=args.random_percent,
+                          corruption_type=args.corruption_type,
+                          corruption_severity=int(args.corruption_severity))
+        info_key = None if args.agent_view else "rgb"
+        ob_key = "rgb" if args.agent_view else None
+        venv = ViewerWrapper(venv, tps=args.tps, info_key=info_key, ob_key=ob_key) # N.B. this line caused issues for me. I just commented it out, but it's uncommented in the pushed version in case it's just me (Lee).
         if args.vid_dir is not None:
             venv = VideoRecorderWrapper(venv, directory=args.vid_dir,
-                                        info_key="rgb", fps=args.tps)
+                                        info_key=info_key, ob_key=ob_key, fps=args.tps)
         venv = ToBaselinesVecEnv(venv)
         venv = VecExtractDictObs(venv, "rgb")
         normalize_rew = hyperparameters.get('normalize_rew', True)
