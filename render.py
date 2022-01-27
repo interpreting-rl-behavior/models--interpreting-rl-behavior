@@ -30,7 +30,6 @@ if __name__=='__main__':
     parser.add_argument('--seed',             type=int, default = random.randint(0,9999), help='Random generator seed')
     parser.add_argument('--log_level',        type=int, default = int(40), help='[10,20,30,40]')
     parser.add_argument('--num_checkpoints',  type=int, default = int(1), help='number of checkpoints to store')
-    parser.add_argument('--random_percent',   type=float, default=0., help='percent of environments in which coin is randomized (only for coinrun)')
     parser.add_argument('--logdir',           type=str, default = None)
 
     #multi threading
@@ -46,9 +45,12 @@ if __name__=='__main__':
 
 
 
+    parser.add_argument('--random_percent',   type=float, default=0., help='percent of environments in which coin is randomized (only for coinrun)')
     parser.add_argument('--corruption_type',  type=str, default = None)
     parser.add_argument('--corruption_severity',  type=str, default = 1)
     parser.add_argument('--agent_view', action="store_true", help="see what the agent sees")
+    parser.add_argument('--continue_after_coin', action="store_true", help="level doesnt end when agent gets coin")
+    parser.add_argument('--noview', action="store_true", help="just take vids")
 
 
 
@@ -102,10 +104,13 @@ if __name__=='__main__':
                           render_mode="rgb_array",
                           random_percent=args.random_percent,
                           corruption_type=args.corruption_type,
-                          corruption_severity=int(args.corruption_severity))
+                          corruption_severity=int(args.corruption_severity),
+                          continue_after_coin=args.continue_after_coin,
+                          )
         info_key = None if args.agent_view else "rgb"
         ob_key = "rgb" if args.agent_view else None
-        venv = ViewerWrapper(venv, tps=args.tps, info_key=info_key, ob_key=ob_key) # N.B. this line caused issues for me. I just commented it out, but it's uncommented in the pushed version in case it's just me (Lee).
+        if not args.noview:
+            venv = ViewerWrapper(venv, tps=args.tps, info_key=info_key, ob_key=ob_key) # N.B. this line caused issues for me. I just commented it out, but it's uncommented in the pushed version in case it's just me (Lee).
         if args.vid_dir is not None:
             venv = VideoRecorderWrapper(venv, directory=args.vid_dir,
                                         info_key=info_key, ob_key=ob_key, fps=args.tps)
