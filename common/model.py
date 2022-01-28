@@ -91,7 +91,7 @@ class ImpalaBlock(nn.Module):
         x = self.res2(x)
         return x
 
-scale = 4
+scale = 1
 class ImpalaModel(nn.Module):
     def __init__(self,
                  in_channels,

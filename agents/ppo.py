@@ -63,6 +63,19 @@ class PPO(BaseAgent):
 
         return act.cpu().numpy(), log_prob_act.cpu().numpy(), value.cpu().numpy(), hidden_state.cpu().numpy()
 
+    def predict_w_value_saliency(self, obs, hidden_state, done):
+        obs = torch.FloatTensor(obs).to(device=self.device)
+        obs.requires_grad_()
+        obs.retain_grad()
+        hidden_state = torch.FloatTensor(hidden_state).to(device=self.device)
+        mask = torch.FloatTensor(1-done).to(device=self.device)
+        dist, value, hidden_state = self.policy(obs, hidden_state, mask)
+        value.backward(retain_graph=True)
+        act = dist.sample()
+        log_prob_act = dist.log_prob(act)
+
+        return act.detach().cpu().numpy(), log_prob_act.detach().cpu().numpy(), value.detach().cpu().numpy(), hidden_state.detach().cpu().numpy(), obs.grad.data.detach().cpu().numpy()
+
     def optimize(self):
         pi_loss_list, value_loss_list, entropy_loss_list = [], [], []
         batch_size = self.n_steps * self.n_envs // self.mini_batch_per_epoch

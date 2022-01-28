@@ -145,7 +145,7 @@ if __name__=='__main__':
     logdir_indiv_value = os.path.join(logdir, 'value_individual')
     if not (os.path.exists(logdir_indiv_value)) and args.save_value_individual:
         os.makedirs(logdir_indiv_value)
-    logdir_saliency_value = os.path.join(logdir, 'value_saliency_traindistrib')
+    logdir_saliency_value = os.path.join(logdir, 'value_saliency')
     if not (os.path.exists(logdir_saliency_value)) and args.value_saliency:
         os.makedirs(logdir_saliency_value)
     print(f'Logging to {logdir}')
@@ -237,7 +237,9 @@ if __name__=='__main__':
     hidden_state = np.zeros((agent.n_envs, agent.storage.hidden_state_size))
     done = np.zeros(agent.n_envs)
 
-    individual_value_idx = 0
+
+    individual_value_idx = 1001
+    save_frequency = 1
     saliency_save_idx = 0
     epoch_idx = 0
     while True:
@@ -247,7 +249,7 @@ if __name__=='__main__':
                 act, log_prob_act, value, next_hidden_state = agent.predict(obs, hidden_state, done)
             else:
                 act, log_prob_act, value, next_hidden_state, value_saliency_obs = agent.predict_w_value_saliency(obs, hidden_state, done)
-                if saliency_save_idx % 3 == 0:
+                if saliency_save_idx % save_frequency == 0:
 
                     value_saliency_obs = value_saliency_obs.swapaxes(1, 3)
                     obs_copy = obs.swapaxes(1, 3)
