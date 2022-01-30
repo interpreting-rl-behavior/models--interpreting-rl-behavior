@@ -112,7 +112,7 @@ def plot():
     fig, ax = plt.subplots(figsize=(7, 4))
     ax.yaxis.grid(True)
     ax.bar(xticks, means, yerr=errs, align='center', alpha=0.95,
-           ecolor='black', color=['orangered', 'lightsalmon', 'olivedrab', 'yellowgreen', 'deepskyblue', 'skyblue', 'darkslategray'], capsize=10)
+           ecolor='black', color=['orangered', 'lightsalmon', 'olivedrab', 'yellowgreen', 'deepskyblue', 'skyblue', 'darkslategray', 'cadetblue'], capsize=10)
     plt.ylim([5, 10])
     ax.set_ylabel('Value function output')
     plt.box(False)
