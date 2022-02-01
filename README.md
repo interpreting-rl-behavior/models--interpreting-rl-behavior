@@ -15,6 +15,15 @@ Overview of steps:
 
 All scripts should be run from the root dir.
 
+First install the package locally. Navigate to the folder `train-procgen-pytorch`
+and use this command in the CLI to install in editable mode:
+> pip install -e train-procgen-pytorch/
+
+[comment]: <> (Daniel or Nix: when you're installing the package, I THINK this
+should work, but it took me a couple of goes and I'm not sure what the right
+command is. So if you find the right command,  just fix it here if the above 
+is wrong)
+
 To train the agent on coinrun:
 
 > python train.py --exp_name [agent_training_experiment_name] --env_name coinrun --param_name hard-rec --num_levels 1000000 --distribution_mode hard --num_timesteps 200000000 --num_checkpoints 500

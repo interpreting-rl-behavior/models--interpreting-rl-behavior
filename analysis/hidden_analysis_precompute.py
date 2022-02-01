@@ -7,7 +7,7 @@ from precomput_analysis_funcs import \
     nmf_then_save, ica_then_save
 import argparse
 import os
-import yaml, munch
+import hyperparam_functions as hpf
 
 pd.options.mode.chained_assignment = None  # default='warn'
 
@@ -26,13 +26,7 @@ def parse_args():
 
 def run():
     args = parse_args()
-
-    print('[Loading interpretation hyperparameters]')
-    with open('hyperparams/interpreting_configs.yml', 'r') as f:
-        hp = yaml.safe_load(f)[args.interpreting_params_name]
-    for key, value in hp.items():
-        print(key, ':', value)
-    hp = munch.munchify(hp)
+    hp = hpf.load_interp_configs(args.interpreting_params_name)
 
     num_episodes = hp.analysis.agent_h.num_episodes  # number of episodes to make plots for
     num_generated_samples = hp.analysis.agent_h.num_generated_samples # number of generated samples to use
@@ -45,7 +39,7 @@ def run():
 
     # Prepare load and save dirs
     main_data_path = hp.data_dir
-    generated_data_path = hp.generated_data_dir
+    generated_data_path = hp.generated_data_dir + hp.analysis.agent_h.informed_or_random_init
     save_path = 'hx_analysis_precomp/'
     save_path = os.path.join(os.getcwd(), "analysis", save_path)
     plot_save_path = 'hx_plots'
