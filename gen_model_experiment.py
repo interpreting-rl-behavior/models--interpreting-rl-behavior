@@ -16,8 +16,6 @@ from overlay_image import overlay_actions, overlay_box_var
 
 from util.namespace import Namespace
 from datetime import datetime
-import yaml
-import munch
 import hyperparam_functions as hpf
 
 
@@ -46,13 +44,6 @@ class GenerativeModelExperiment():
 
         args = self.parse_the_args()
         hp = hpf.load_interp_configs(args.interpreting_params_name)
-        # print('[Loading interpretation hyperparameters]')
-        # with open('hyperparams/interpreting_configs.yml', 'r') as f:
-        #     hp = yaml.safe_load(f)[args.interpreting_params_name]
-        # for key, value in hp.items():
-        #     print(key, ':', value)
-        #
-        # hp = munch.munchify(hp)
 
         # Collect hyperparams from arguments
         device = hp.device

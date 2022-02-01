@@ -10,7 +10,7 @@ import seaborn as sns
 import os
 import time
 import imageio
-import yaml, munch
+import hyperparam_functions as hpf
 
 pd.options.mode.chained_assignment = None  # default='warn'
 
@@ -29,12 +29,7 @@ def parse_args():
 
 def run():
     args = parse_args()
-    print('[Loading interpretation hyperparameters]')
-    with open('hyperparams/interpreting_configs.yml', 'r') as f:
-        hp = yaml.safe_load(f)[args.interpreting_params_name]
-    for key, value in hp.items():
-        print(key, ':', value)
-    hp = munch.munchify(hp)
+    hp = hpf.load_interp_configs(args.interpreting_params_name)
 
     num_episodes = hp.analysis.agent_h.num_episodes #2000#100#4000#2000  # number of episodes to make plots for. Needs to be
     num_generated_samples = hp.analysis.agent_h.num_generated_samples
@@ -45,9 +40,9 @@ def run():
     plot_clusters = True
     plot_tsne = True
 
-    first_PC_ind = 1
-    second_PC_ind = 2
-    third_PC_ind = 3
+    first_PC_ind = 0
+    second_PC_ind = 1
+    third_PC_ind = 2
 
     # Prepare load and save dirs
     save_path = 'analysis/hx_plots'
@@ -154,8 +149,8 @@ def run():
     data['neg_log_value_delta'] = value_deltas
 
     # nmf max factor
-    hx_nmf = np.load(args.precomputed_analysis_data_path + \
-                     '/nmf_hx_%i.npy' % num_episodes)
+    hx_nmf = np.load(hp.analysis.agent_h.precomputed_analysis_data_path + \
+                     'nmf_hx_%i.npy' % num_episodes)
     nmf_max_factor = np.argmax(hx_nmf, axis=1)
     data['nmf_max_factor'] = nmf_max_factor
     # TODO i think we need to throw away the 0th hx in each episode. There
@@ -168,8 +163,8 @@ def run():
     # hx because it's uninformative and unused by values and action.
 
     # cluster identity
-    hx_cluster = np.load(args.precomputed_analysis_data_path + \
-                     '/clusters_hx_%i.npy' % num_episodes)
+    hx_cluster = np.load(hp.analysis.agent_h.precomputed_analysis_data_path + \
+                     'clusters_hx_%i.npy' % num_episodes)
     data['cluster_id'] = hx_cluster
 
     # Prepare for plotting
@@ -203,8 +198,8 @@ def run():
     # Plotting
     if plot_pca:
         print("Plotting PCAs")
-        hx_pca = np.load(args.precomputed_analysis_data_path + \
-                         '/hx_pca_%i.npy' % num_episodes)
+        hx_pca = np.load(hp.analysis.agent_h.precomputed_analysis_data_path + \
+                         'hx_pca_%i.npy' % num_episodes)
 
         data['pca_X'] = hx_pca[:, first_PC_ind]
         data['pca_Y'] = hx_pca[:, second_PC_ind]
@@ -333,8 +328,8 @@ def run():
             plt.close()
 
     if plot_tsne:
-        hx_tsne = np.load(args.precomputed_analysis_data_path + \
-                         '/tsne_hx_%i.npy' % num_episodes)
+        hx_tsne = np.load(hp.analysis.agent_h.precomputed_analysis_data_path + \
+                         'tsne_hx_%i.npy' % num_episodes)
         print('Starting tSNE...')
         # _pca_for_tsne = PCA(n_components=64)
         # hx_tsne = TSNE(n_components=2, random_state=seed).fit_transform(hx)

@@ -8,7 +8,7 @@ import matplotlib.pyplot as plt
 import seaborn as sns
 import os
 import time
-import yaml, munch
+import hyperparam_functions as hpf
 
 pd.options.mode.chained_assignment = None  # default='warn'
 
@@ -24,13 +24,7 @@ def parse_args():
 
 def run():
     args = parse_args()
-
-    print('[Loading interpretation hyperparameters]')
-    with open('hyperparams/interpreting_configs.yml', 'r') as f:
-        hp = yaml.safe_load(f)[args.interpreting_params_name]
-    for key, value in hp.items():
-        print(key, ':', value)
-    hp = munch.munchify(hp)
+    hp = hpf.load_interp_configs(args.interpreting_params_name)
 
     # number of episodes to make plots for. Needs to be
     num_samples = hp.analysis.bottleneck.num_samples

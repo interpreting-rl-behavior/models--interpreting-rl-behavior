@@ -7,7 +7,7 @@ import seaborn as sns
 import os
 import time
 import imageio
-import yaml, munch
+import hyperparam_functions as hpf
 
 
 pd.options.mode.chained_assignment = None  # default='warn'
@@ -29,12 +29,7 @@ def parse_args():
 def run():
     args = parse_args()
 
-    print('[Loading interpretation hyperparameters]')
-    with open('hyperparams/interpreting_configs.yml', 'r') as f:
-        hp = yaml.safe_load(f)[args.interpreting_params_name]
-    for key, value in hp.items():
-        print(key, ':', value)
-    hp = munch.munchify(hp)
+    hp = hpf.load_interp_configs(args.interpreting_params_name)
 
     num_samples = hp.analysis.env_h.num_samples #2000#20000  # number of episodes to make plots for. Needs to be
     # the same as the precomputed data you want to use
@@ -49,7 +44,7 @@ def run():
     second_pc_ind = hp.analysis.env_h.second_pc_ind
     third_pc_ind = hp.analysis.env_h.third_pc_ind
 
-    precomputed_analysis_data_path = hp.precomputed_analysis_data_path
+    precomputed_analysis_data_path = hp.analysis.env_h.precomputed_analysis_data_path
 
     data = {}
 
@@ -128,13 +123,13 @@ def run():
 
     # nmf max factor
     env_h_nmf = np.load(precomputed_analysis_data_path + \
-                     '/nmf_env_%i.npy' % num_samples)
+                     'nmf_env_%i.npy' % num_samples)
     nmf_max_factor = np.argmax(env_h_nmf, axis=1)
     data['nmf_max_factor'] = nmf_max_factor.squeeze()
 
     # cluster identity
     env_h_cluster = np.load(precomputed_analysis_data_path + \
-                     '/clusters_env_%i.npy' % num_samples)
+                     'clusters_env_%i.npy' % num_samples)
     data['cluster_id'] = env_h_cluster
 
     data = pd.DataFrame.from_dict(data)
@@ -168,7 +163,7 @@ def run():
     if plot_pca:
         print("Plotting PCAs")
         env_h_pca = np.load(precomputed_analysis_data_path + \
-                         '/pca_data_env_%i.npy' % num_samples)
+                         'pca_data_env_%i.npy' % num_samples)
 
         data['pca_X'] = env_h_pca[:, first_pc_ind]
         data['pca_Y'] = env_h_pca[:, second_pc_ind]
@@ -292,7 +287,7 @@ def run():
 
     if plot_tsne:
         env_h_tsne = np.load(precomputed_analysis_data_path + \
-                         '/tsne_env_%i.npy' % num_samples)
+                         'tsne_env_%i.npy' % num_samples)
         print('Starting tSNE...')
         # _pca_for_tsne = PCA(n_components=64)
         # hx_tsne = TSNE(n_components=2, random_state=seed).fit_transform(hx)
