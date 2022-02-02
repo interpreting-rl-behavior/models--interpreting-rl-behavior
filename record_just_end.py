@@ -4,7 +4,7 @@ import pandas as pd
 if __name__=='__main__':
 
     # Make save dirs
-    logdir_base = "data/"#'/cluster/scratch/sharkeyl/'##
+    logdir = "data/"#'/cluster/scratch/sharkeyl/'##
 
     # Making dataset for generative model
     ## Init dataset
