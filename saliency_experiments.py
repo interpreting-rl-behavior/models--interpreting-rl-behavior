@@ -33,7 +33,8 @@ class SaliencyExperiment(GenerativeModelExperiment):
         else:
             self.informed_initialization = True
             self.recording_data_save_dir = self.recording_data_save_dir_informed_init
-
+        self.video_dir = os.path.join(self.recording_data_save_dir, 'videos')
+        os.makedirs(self.video_dir, exist_ok=True)
         # remove grads from generative model (we'll add them to the bottleneck
         # vectors later)
         self.gen_model.requires_grad = False
@@ -49,7 +50,7 @@ class SaliencyExperiment(GenerativeModelExperiment):
             self.saliency_func_types.pop(rm_ind)
             assert 'hx_direction' not in self.saliency_func_types
 
-            if 'to' in self.hp.analysis.saliency_direction_ids:
+            if 'to' in self.hp.analysis.saliency.direction_ids:
                 self.saliency_direction_ids = range(
                     int(self.hp.analysis.saliency.direction_ids[0]),
                     int(self.hp.analysis.saliency.direction_ids[2]))
@@ -242,7 +243,7 @@ class SaliencyExperiment(GenerativeModelExperiment):
         # Save vid
         # combined_vid = combined_vid.clone().detach().type(torch.uint8).cpu().numpy()
         combo_vid_name = f'{bottleneck_vec_name}_saliency_{saliency_func_type}.mp4'
-        combo_vid_name = os.path.join(self.recording_data_save_dir,
+        combo_vid_name = os.path.join(self.video_dir,
                                       combo_vid_name)
         tvio.write_video(combo_vid_name, combined_vid, fps=14)
 
@@ -316,7 +317,7 @@ class SaliencyExperiment(GenerativeModelExperiment):
                 # Save vid
                 # combined_vid = combined_vid.clone().detach().type(torch.uint8).cpu().numpy()
                 combo_vid_name = f'{sample_name}_saliency_{saliency_func_type}.mp4'
-                combo_vid_name = os.path.join(self.recording_data_save_dir,
+                combo_vid_name = os.path.join(self.video_dir,
                                               combo_vid_name)
                 tvio.write_video(combo_vid_name, combined_vid, fps=14)
 
@@ -420,6 +421,26 @@ class SaliencyFunction():
                                          timesteps,
                                          directions_transformer
                                          ):
+        # def hx_direction_saliency_loss_function(preds_dict):
+        #     preds = preds_dict['hx']
+        #     preds = torch.stack(preds, dim=1)
+        #     time_tuple = (timesteps[0] - 1,) + timesteps  # tuple of the past timestep and the present
+        #     preds = preds[:, time_tuple, :]
+        #
+        #     # Scale and project hx onto direction
+        #     preds = directions_transformer.transform(preds)
+        #
+        #     # Then just pick the direction we want to take the saliency of
+        #     preds = preds[:, :, direction_id]
+        #
+        #     # Then subtract the past from the present to get the delta for this
+        #     # direction at the previous timestep
+        #     preds = preds[:, 1] - preds[:, 0]
+        #
+        #     loss_sum = preds.mean()
+        #     return loss_sum
+        # return hx_direction_saliency_loss_function
+
         def hx_direction_saliency_loss_function(preds_dict):
             preds = preds_dict['hx']
             preds = torch.stack(preds, dim=1)
@@ -433,10 +454,11 @@ class SaliencyFunction():
 
             loss_sum = preds.mean()
             return loss_sum
+
         return hx_direction_saliency_loss_function
 
     def action_saliency_loss_function(self, preds_dict):
-        preds = preds_dict['act_log_prob']
+        preds = preds_dict['act_log_prob']   # TODO it shouldn't be this because if the logprob is negative, then the gradients will be the wrong way round.
         preds = torch.stack(preds, dim=1)
         preds = preds[:, self.timesteps].max(dim=2)[0].squeeze()
         loss_sum = preds.mean()

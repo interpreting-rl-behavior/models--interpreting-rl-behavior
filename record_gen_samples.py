@@ -27,13 +27,16 @@ class RecordingExperiment(GenerativeModelExperiment):
     """
     def __init__(self):
         super(RecordingExperiment, self).__init__()
-        if self.hp.gen_model.recording_rand_init:
+        if self.hp.record.rand_init:
             self.informed_initialization = False
             self.recording_data_save_dir = self.recording_data_save_dir_rand_init
         else:
             self.informed_initialization = True
             self.recording_data_save_dir = self.recording_data_save_dir_informed_init
+        self.video_dir = os.path.join(self.recording_data_save_dir, 'videos')
+        os.makedirs(self.video_dir, exist_ok=True)
         self.gen_model.num_sim_steps = self.hp.analysis.saliency.num_sim_steps
+        self.max_samples = self.hp.record.max_samples
 
     def run_recording_loop(self):
         # TODO manual actions
@@ -47,11 +50,12 @@ class RecordingExperiment(GenerativeModelExperiment):
                         informed_initialization=self.informed_initialization )
             samples_so_far += self.hp.gen_model.batch_size
             print(samples_so_far)
-        print("Dataset fully recorded. You probably shouldn't be seeing this."+\
-              "You've probably made too much data.")
-            # TODO swap directions (will want to record several similar samples:
-            #  one with same init but with and without direction swapping.
-            #  These will each need different names)
+            if samples_so_far >= self.max_samples:
+                break
+        print("Finished recording.")
+        # TODO swap directions (will want to record several similar samples:
+        #  one with same init but with and without direction swapping.
+        #  These will each need different names)
 
     def record(self, data, batch_idx, samples_so_far,
                informed_initialization=True, name_root='sample'):
@@ -182,7 +186,7 @@ class RecordingExperiment(GenerativeModelExperiment):
         self.visualize_single(
             0, batch_idx=samples_so_far, data=None, preds=preds,
             bottleneck_vec=None, use_true_actions=False,
-            save_dir=self.recording_data_save_dir,
+            save_dir=self.video_dir,
             save_root='sample', batch_size=b, numbering_scheme="n",
             samples_so_far=samples_so_far)
 
