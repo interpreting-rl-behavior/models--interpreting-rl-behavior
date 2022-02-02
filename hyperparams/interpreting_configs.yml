@@ -57,9 +57,13 @@ defaults:
         bottleneck_loss_weight: 100.0
         bottleneck_vec_size: 128
         env_update_penalty_weight: 0.5
-        recording_rand_init: False
         swap_directions_from: null
         swap_directions_to: null
+
+    record:
+        rand_init: False
+        max_samples: 8000
+
     analysis:
         tsne_seed: 42
         presaved_data_path: /media/lee/DATA/DDocs/AI_neuro_work/assurance_project_stuff/data/precollected/
@@ -71,10 +75,10 @@ defaults:
             n_components_pca: 64
             n_components_tsne: 2
             n_components_nmf_or_ica: 20
-            n_clusters: 20
+            n_clusters: 30
             nmf_max_iter: 5000
             nmf_tol: 0.0001
-            ica_max_iter: 2000
+            ica_max_iter: 4000
             ica_tol: 0.001
             precomputed_analysis_data_path: analysis/hx_analysis_precomp/
         env_h:
@@ -89,7 +93,7 @@ defaults:
             first_pc_ind: 0
             second_pc_ind: 1
             third_pc_ind: 2
-            precomputed_analysis_data_path: analysis/env_h_analysis_precomp/
+            precomputed_analysis_data_path: analysis/env_analysis_precomp/
         bottleneck:
             num_samples: 1000
             n_components_pca: 128
@@ -107,15 +111,41 @@ defaults:
         saliency:
             num_sim_steps: 10
             num_sim_steps_manual_actions: 32
-            common_timesteps: [5]
-            func_type: [value, action]
+            common_timesteps: [4]
+            func_type: [hx_direction] #[value, action, hx_direction]
             direction_ids: ['0', 'to', '9']
-            sample_ids: ['0', 'to', '3']
+            sample_ids: ['0', 'to', '300']
             batch_size: 9
             combine_samples_not_iterate: False
             perturbation_scale: 0.0001
-            gaussian_kernel_size: 3.
-            sigma: 1.
+            gaussian_kernel_size: 5.
+            sigma: 5.
+        target_func:
+            save_dir: analysis/target_func_exps/
+            batch_size: 9
+            num_sim_steps: 10
+            func_type: [value,]
+            func_incr_or_decr: ['increase', 'decrease']
+            direction_ids: ['0', 'to', '2']  # increase for after development
+            hx_neuron_ids: ['0', 'to', '2']
+            sample_ids: ['0', 'to', '2']
+            viz_batch_size: 9
+            lr: 0.01
+            value_lr: 0.1
+            min_loss: 0.001
+            num_its: 30000
+            num_its_hx: 10000
+            num_its_action: 70000
+            num_its_direction: 7000
+            num_epochs: 1
+            default_timesteps: [4]
+            targ_func_loss_scale: 1000.
+            directions_scale: 0.05
+            distance_threshold: 1.3
+            num_samples_precomputed: 2000
+            grad_norm: 100.
+            value_grad_norm: 10.
+            num_its_value: 100000
 
 
 
