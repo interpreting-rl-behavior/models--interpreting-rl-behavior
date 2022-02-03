@@ -52,11 +52,14 @@ def run():
     lp_presaved_filepath = presaved_data_path + "lp_%i.npy" % num_episodes
 
     # Load the non vector outputs
+    lens = []
     main_data_path = hp.data_dir
     data = pd.read_csv(os.path.join(main_data_path, 'data_gen_model_00000.csv'))
+    lens.append([data.__len__()])
     for ep in range(1, num_episodes):
         data_epi = pd.read_csv(os.path.join(main_data_path,
                                              f'data_gen_model_{ep:05d}.csv'))
+        lens.append([data_epi.__len__()])
         data = data.append(data_epi)
     data = data.loc[data['episode'] < num_episodes]
     print('data shape', data.shape)
@@ -72,11 +75,17 @@ def run():
         # Collect them one by one
         hx = np.load(os.path.join(main_data_path, 'episode_00000/hx.npy'))
         hx = hx[1:]  # Cut 0th timestep
+        lens[0].append(hx.__len__())
+
         for ep in range(1, num_episodes):
             hx_to_cat = np.load(os.path.join(main_data_path,
                                              f'episode_{ep:05d}/hx.npy'))
             hx_to_cat = hx_to_cat[1:]  # Cut 0th timestep
+            lens[ep].append(hx_to_cat.__len__())
             hx = np.concatenate((hx, hx_to_cat))
+
+    print(lens)
+    print(all([x[0] == x[1] for x in lens]))
 
     if plot_gen_hx_pca:
         gen_hx_pca = np.load(hp.analysis.agent_h.precomputed_analysis_data_path + \
