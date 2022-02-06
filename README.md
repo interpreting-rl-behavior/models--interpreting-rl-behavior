@@ -63,7 +63,7 @@ simulations to the true rollouts and will help us understand our generative
 model (which includes the agent that we want to interpret) better. This is how
 we record samples from the generative model:
 
-> python record_gen_samples --agent_file=./logs/procgen/coinrun/trainhx_1Mlvls/seed_498_07-06-2021_23-26-27/model_80412672.pth --gen_mod_exp_name=dev --model_file="generative/results/rssm53_largepos_sim_penalty_extraconverterlayers/20220106_181406/model_epoch3_batch20000.pt"
+> python record_gen_samples.py --agent_file=./logs/procgen/coinrun/trainhx_1Mlvls/seed_498_07-06-2021_23-26-27/model_80412672.pth --gen_mod_exp_name=dev --model_file="generative/results/rssm53_largepos_sim_penalty_extraconverterlayers/20220106_181406/model_epoch3_batch20000.pt"
 
 Now we're ready to start some analysis. 
 
@@ -146,12 +146,13 @@ agent hidden states are for the value function.
 Say we wanted to generate saliency maps with respect to value and leftwards actions
 for specifically the generated samples numbered 33 39 56 84. We'd use the 
 following command:
-> python saliency_exps.py --distribution_mode=hard --agent_file="logs/procgen/coinrun/[agent_training_experiment_name]/[agent_training_unique_seed]/[agent_name].pth" --model_file="generative/results/[generative_model_training_experiment_name]/[date_time_of_gen_model_training]/[gen_model_name].pt" --batch_size=2 --num_sim_steps=28 --saliency_func_type value leftwards --sample_ids 33 39 56 84
+> python saliency_experiments.py --agent_file=./logs/procgen/coinrun/trainhx_1Mlvls/seed_498_07-06-2021_23-26-27/model_80412672.pth --gen_mod_exp_name=dev --model_file="generative/results/rssm53_largepos_sim_penalty_extraconverterlayers/20220106_181406/model_epoch3_batch20000.pt"
 
+[//]: # (Update text below)
 If we wanted to generate saliency maps for the same quantities but combine those
 samples into one sample by taking their mean latent space vector (instead of 
 iterating over each sample individually), we'd add
-the flag ``--combine_samples_not_iterate``
+the flag ``--combine_samples_not_iterate`` 
 
 If we wanted to generate saliency maps for all samples from 0 to 100, we'd replace
 the ``--sample_ids 33 39 56 84`` flag with ``--sample_ids 0 to 100``.
