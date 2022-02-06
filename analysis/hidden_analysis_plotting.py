@@ -11,6 +11,7 @@ import os
 import time
 import imageio
 import hyperparam_functions as hpf
+import ipdb
 
 pd.options.mode.chained_assignment = None  # default='warn'
 
@@ -86,7 +87,7 @@ def run():
 
     print(lens)
     print(all([x[0] == x[1] for x in lens]))
-
+     
     if plot_gen_hx_pca:
         gen_hx_pca = np.load(hp.analysis.agent_h.precomputed_analysis_data_path + \
                              '/gen_hx_projected_real%i_gen%i.npy' % (num_episodes,
@@ -117,7 +118,7 @@ def run():
     episode_step_groups = [dfg for dfg in
                            data.groupby(by='episode')['episode_step']]
     max_steps_per_epi = [np.max(np.array(group)[1]) for group in episode_step_groups]
-    max_steps_per_epi_list = [[x] * int(x+1) for x in max_steps_per_epi]
+    max_steps_per_epi_list = [[x] * int(x + 1) for x in max_steps_per_epi]
     max_steps_per_epi_list = [item for sublist in max_steps_per_epi_list for item in sublist] # flattens
     data['episode_max_steps'] = max_steps_per_epi_list
     data['% through episode'] = data['episode_step'] / data['episode_max_steps']
