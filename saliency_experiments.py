@@ -25,7 +25,7 @@ class SaliencyExperiment(GenerativeModelExperiment):
         assert is_square_number(self.saliency_batch_size)
         self.bottleneck_vec_size = self.hp.gen_model.bottleneck_vec_size
         self.perturbation_scale = self.hp.analysis.saliency.perturbation_scale #0.0001  #was0.01# 2e-2
-
+        self.direction_type = self.hp.analysis.saliency.direction_type
         # Whether to use rand init vectors or informed init vectors
         if False:
             self.informed_initialization = False
@@ -58,7 +58,7 @@ class SaliencyExperiment(GenerativeModelExperiment):
                 self.saliency_direction_ids = self.hp.analysis.saliency.direction_ids
 
             for direction_id in self.saliency_direction_ids:
-                direction_name = f'hx_direction_{direction_id}'
+                direction_name = f'hx_direction_{direction_id}_{self.direction_type}'
                 self.saliency_func_types.append(direction_name)
 
         ## Get the sample IDs for the samples that we'll use to make saliency maps
@@ -365,8 +365,6 @@ class SaliencyExperiment(GenerativeModelExperiment):
         bottleneck_vecs = safe_normalize(bottleneck_vecs)
         return bottleneck_vecs
 
-# TODO maybe actually throw away the last hx instead of the 0th. It depends
-#  on how the deletang diagram indexes ims and hx
 
 class SaliencyFunction():
     def __init__(self, saliency_func_type, hyperparams, device='cuda'):
@@ -375,6 +373,7 @@ class SaliencyFunction():
         super(SaliencyFunction, self).__init__()
         self.device = device
         self.hp = hyperparams
+        self.direction_type = self.hp.analysis.saliency.direction_type
 
         self.saliency_func_type = saliency_func_type
         self.coinrun_actions = {0: 'downleft', 1: 'left', 2: 'upleft',
@@ -385,7 +384,8 @@ class SaliencyFunction():
 
         num_analysis_samples = self.hp.analysis.agent_h.num_episodes
         directions_transformer = \
-            HiddenStateDimensionalityReducer('pca', num_analysis_samples)
+            HiddenStateDimensionalityReducer(self.direction_type,
+                                             num_analysis_samples)
 
         # Set settings for specific saliency functions
         common_timesteps = self.hp.analysis.saliency.common_timesteps #tuple(range(0,28))
@@ -512,11 +512,13 @@ class HiddenStateDimensionalityReducer():
         """
         super(HiddenStateDimensionalityReducer, self).__init__()
         self.device = device
+        self.type_of_dim_red = type_of_dim_red
+        hx_analysis_dir = os.path.join(os.getcwd(), 'analysis',
+                                       'hx_analysis_precomp')
 
-        if type_of_dim_red == 'pca':
+        if type_of_dim_red == 'pca' or type_of_dim_red == 'ica':
             self.transform = self.pca_transform
 
-            hx_analysis_dir = os.path.join(os.getcwd(), 'analysis', 'hx_analysis_precomp')
             directions_path = os.path.join(os.getcwd(), hx_analysis_dir,
                                            f'pcomponents_{num_analysis_samples}.npy')
             hx_mu_path = os.path.join(hx_analysis_dir, f'hx_mu_{num_analysis_samples}.npy')
@@ -529,8 +531,14 @@ class HiddenStateDimensionalityReducer():
             self.hx_std = torch.tensor(np.load(hx_std_path)).to(
                 device).requires_grad_()
 
-        elif type_of_dim_red == 'ica':
+        if type_of_dim_red == 'ica':
             self.transform = self.ica_transform
+            ica_directions_path = os.path.join(os.getcwd(), hx_analysis_dir,
+                f'ica_unmixing_matrix_hx_{num_analysis_samples}.npy')
+            self.unmix_mat = torch.tensor(np.load(ica_directions_path)).to(
+                device).float().requires_grad_()
+            self.unmix_mat = self.unmix_mat.transpose(0, 1)
+
         elif type_of_dim_red == 'nmf':
             self.transform = self.nmf_transform
 
@@ -541,7 +549,22 @@ class HiddenStateDimensionalityReducer():
         return pc_loadings
 
     def ica_transform(self, hx):
-        return
+
+        # hx_analysis_dir = os.path.join(os.getcwd(), 'analysis',
+        #                                'hx_analysis_precomp')
+        # ica_source_sigs_true = np.load(
+        #     os.path.join(hx_analysis_dir, 'ica_source_signals_hx_4000.npy'))
+        # pca_loadings_true = np.load(
+        #     os.path.join(hx_analysis_dir, 'hx_pca_4000.npy'))
+        # upca_guess = pca_loadings_true @ np.array(
+        #     self.unmix_mat.clone().detach().cpu().numpy())
+        # np.isclose(upca_guess, ica_source_sigs_true) # == Truetruetrue
+
+        ###########
+        hx_z = (hx - self.hx_mu) / self.hx_std
+        pc_loadings = hx_z @ self.pcs
+        source_signals = pc_loadings @ self.unmix_mat
+        return source_signals
 
     def nmf_transform(self, hx):
         return
