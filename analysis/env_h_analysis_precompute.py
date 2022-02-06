@@ -69,24 +69,24 @@ def run():
     print("above95explained=%i" % int(above95explained))
     print('PCA finished.')
 
-    # # k-means clustering
-    # print('Starting clustering...')
-    # clustering_after_pca(env_h, above95explained, n_clusters, save_path,
-    #                      "env", num_samples)
-    # print("Clustering finished.")
-    #
+    # k-means clustering
+    print('Starting clustering...')
+    clustering_after_pca(env_h, above95explained, n_clusters, save_path,
+                         "env", num_samples)
+    print("Clustering finished.")
+    
     # # tSNE
-    # print('Starting tSNE...')
-    # tsne_after_pca(env_h, above95explained, n_components_tsne,
-    #                save_path, "env", num_samples)
-    # print("tSNE finished.")
+    print('Starting tSNE...')
+    tsne_after_pca(env_h, above95explained, n_components_tsne,
+                   save_path, "env", num_samples)
+    print("tSNE finished.")
 
-    # print('Starting UMAP...')
-    # pca_for_umap = pca_for_tsne
-    # reducer = umap.UMAP()
-    # env_h_umap = reducer.fit_transform(pca_for_umap)
-    # np.save(save_path + 'env_h_umap_%i.npy' % num_samples, env_h_umap)
-    # print("tSNE finished.")
+    print('Starting UMAP...')
+    pca_for_umap = pca_for_tsne
+    reducer = umap.UMAP()
+    env_h_umap = reducer.fit_transform(pca_for_umap)
+    np.save(save_path + 'env_h_umap_%i.npy' % num_samples, env_h_umap)
+    print("tSNE finished.")
 
     print('Starting NMF...')
     nmf_then_save(env_h, n_components_nmf, save_path, "env", num_samples,
