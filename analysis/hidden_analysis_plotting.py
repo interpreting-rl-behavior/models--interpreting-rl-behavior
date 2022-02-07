@@ -174,7 +174,7 @@ def run():
 
     # ica max factor
     hx_ica = np.load(hp.analysis.agent_h.precomputed_analysis_data_path + \
-                     'ica_source_signals_hx__%i.npy' % num_episodes)
+                     'ica_source_signals_hx_%i.npy' % num_episodes)
     ica_max_factor = np.argmax(hx_ica, axis=1)
     data['ica_max_factor'] = ica_max_factor
 
