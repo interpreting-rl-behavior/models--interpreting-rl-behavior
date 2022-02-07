@@ -384,7 +384,8 @@ class SaliencyFunction():
 
         num_analysis_samples = self.hp.analysis.agent_h.num_episodes
         directions_transformer = \
-            HiddenStateDimensionalityReducer(self.direction_type,
+            HiddenStateDimensionalityReducer(self.hp,
+                                             self.direction_type,
                                              num_analysis_samples)
 
         # Set settings for specific saliency functions
@@ -507,10 +508,11 @@ class SaliencyFunction():
         return loss_sum
 
 class HiddenStateDimensionalityReducer():
-    def __init__(self, type_of_dim_red, num_analysis_samples, device='cuda'):
+    def __init__(self, hp, type_of_dim_red, num_analysis_samples, device='cuda'):
         """
         """
         super(HiddenStateDimensionalityReducer, self).__init__()
+        self.hp = hp
         self.device = device
         self.type_of_dim_red = type_of_dim_red
         hx_analysis_dir = os.path.join(os.getcwd(), 'analysis',
@@ -538,6 +540,7 @@ class HiddenStateDimensionalityReducer():
             self.unmix_mat = torch.tensor(np.load(ica_directions_path)).to(
                 device).float().requires_grad_()
             self.unmix_mat = self.unmix_mat.transpose(0, 1)
+            self.num_ica_components = self.hp.analysis.agent_h.n_components_nmf_or_ica
 
         elif type_of_dim_red == 'nmf':
             self.transform = self.nmf_transform
@@ -563,7 +566,7 @@ class HiddenStateDimensionalityReducer():
         ###########
         hx_z = (hx - self.hx_mu) / self.hx_std
         pc_loadings = hx_z @ self.pcs
-        source_signals = pc_loadings @ self.unmix_mat
+        source_signals = pc_loadings[:,:,:self.num_ica_components] @ self.unmix_mat
         return source_signals
 
     def nmf_transform(self, hx):
