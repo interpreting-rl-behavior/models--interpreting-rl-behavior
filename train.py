@@ -11,6 +11,11 @@ from procgen import ProcgenEnv
 import random
 import torch
 
+try:
+    import wandb
+except ImportError:
+    pass
+
 
 if __name__=='__main__':
     parser = argparse.ArgumentParser()
@@ -28,6 +33,16 @@ if __name__=='__main__':
     parser.add_argument('--log_level',        type=int, default = int(40), help='[10,20,30,40]')
     parser.add_argument('--num_checkpoints',  type=int, default = int(1), help='number of checkpoints to store')
     parser.add_argument('--model_file', type=str)
+    parser.add_argument('--use_wandb',        action="store_true")
+
+    parser.add_argument('--wandb_tags',       type=str, nargs='+')
+
+
+    parser.add_argument('--random_percent',   type=int, default=0, help='COINRUN: percent of environments in which coin is randomized (only for coinrun)')
+    parser.add_argument('--key_penalty',   type=int, default=0, help='HEIST_AISC: Penalty for picking up keys (divided by 10)')
+    parser.add_argument('--step_penalty',   type=int, default=0, help='HEIST_AISC: Time penalty per step (divided by 1000)')
+    parser.add_argument('--rand_region',   type=int, default=0, help='MAZE: size of region (in upper left corner) in which goal is sampled.')
+
 
     #multi threading
     parser.add_argument('--num_threads', type=int, default=8)
@@ -37,18 +52,21 @@ if __name__=='__main__':
     env_name = args.env_name
     val_env_name = args.val_env_name if args.val_env_name else args.env_name
     start_level = args.start_level
+    start_level_val = random.randint(0, 9999)
     num_levels = args.num_levels
     distribution_mode = args.distribution_mode
     param_name = args.param_name
-    device = args.device
     gpu_device = args.gpu_device
-    num_timesteps = args.num_timesteps
+    num_timesteps = int(args.num_timesteps)
     seed = args.seed
     log_level = args.log_level
     num_checkpoints = args.num_checkpoints
 
     set_global_seeds(seed)
     set_global_log_levels(log_level)
+
+    if args.start_level == start_level_val:
+        raise ValueError("Seeds for training and validation envs are equal.")
 
     ####################
     ## HYPERPARAMETERS #
@@ -72,13 +90,21 @@ if __name__=='__main__':
     ## ENVIRONMENT ##
     #################
     print('INITIALIZAING ENVIRONMENTS...')
+
+    n_steps = hyperparameters.get('n_steps', 256)
+    n_envs = hyperparameters.get('n_envs', 256)
+
     def create_venv(args, hyperparameters, is_valid=False):
-        venv = ProcgenEnv(num_envs=hyperparameters.get('n_envs', 256),
+        venv = ProcgenEnv(num_envs=n_envs,
                           env_name=val_env_name if is_valid else env_name,
                           num_levels=0 if is_valid else args.num_levels,
-                          start_level=0 if is_valid else args.start_level,
+                          start_level=start_level_val if is_valid else args.start_level,
                           distribution_mode=args.distribution_mode,
-                          num_threads=args.num_threads)
+                          num_threads=args.num_threads,
+                          random_percent=args.random_percent,
+                          step_penalty=args.step_penalty,
+                          key_penalty=args.key_penalty,
+                          rand_region=args.rand_region)
         venv = VecExtractDictObs(venv, "rgb")
         normalize_rew = hyperparameters.get('normalize_rew', True)
         if normalize_rew:
@@ -87,23 +113,52 @@ if __name__=='__main__':
         venv = TransposeFrame(venv)
         venv = ScaledFloatFrame(venv)
         return venv
-    n_steps = hyperparameters.get('n_steps', 256)
-    n_envs = hyperparameters.get('n_envs', 64)
 
     env = create_venv(args, hyperparameters)
     env_valid = create_venv(args, hyperparameters, is_valid=True)
 
+
+
+
     ############
     ## LOGGER ##
     ############
+    def listdir(path):
+        return [os.path.join(path, d) for d in os.listdir(path)]
+
+    def get_latest_model(model_dir):
+        """given model_dir with files named model_n.pth where n is an integer,
+        return the filename with largest n"""
+        steps = [int(filename[6:-4]) for filename in os.listdir(model_dir) if filename.startswith("model_")]
+        return list(os.listdir(model_dir))[np.argmax(steps)]
+
     print('INITIALIZING LOGGER...')
-    logdir = 'procgen/' + env_name + '/' + exp_name + '/' + 'seed' + '_' + \
-             str(seed) + '_' + time.strftime("%d-%m-%Y_%H-%M-%S")
-    logdir = os.path.join('logs', logdir)
+
+    logdir = os.path.join('logs', 'train', env_name, exp_name)
+    if args.model_file == "auto":  # try to figure out which file to load
+        logdirs_with_model = [d for d in listdir(logdir) if any(['model' in filename for filename in os.listdir(d)])] 
+        if len(logdirs_with_model) > 1:
+            raise ValueError("Received args.model_file = 'auto', but there are multiple experiments"
+                                f" with saved models under experiment_name {exp_name}.")
+        elif len(logdirs_with_model) == 0:
+            raise ValueError("Received args.model_file = 'auto', but there are"
+                                f" no saved models under experiment_name {exp_name}.")
+        model_dir = logdirs_with_model[0]
+        args.model_file = os.path.join(model_dir, get_latest_model(model_dir))
+        logdir = model_dir # reuse logdir
+    else:
+        run_name = time.strftime("%Y-%m-%d__%H-%M-%S") + f'__seed_{seed}'
+        logdir = os.path.join(logdir, run_name)
     if not (os.path.exists(logdir)):
         os.makedirs(logdir)
+
     print(f'Logging to {logdir}')
-    logger = Logger(n_envs, logdir)
+    if args.use_wandb:
+        cfg = vars(args)
+        cfg.update(hyperparameters)
+        wb_resume = "allow" if args.model_file is None else "must"
+        wandb.init(project="objective-robustness", config=cfg, tags=args.wandb_tags, resume=wb_resume)
+    logger = Logger(n_envs, logdir, use_wandb=args.use_wandb)
 
     ###########
     ## MODEL ##
@@ -147,8 +202,11 @@ if __name__=='__main__':
         from agents.ppo import PPO as AGENT
     else:
         raise NotImplementedError
-    agent = AGENT(env, policy, logger, storage, device, num_checkpoints,
-                  env_valid, storage_valid,  **hyperparameters)
+    agent = AGENT(env, policy, logger, storage, device,
+                  num_checkpoints,
+                  env_valid=env_valid, 
+                  storage_valid=storage_valid,  
+                  **hyperparameters)
     if args.model_file is not None:
         print("Loading agent from %s" % args.model_file)
         checkpoint = torch.load(args.model_file)

@@ -1,3 +1,23 @@
+debug:
+    algo: ppo
+    n_envs: 2
+    n_steps: 64
+    epoch: 1
+    mini_batch_per_epoch: 4
+    mini_batch_size: 512
+    gamma: 0.999
+    lmbda: 0.95
+    learning_rate: 0.0005
+    grad_clip_norm: 0.5
+    eps_clip: 0.2
+    value_coef: 0.5
+    entropy_coef: 0.01
+    normalize_adv: True
+    normalize_rew: True
+    use_gae: True
+    architecture: impala
+    recurrent: False
+
 easy:
     algo: ppo
     n_envs: 64
@@ -40,11 +60,11 @@ easy-200:
 
 hard:
     algo: ppo
-    n_envs: 256
+    n_envs: 128
     n_steps: 256
     epoch: 3
     mini_batch_per_epoch: 8
-    mini_batch_size: 2048
+    mini_batch_size: 4096
     gamma: 0.999
     lmbda: 0.95
     learning_rate: 0.0005
@@ -157,3 +177,44 @@ hard-local-dev-rec:
     use_gae: True
     architecture: impala
     recurrent: True
+
+A100:
+    algo: ppo
+    n_envs: 512
+    n_steps: 256
+    epoch: 3
+    mini_batch_per_epoch: 16
+    mini_batch_size: 32768 # 32768  # this is just a maximum
+    gamma: 0.999
+    lmbda: 0.95
+    learning_rate: 0.0005 # should make larger?
+    grad_clip_norm: 0.5
+    eps_clip: 0.2
+    value_coef: 0.5
+    entropy_coef: 0.01
+    normalize_adv: True
+    normalize_rew: True
+    use_gae: True
+    architecture: impala
+    recurrent: False
+
+
+A100-large:  # for larger model (16x params)
+    algo: ppo
+    n_envs: 512
+    n_steps: 256
+    epoch: 3
+    mini_batch_per_epoch: 16
+    mini_batch_size: 2048  # vary this param to adjust for memory
+    gamma: 0.999
+    lmbda: 0.95
+    learning_rate: 0.0005 # scale by 1 / sqrt(channel_scale)
+    grad_clip_norm: 0.5
+    eps_clip: 0.2
+    value_coef: 0.5
+    entropy_coef: 0.01
+    normalize_adv: True
+    normalize_rew: True
+    use_gae: True
+    architecture: impala
+    recurrent: False

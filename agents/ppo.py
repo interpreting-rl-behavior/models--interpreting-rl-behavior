@@ -63,6 +63,19 @@ class PPO(BaseAgent):
 
         return act.cpu().numpy(), log_prob_act.cpu().numpy(), value.cpu().numpy(), hidden_state.cpu().numpy()
 
+    def predict_w_value_saliency(self, obs, hidden_state, done):
+        obs = torch.FloatTensor(obs).to(device=self.device)
+        obs.requires_grad_()
+        obs.retain_grad()
+        hidden_state = torch.FloatTensor(hidden_state).to(device=self.device)
+        mask = torch.FloatTensor(1-done).to(device=self.device)
+        dist, value, hidden_state = self.policy(obs, hidden_state, mask)
+        value.backward(retain_graph=True)
+        act = dist.sample()
+        log_prob_act = dist.log_prob(act)
+
+        return act.detach().cpu().numpy(), log_prob_act.detach().cpu().numpy(), value.detach().cpu().numpy(), hidden_state.detach().cpu().numpy(), obs.grad.data.detach().cpu().numpy()
+
     def optimize(self):
         pi_loss_list, value_loss_list, entropy_loss_list = [], [], []
         batch_size = self.n_steps * self.n_envs // self.mini_batch_per_epoch
@@ -122,9 +135,10 @@ class PPO(BaseAgent):
         hidden_state = np.zeros((self.n_envs, self.storage.hidden_state_size))
         done = np.zeros(self.n_envs)
 
-        obs_v = self.env_valid.reset()
-        hidden_state_v = np.zeros((self.n_envs, self.storage.hidden_state_size))
-        done_v = np.zeros(self.n_envs)
+        if self.env_valid is not None:
+            obs_v = self.env_valid.reset()
+            hidden_state_v = np.zeros((self.n_envs, self.storage.hidden_state_size))
+            done_v = np.zeros(self.n_envs)
 
         while self.t < num_timesteps:
             # Run Policy
@@ -160,9 +174,11 @@ class PPO(BaseAgent):
             # Log the training-procedure
             self.t += self.n_steps * self.n_envs
             rew_batch, done_batch = self.storage.fetch_log_data()
-            rew_batch_v, done_batch_v = self.storage_valid.fetch_log_data()
-            self.logger.feed(rew_batch, done_batch, value_batch, summary, rew_batch_v, done_batch_v)
-            self.logger.write_summary(summary)
+            if self.storage_valid is not None:
+                rew_batch_v, done_batch_v = self.storage_valid.fetch_log_data()
+            else:
+                rew_batch_v = done_batch_v = None
+            self.logger.feed(rew_batch, done_batch, rew_batch_v, done_batch_v)
             self.logger.dump()
             self.optimizer = adjust_lr(self.optimizer, self.learning_rate, self.t, num_timesteps)
             # Save the model
