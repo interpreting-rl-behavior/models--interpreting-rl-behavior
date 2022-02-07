@@ -124,7 +124,8 @@ def run():
 
     # ICA
     print("Starting ICA")
-    ica_then_save(centred_scaled_hx_pca, save_path,
+    whitened_data = centred_scaled_hx_pca[:, :n_components_nmf_or_ica]
+    ica_then_save(whitened_data, save_path,
                   "hx", num_episodes,
                   max_iter=hp.analysis.agent_h.ica_max_iter,
                   tol=hp.analysis.agent_h.ica_tol)
