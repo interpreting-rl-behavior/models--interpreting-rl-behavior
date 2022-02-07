@@ -172,6 +172,12 @@ def run():
     # the action and value output), it makes sense that we get rid of the 0th
     # hx because it's uninformative and unused by values and action.
 
+    # ica max factor
+    hx_ica = np.load(hp.analysis.agent_h.precomputed_analysis_data_path + \
+                     'ica_source_signals_hx__%i.npy' % num_episodes)
+    ica_max_factor = np.argmax(hx_ica, axis=1)
+    data['ica_max_factor'] = ica_max_factor
+
     # cluster identity
     hx_cluster = np.load(hp.analysis.agent_h.precomputed_analysis_data_path + \
                      'clusters_hx_%i.npy' % num_episodes)
@@ -179,7 +185,7 @@ def run():
 
     # Prepare for plotting
     plotting_variables = ['entropy', 'argmax_action_log_prob',  'action',
-                          'cluster_id', 'nmf_max_factor', 'neg_log_value_delta',
+                          'cluster_id', 'nmf_max_factor', 'ica_max_factor',
                           'episode_max_steps', '% through episode', 'done',
                           'value', 'episode_rewarded', 'reward',]
 
@@ -201,7 +207,7 @@ def run():
                   '% through episode':       'hsv',#'brg',
                   'done':                    'autumn_r',
                   'value':                   'cool',
-                  'neg_log_value_delta':     'cool',
+                  'ica_max_factor':          'hsv',
                   'episode_rewarded':        'cool',
                   'reward':                  'cool',}
 
