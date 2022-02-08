@@ -1,3 +1,5 @@
+import os
+
 import pandas as pd
 import numpy as np
 from sklearn.manifold import TSNE
@@ -105,6 +107,86 @@ def nmf_then_save(data, num_factors, save_path, aux_name1, aux_name2, max_iter=5
             vecs_nmf.transform(data_nonneg))
     np.save(save_path + f'nmf_components_{aux_name1}_{aux_name2}.npy',
             vecs_nmf.components_)
+
+def nmf_crossvalidation(data, save_path, aux_name1, aux_name2):
+    # X' = WH (X' is NxD; W is NxQ; H is QxD)
+    min_per_dim = np.min(data, axis=0)
+    data_nonneg = data - min_per_dim
+
+    # Split data into train and validation
+    len_data = data_nonneg.shape[0]
+    len_test = int(0.15*len_data)
+    data_test = data_nonneg[:len_test]
+    data_train = data_nonneg[len_test:]
+
+    # Set up configs for cross validation
+    num_component_min = 10
+    num_component_max = 61
+    num_component_step = 9
+    num_component_range = np.arange(num_component_min, num_component_max, num_component_step)
+    nmf_models = []
+    nmf_train_residuals = []
+    nmf_test_residuals = []
+    num_repeats = 4
+    max_iter = 5000
+
+    # Begin cross validation
+    for num_comp in num_component_range:
+        print("Beginning NMF for %i factors" % num_comp)
+        model_repeats = []
+        train_residual_repeats = []
+        test_residual_repeats = []
+        for repeat_id in range(num_repeats):
+            model = NMF(n_components=num_comp,
+                        init='random', random_state=repeat_id,
+                        max_iter=max_iter, verbose=1,
+                        tol=1e-4)
+
+            W_train = model.fit_transform(data_train)
+            data_train_hat = model.inverse_transform(W_train)
+
+            W_test = model.transform(data_test)
+            data_test_hat = model.inverse_transform(W_test)
+
+            train_residual = np.linalg.norm(data_train - data_train_hat, ord='fro')
+            test_residual = np.linalg.norm(data_test - data_test_hat, ord='fro')
+
+            model_repeats.append(model)
+            train_residual_repeats.append(train_residual)
+            test_residual_repeats.append(test_residual)
+
+        nmf_models.append(model_repeats)
+        nmf_train_residuals.append(train_residual_repeats)
+        nmf_test_residuals.append(test_residual_repeats)
+
+    nmf_train_residuals = [np.array(v).mean() for v in nmf_train_residuals]
+    nmf_test_residuals = [np.array(v).mean() for v in nmf_test_residuals]
+    print(nmf_test_residuals)
+
+    # get best model and save
+    min_value = min(nmf_test_residuals)
+    min_index = nmf_test_residuals.index(min_value)
+    best_model = nmf_models[min_index][0] # may not be exactly optimal but we at least get a fixed random state==0
+    np.save(save_path + f'nmf_min_per_dim_{aux_name1}_{aux_name2}.npy',
+            min_per_dim)
+    np.save(save_path + f'nmf_{aux_name1}_{aux_name2}.npy',
+            best_model.fit_transform(data_nonneg))
+    np.save(save_path + f'nmf_components_{aux_name1}_{aux_name2}.npy',
+            best_model.components_)
+
+    fig, (ax1, ax2) = plt.subplots(2, 1)
+    fig.suptitle('Crossvalidation NMF')
+
+    ax1.plot(num_component_range, nmf_train_residuals, '.-')
+    ax1.set_ylabel('Train residual')
+
+    ax2.plot(num_component_range, nmf_test_residuals, '.-')
+    ax2.set_xlabel('Number of factors')
+    ax2.set_ylabel('Test residual')
+    plot_name = os.path.join(os.getcwd(),'analysis','hx_plots', "Crossvalidation NMF.png")
+    plt.savefig(plot_name)
+
+
 
 def ica_then_save(whitened_data, save_path, aux_name1, aux_name2,
                   max_iter=5000, tol=1e-4):

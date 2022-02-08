@@ -543,7 +543,35 @@ class HiddenStateDimensionalityReducer():
             self.num_ica_components = self.hp.analysis.agent_h.n_components_nmf_or_ica
 
         elif type_of_dim_red == 'nmf':
+            # X' = WH (X is NxD; W is NxQ; H is QxD)
             self.transform = self.nmf_transform
+            nmf_directions_path = os.path.join(os.getcwd(), hx_analysis_dir,
+                f'nmf_components_hx_{num_analysis_samples}.npy')
+            min_per_dim_path = os.path.join(os.getcwd(), hx_analysis_dir,
+                f'nmf_min_per_dim_hx_{num_analysis_samples}.npy')
+            self.min_per_dim = torch.tensor(np.load(min_per_dim_path)).to(
+                device).float().requires_grad_()
+            H = torch.tensor(np.load(nmf_directions_path)).to(
+                device).float().requires_grad_()
+            self.H_T = H.transpose(0, 1)
+            self.num_ica_components = self.H_T.shape[1]
+            self.H_T_pseudoinv = torch.linalg.pinv(self.H_T).to(device).float()
+            # In torch  1.10+ we can use
+            # Instead of calculating the pseudoinverse, we're going to use
+            #  torch.linalg.lstsq(A, B).solution == A.pinv() @ B
+            # See: https://pytorch.org/docs/stable/generated/torch.linalg.pinv.html
+
+            # Do a test to check that the NMF factors are appropriate to
+            # invert like this
+            nmf_data_path = os.path.join(os.getcwd(), hx_analysis_dir,
+                f'nmf_hx_{num_analysis_samples}.npy')
+            nmf_data = torch.tensor(np.load(nmf_data_path)).to(
+                device).float()
+            sample_hx = torch.tensor(np.load(os.path.join('data', 'episode_00000/hx.npy'))).to(device).float()
+            sample_hx = sample_hx[1:] # Cut 0th timestep
+            nmf_sample = nmf_data[:sample_hx.shape[0]]
+            estimate_nmf_hx = self.H_T_pseudoinv @ (sample_hx - self.min_per_dim).transpose(0, 1)
+
 
     def pca_transform(self, hx):
         # Scale and project hx onto direction

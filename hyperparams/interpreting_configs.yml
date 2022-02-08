@@ -112,13 +112,13 @@ defaults:
             num_sim_steps: 10
             num_sim_steps_manual_actions: 32
             common_timesteps: [4]
-            direction_type: ica
-            func_type: [action, value, hx_direction] #[hx_direction] #[value, action, hx_direction]
+            direction_type: nmf
+            func_type: [value, action, hx_direction]
             direction_ids: ['0', 'to', '16']
             sample_ids: ['0', 'to', '400']
-            batch_size: 16
+            batch_size: 9
             combine_samples_not_iterate: False
-            perturbation_scale: 0.0002
+            perturbation_scale: 0.000125
             gaussian_kernel_size: 5.
             sigma: 5.
         target_func:
