@@ -4,7 +4,7 @@ from sklearn.decomposition import PCA
 from sklearn.preprocessing import StandardScaler
 from precomput_analysis_funcs import \
     plot_variance_expl_plot, clustering_after_pca, tsne_after_pca, \
-    nmf_then_save, ica_then_save
+    nmf_then_save, nmf_crossvalidation, ica_then_save
 import argparse
 import os
 import hyperparam_functions as hpf
@@ -79,57 +79,58 @@ def run():
     pca_obj = PCA(n_components=n_components_pca)
     centred_scaled_hx_pca = pca_obj.fit_transform(centred_scaled_hx)
     centred_scaled_gen_hx_projected = pca_obj.transform(centred_scaled_gen_hx)
-
-    # For future reference the following returns an array of mostly True:
-    # np.isclose(pca_obj.transform(centred_scaled_hx),
-    #            centred_scaled_hx @ (pca_obj.components_.transpose()),
-    #            atol=1e-3)
-
-    print('PCA finished.')
-
-    # Save PCs and the projections of each of the hx onto those PCs.
-    np.save(save_path + 'hx_mu_%i.npy' % num_episodes, mu)
-    np.save(save_path + 'hx_std_%i.npy' % num_episodes, std)
-    np.save(save_path + 'hx_pca_%i.npy' % num_episodes, centred_scaled_hx_pca)
-    np.save(save_path + 'pcomponents_%i.npy' % num_episodes,pca_obj.components_)
-    # And save the projections of the generated data onto the PCs of true data
-    np.save(save_path + 'gen_hx_projected_real%i_gen%i.npy' % (num_episodes,
-                                                         num_generated_samples),
-            centred_scaled_gen_hx_projected)
-
-    # Plot variance explained plot
-    above95explained = \
-        plot_variance_expl_plot(pca_obj, n_components_pca, plot_save_path,
-                                "hx", num_episodes)
-
-
-    # k-means clustering
-    print('Starting clustering...')
-    clustering_after_pca(hx, above95explained, n_clusters, save_path,
-                         "hx", num_episodes)
-    print("Clustering finished.")
-
-    # tSNE
-    print('Starting tSNE...')
-    tsne_after_pca(hx, above95explained, n_components_tsne,
-                   save_path, "hx", num_episodes)
-    print("tSNE finished.")
+    #
+    # # For future reference the following returns an array of mostly True:
+    # # np.isclose(pca_obj.transform(centred_scaled_hx),
+    # #            centred_scaled_hx @ (pca_obj.components_.transpose()),
+    # #            atol=1e-3)
+    #
+    # print('PCA finished.')
+    #
+    # # Save PCs and the projections of each of the hx onto those PCs.
+    # np.save(save_path + 'hx_mu_%i.npy' % num_episodes, mu)
+    # np.save(save_path + 'hx_std_%i.npy' % num_episodes, std)
+    # np.save(save_path + 'hx_pca_%i.npy' % num_episodes, centred_scaled_hx_pca)
+    # np.save(save_path + 'pcomponents_%i.npy' % num_episodes,pca_obj.components_)
+    # # And save the projections of the generated data onto the PCs of true data
+    # np.save(save_path + 'gen_hx_projected_real%i_gen%i.npy' % (num_episodes,
+    #                                                     num_generated_samples),
+    #        centred_scaled_gen_hx_projected)
+    #
+    # # Plot variance explained plot
+    # above95explained = \
+    #    plot_variance_expl_plot(pca_obj, n_components_pca, plot_save_path,
+    #                            "hx", num_episodes)
+    #
+    #
+    # # k-means clustering
+    # print('Starting clustering...')
+    # clustering_after_pca(hx, above95explained, n_clusters, save_path,
+    #                     "hx", num_episodes)
+    # print("Clustering finished.")
+    #
+    # # tSNE
+    # print('Starting tSNE...')
+    # tsne_after_pca(hx, above95explained, n_components_tsne,
+    #               save_path, "hx", num_episodes)
+    # print("tSNE finished.")
 
     # NMF
     print('Starting NMF...')
-    nmf_then_save(hx, n_components_nmf_or_ica, save_path, "hx", num_episodes,
-                  max_iter=hp.analysis.agent_h.nmf_max_iter,
-                  tol=hp.analysis.agent_h.nmf_tol)
+    # nmf_then_save(hx, n_components_nmf_or_ica, save_path, "hx", num_episodes,
+    #              max_iter=hp.analysis.agent_h.nmf_max_iter,
+    #              tol=hp.analysis.agent_h.nmf_tol)
+    nmf_crossvalidation(hx, save_path, "hx", num_episodes)
     print("NMF finished.")
 
-    # ICA
-    print("Starting ICA")
-    whitened_data = centred_scaled_hx_pca[:, :n_components_nmf_or_ica]
-    ica_then_save(whitened_data, save_path,
-                  "hx", num_episodes,
-                  max_iter=hp.analysis.agent_h.ica_max_iter,
-                  tol=hp.analysis.agent_h.ica_tol)
-    print("ICA finished")
+    # # ICA
+    # print("Starting ICA")
+    # whitened_data = centred_scaled_hx_pca[:, :n_components_nmf_or_ica]
+    # ica_then_save(whitened_data, save_path,
+    #               "hx", num_episodes,
+    #               max_iter=hp.analysis.agent_h.ica_max_iter,
+    #               tol=hp.analysis.agent_h.ica_tol)
+    # print("ICA finished")
 
 
 if __name__ == "__main__":

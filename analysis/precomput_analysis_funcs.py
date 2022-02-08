@@ -9,6 +9,7 @@ from sklearn.neighbors import kneighbors_graph
 #import umap
 from sklearn.preprocessing import StandardScaler
 import matplotlib.pyplot as plt
+from joblib import dump, load
 
 
 def scale_then_pca_then_save(data, num_pcs, save_path, aux_name1, aux_name2):
@@ -122,7 +123,7 @@ def nmf_crossvalidation(data, save_path, aux_name1, aux_name2):
     # Set up configs for cross validation
     num_component_min = 10
     num_component_max = 61
-    num_component_step = 9
+    num_component_step = 10
     num_component_range = np.arange(num_component_min, num_component_max, num_component_step)
     nmf_models = []
     nmf_train_residuals = []
@@ -167,12 +168,15 @@ def nmf_crossvalidation(data, save_path, aux_name1, aux_name2):
     min_value = min(nmf_test_residuals)
     min_index = nmf_test_residuals.index(min_value)
     best_model = nmf_models[min_index][0] # may not be exactly optimal but we at least get a fixed random state==0
-    np.save(save_path + f'nmf_min_per_dim_{aux_name1}_{aux_name2}.npy',
+    np.save(save_path + f'nmf_xv_min_per_dim_{aux_name1}_{aux_name2}.npy',
             min_per_dim)
-    np.save(save_path + f'nmf_{aux_name1}_{aux_name2}.npy',
+    np.save(save_path + f'nmf_xv_{aux_name1}_{aux_name2}.npy',
             best_model.fit_transform(data_nonneg))
-    np.save(save_path + f'nmf_components_{aux_name1}_{aux_name2}.npy',
+    np.save(save_path + f'nmf_xv_components_{aux_name1}_{aux_name2}.npy',
             best_model.components_)
+    model_name = save_path + f'nmf_model_{aux_name1}_{aux_name2}.joblib'
+    dump(best_model, model_name)
+    # load(model_name)
 
     fig, (ax1, ax2) = plt.subplots(2, 1)
     fig.suptitle('Crossvalidation NMF')
