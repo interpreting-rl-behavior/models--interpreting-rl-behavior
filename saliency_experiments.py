@@ -6,6 +6,7 @@ from generative.rssm.functions import safe_normalize
 from overlay_image import overlay_actions
 import torchvision as tv
 import torchvision.io as tvio
+from joblib import dump, load
 
 
 class SaliencyExperiment(GenerativeModelExperiment):
@@ -540,7 +541,7 @@ class HiddenStateDimensionalityReducer():
             self.unmix_mat = torch.tensor(np.load(ica_directions_path)).to(
                 device).float().requires_grad_()
             self.unmix_mat = self.unmix_mat.transpose(0, 1)
-            self.num_ica_components = self.hp.analysis.agent_h.n_components_nmf_or_ica
+            self.num_ica_components = self.hp.analysis.agent_h.n_components_ica
 
         elif type_of_dim_red == 'nmf':
             # X' = WH (X is NxD; W is NxQ; H is QxD)
@@ -554,7 +555,7 @@ class HiddenStateDimensionalityReducer():
             H = torch.tensor(np.load(nmf_directions_path)).to(
                 device).float().requires_grad_()
             self.H_T = H.transpose(0, 1)
-            self.num_ica_components = self.H_T.shape[1]
+            self.num_nmf_components = self.H_T.shape[1]
             self.H_T_pseudoinv = torch.linalg.pinv(self.H_T).to(device).float()
             # In torch  1.10+ we can use
             # Instead of calculating the pseudoinverse, we're going to use
@@ -567,6 +568,10 @@ class HiddenStateDimensionalityReducer():
                 f'nmf_hx_{num_analysis_samples}.npy')
             nmf_data = torch.tensor(np.load(nmf_data_path)).to(
                 device).float()
+            model_name = f'nmf_model_hx_{num_analysis_samples}.joblib'
+            nmf_model_path = os.path.join(os.getcwd(), hx_analysis_dir,
+                                          model_name)
+            self.nmf_model = load(nmf_model_path)
             sample_hx = torch.tensor(np.load(os.path.join('data', 'episode_00000/hx.npy'))).to(device).float()
             sample_hx = sample_hx[1:] # Cut 0th timestep
             nmf_sample = nmf_data[:sample_hx.shape[0]]
@@ -598,7 +603,9 @@ class HiddenStateDimensionalityReducer():
         return source_signals
 
     def nmf_transform(self, hx):
-        return
+        nonneg_hx = hx - self.min_per_dim
+        nmf_loadings = self.nmf_model.transform(nonneg_hx)
+        return nmf_loadings
 
 
 if __name__ == "__main__":

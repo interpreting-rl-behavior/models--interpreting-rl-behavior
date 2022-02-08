@@ -108,6 +108,8 @@ def nmf_then_save(data, num_factors, save_path, aux_name1, aux_name2, max_iter=5
             vecs_nmf.transform(data_nonneg))
     np.save(save_path + f'nmf_components_{aux_name1}_{aux_name2}.npy',
             vecs_nmf.components_)
+    model_name = save_path + f'nmf_model_{aux_name1}_{aux_name2}.joblib'
+    dump(model, model_name)
 
 def nmf_crossvalidation(data, save_path, aux_name1, aux_name2):
     # X' = WH (X' is NxD; W is NxQ; H is QxD)
@@ -174,7 +176,7 @@ def nmf_crossvalidation(data, save_path, aux_name1, aux_name2):
             best_model.fit_transform(data_nonneg))
     np.save(save_path + f'nmf_xv_components_{aux_name1}_{aux_name2}.npy',
             best_model.components_)
-    model_name = save_path + f'nmf_model_{aux_name1}_{aux_name2}.joblib'
+    model_name = save_path + f'nmf_xv_model_{aux_name1}_{aux_name2}.joblib'
     dump(best_model, model_name)
     # load(model_name)
 
