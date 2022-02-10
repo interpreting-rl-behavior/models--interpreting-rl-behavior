@@ -452,7 +452,7 @@ class SaliencyFunction():
             preds = directions_transformer.transform(preds)
 
             # Then just pick the direction we want to take the saliency of
-            preds = preds[:, :, direction_id]
+            preds = preds[:, direction_id]
 
             loss_sum = preds.mean()
             return loss_sum
