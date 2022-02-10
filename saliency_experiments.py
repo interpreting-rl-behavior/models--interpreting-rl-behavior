@@ -7,6 +7,7 @@ from overlay_image import overlay_actions
 import torchvision as tv
 import torchvision.io as tvio
 from joblib import dump, load
+from dimred_projector import HiddenStateDimensionalityReducer
 
 
 class SaliencyExperiment(GenerativeModelExperiment):
@@ -322,7 +323,6 @@ class SaliencyExperiment(GenerativeModelExperiment):
                                               combo_vid_name)
                 tvio.write_video(combo_vid_name, combined_vid, fps=14)
 
-
     def get_bottleneck_vecs(self, sample_id):
         sample_dir = os.path.join(self.recording_data_save_dir,
                                   f'sample_{int(sample_id):05d}')
@@ -390,7 +390,7 @@ class SaliencyFunction():
                                              num_analysis_samples)
 
         # Set settings for specific saliency functions
-        common_timesteps = self.hp.analysis.saliency.common_timesteps #tuple(range(0,28))
+        common_timesteps = self.hp.analysis.saliency.common_timesteps
         common_timesteps = tuple(common_timesteps)
         if self.saliency_func_type == 'action':
             self.loss_func = self.action_saliency_loss_function
@@ -508,104 +508,6 @@ class SaliencyFunction():
 
         return loss_sum
 
-class HiddenStateDimensionalityReducer():
-    def __init__(self, hp, type_of_dim_red, num_analysis_samples, device='cuda'):
-        """
-        """
-        super(HiddenStateDimensionalityReducer, self).__init__()
-        self.hp = hp
-        self.device = device
-        self.type_of_dim_red = type_of_dim_red
-        hx_analysis_dir = os.path.join(os.getcwd(), 'analysis',
-                                       'hx_analysis_precomp')
-
-        if type_of_dim_red == 'pca' or type_of_dim_red == 'ica':
-            self.transform = self.pca_transform
-
-            directions_path = os.path.join(os.getcwd(), hx_analysis_dir,
-                                           f'pcomponents_{num_analysis_samples}.npy')
-            hx_mu_path = os.path.join(hx_analysis_dir, f'hx_mu_{num_analysis_samples}.npy')
-            hx_std_path = os.path.join(hx_analysis_dir, f'hx_std_{num_analysis_samples}.npy')
-            self.pcs = torch.tensor(np.load(directions_path)).to(
-                device).requires_grad_()
-            self.pcs = self.pcs.transpose(0, 1)
-            self.hx_mu = torch.tensor(np.load(hx_mu_path)).to(
-                device).requires_grad_()
-            self.hx_std = torch.tensor(np.load(hx_std_path)).to(
-                device).requires_grad_()
-
-        if type_of_dim_red == 'ica':
-            self.transform = self.ica_transform
-            ica_directions_path = os.path.join(os.getcwd(), hx_analysis_dir,
-                f'ica_unmixing_matrix_hx_{num_analysis_samples}.npy')
-            self.unmix_mat = torch.tensor(np.load(ica_directions_path)).to(
-                device).float().requires_grad_()
-            self.unmix_mat = self.unmix_mat.transpose(0, 1)
-            self.num_ica_components = self.hp.analysis.agent_h.n_components_ica
-
-        elif type_of_dim_red == 'nmf':
-            # X' = WH (X is NxD; W is NxQ; H is QxD)
-            self.transform = self.nmf_transform
-            nmf_directions_path = os.path.join(os.getcwd(), hx_analysis_dir,
-                f'nmf_components_hx_{num_analysis_samples}.npy')
-            min_per_dim_path = os.path.join(os.getcwd(), hx_analysis_dir,
-                f'nmf_min_per_dim_hx_{num_analysis_samples}.npy')
-            self.min_per_dim = torch.tensor(np.load(min_per_dim_path)).to(
-                device).float().requires_grad_()
-            H = torch.tensor(np.load(nmf_directions_path)).to(
-                device).float().requires_grad_()
-            self.H_T = H.transpose(0, 1)
-            self.num_nmf_components = self.H_T.shape[1]
-            self.H_T_pseudoinv = torch.linalg.pinv(self.H_T).to(device).float()
-            # In torch  1.10+ we can use
-            # Instead of calculating the pseudoinverse, we're going to use
-            #  torch.linalg.lstsq(A, B).solution == A.pinv() @ B
-            # See: https://pytorch.org/docs/stable/generated/torch.linalg.pinv.html
-
-            # Do a test to check that the NMF factors are appropriate to
-            # invert like this
-            nmf_data_path = os.path.join(os.getcwd(), hx_analysis_dir,
-                f'nmf_hx_{num_analysis_samples}.npy')
-            nmf_data = torch.tensor(np.load(nmf_data_path)).to(
-                device).float()
-            model_name = f'nmf_model_hx_{num_analysis_samples}.joblib'
-            nmf_model_path = os.path.join(os.getcwd(), hx_analysis_dir,
-                                          model_name)
-            self.nmf_model = load(nmf_model_path)
-            sample_hx = torch.tensor(np.load(os.path.join('data', 'episode_00000/hx.npy'))).to(device).float()
-            sample_hx = sample_hx[1:] # Cut 0th timestep
-            nmf_sample = nmf_data[:sample_hx.shape[0]]
-            estimate_nmf_hx = self.H_T_pseudoinv @ (sample_hx - self.min_per_dim).transpose(0, 1)
-
-
-    def pca_transform(self, hx):
-        # Scale and project hx onto direction
-        hx_z = (hx - self.hx_mu) / self.hx_std
-        pc_loadings = hx_z @ self.pcs
-        return pc_loadings
-
-    def ica_transform(self, hx):
-
-        # hx_analysis_dir = os.path.join(os.getcwd(), 'analysis',
-        #                                'hx_analysis_precomp')
-        # ica_source_sigs_true = np.load(
-        #     os.path.join(hx_analysis_dir, 'ica_source_signals_hx_4000.npy'))
-        # pca_loadings_true = np.load(
-        #     os.path.join(hx_analysis_dir, 'hx_pca_4000.npy'))
-        # upca_guess = pca_loadings_true @ np.array(
-        #     self.unmix_mat.clone().detach().cpu().numpy())
-        # np.isclose(upca_guess, ica_source_sigs_true) # == Truetruetrue
-
-        ###########
-        hx_z = (hx - self.hx_mu) / self.hx_std
-        pc_loadings = hx_z @ self.pcs
-        source_signals = pc_loadings[:,:,:self.num_ica_components] @ self.unmix_mat
-        return source_signals
-
-    def nmf_transform(self, hx):
-        nonneg_hx = hx - self.min_per_dim
-        nmf_loadings = self.nmf_model.transform(nonneg_hx)
-        return nmf_loadings
 
 
 if __name__ == "__main__":

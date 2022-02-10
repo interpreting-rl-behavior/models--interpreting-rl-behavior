@@ -80,7 +80,7 @@ defaults:
             nmf_max_iter: 5000
             nmf_tol: 0.0001
             ica_max_iter: 8000
-            ica_tol: 0.001
+            ica_tol: 0.01
             precomputed_analysis_data_path: analysis/hx_analysis_precomp/
         env_h:
             num_samples: 6000 # Number of generated samples to use

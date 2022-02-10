@@ -80,6 +80,7 @@ def run():
     pca_obj = PCA(n_components=n_components_pca)
     centred_scaled_hx_pca = pca_obj.fit_transform(centred_scaled_hx)
     centred_scaled_gen_hx_projected = pca_obj.transform(centred_scaled_gen_hx)
+    pc_variances = centred_scaled_hx_pca.var(axis=0)
 
     # For future reference the following returns an array of mostly True:
     # np.isclose(pca_obj.transform(centred_scaled_hx),
@@ -93,6 +94,8 @@ def run():
     np.save(save_path + 'hx_std_%i.npy' % num_episodes, std)
     np.save(save_path + 'hx_pca_%i.npy' % num_episodes, centred_scaled_hx_pca)
     np.save(save_path + 'pcomponents_%i.npy' % num_episodes,pca_obj.components_)
+    np.save(save_path + 'pc_loading_variances_%i.npy' % num_episodes,
+            pc_variances)
     # And save the projections of the generated data onto the PCs of true data
     np.save(save_path + 'gen_hx_projected_real%i_gen%i.npy' % (num_episodes,
                                                         num_generated_samples),
@@ -117,18 +120,21 @@ def run():
     # tsne_after_pca(hx, above95explained, n_components_tsne,
     #               save_path, "hx", num_episodes)
     # print("tSNE finished.")
-
-    # NMF
-    print('Starting NMF...')
-    nmf_then_save(hx, n_components_nmf, save_path, "hx", num_episodes,
-                 max_iter=hp.analysis.agent_h.nmf_max_iter,
-                 tol=hp.analysis.agent_h.nmf_tol)
-    # nmf_crossvalidation(hx, save_path, "hx", num_episodes)
-    print("NMF finished.")
+    #
+    # # NMF
+    # print('Starting NMF...')
+    # nmf_then_save(hx, n_components_nmf, save_path, "hx", num_episodes,
+    #              max_iter=hp.analysis.agent_h.nmf_max_iter,
+    #              tol=hp.analysis.agent_h.nmf_tol)
+    # # nmf_crossvalidation(hx, save_path, "hx", num_episodes)
+    # print("NMF finished.")
 
     # ICA
     print("Starting ICA")
-    whitened_data = centred_scaled_hx_pca[:, :n_components_ica]
+
+    whitened_data = centred_scaled_hx_pca / np.sqrt(pc_variances)
+    whitened_data = whitened_data[:, :n_components_ica]
+
     ica_then_save(whitened_data, save_path,
                   "hx", num_episodes,
                   max_iter=hp.analysis.agent_h.ica_max_iter,
