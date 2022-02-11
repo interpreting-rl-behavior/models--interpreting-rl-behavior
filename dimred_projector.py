@@ -36,8 +36,8 @@ class HiddenStateDimensionalityReducer():
             hx_std_path = os.path.join(hx_analysis_dir, f'hx_std_{num_analysis_samples}.npy')
             pc_variances_path = os.path.join(hx_analysis_dir, f'pc_loading_variances_{num_analysis_samples}.npy')
 
-            self.pcs = np.load(directions_path)  # shape = (n_components, n_features)
-            self.pcs = self.pcs.transpose(0, 1)  # shape = (n_features, n_components)
+            self.pcs = np.load(directions_path)  # shape = (D, D) (n_components, n_features) (rows are components)
+            self.pcs_T = self.pcs.transpose(0, 1)  # shape = (D, D) (n_features, n_components)
             self.hx_mu = np.load(hx_mu_path)
             self.hx_std = np.load(hx_std_path)
             self.pc_std = np.sqrt(np.load(pc_variances_path))
@@ -45,6 +45,8 @@ class HiddenStateDimensionalityReducer():
             if data_type == torch.tensor:
                 self.pcs = torch.tensor(self.pcs).to(
                     device).requires_grad_()  # shape = (n_components, n_features)
+                self.pcs_T = torch.tensor(self.pcs_T).to(
+                    device).requires_grad_()
                 self.hx_mu = torch.tensor(self.hx_mu).to(
                     device).requires_grad_()
                 self.hx_std = torch.tensor(self.hx_std).to(
@@ -63,21 +65,28 @@ class HiddenStateDimensionalityReducer():
             ica_mixmat_path = os.path.join(os.getcwd(), hx_analysis_dir,
                 f'ica_mixing_matrix_hx_{num_analysis_samples}.npy')
 
-            self.unmix_mat = np.load(ica_directions_path) # (n_components, n_features)
-            self.unmix_mat = self.unmix_mat.transpose(0, 1)  # (n_features, n_components)
-            self.mix_mat = np.load(ica_mixmat_path) # (n_features, n_components)
-            #self.mix_mat = self.mix_mat.transpose(0, 1)  # (n_components, n_features)
+            # W
+            self.unmix_mat = np.load(ica_directions_path) # (K x D) (n_components_ica, n_features) (rows are IndepComps)
+            self.unmix_mat_T = self.unmix_mat.transpose(0, 1)  # (D x K) (n_features, n_components_ica) (cols are IndepComps)
+
+            # A
+            self.mix_mat = np.load(ica_mixmat_path)  # (D x K) (n_features, n_components_ica) (cols are IndepComps)
+            #self.mix_mat = self.mix_mat.transpose(0, 1)  # (n_components_ica, n_features)
 
             if data_type == torch.tensor:
                 self.unmix_mat = torch.tensor(self.unmix_mat).to(
-                    device).float().requires_grad_()  # (n_components, n_features)
+                    device).float().requires_grad_()
+                self.unmix_mat_T = torch.tensor(self.unmix_mat_T).to(
+                    device).float().requires_grad_()
                 self.mix_mat = torch.tensor(self.mix_mat).to(
-                    device).float().requires_grad_()  # (n_features, n_components)
+                    device).float().requires_grad_()
+
+            # TODO if this fails, then just run some tests with real data.
 
     def pca_transform(self, hx):
         # Scale and project hx onto direction
         hx_z = (hx - self.hx_mu) / self.hx_std
-        pc_loadings = hx_z @ self.pcs  # (n_datapoints, n_features) @ (n_features, n_components) --> (n_datapoints, n_components)
+        pc_loadings = hx_z @ self.pcs_T  # (N, D) @ (D, D) --> (N, D) # transposed pcs so that cols are PCs
         return pc_loadings
 
     def ica_transform(self, hx):
@@ -85,10 +94,10 @@ class HiddenStateDimensionalityReducer():
         if num_hx_dims > 2:
             hx = hx.squeeze()
         hx_z = (hx - self.hx_mu) / self.hx_std
-        pc_loadings = hx_z @ self.pcs  # (n_datapoints, n_features) @ (n_features, n_components) --> (n_datapoints, n_components)
-        pc_loadings = pc_loadings[:, :self.num_ica_components]  # (n_datapoints, n_components) --> (n_datapoints, n_components_ica)
+        pc_loadings = hx_z @ self.pcs_T  # (N, D) @ (D, D) --> (N, D) # transposed pcs so that cols are PCs
+        pc_loadings = pc_loadings[:, :self.num_ica_components]  # (N, D) --> (N, K)
         whitened_pc_loadings = pc_loadings / self.pc_std[:self.num_ica_components]
-        source_signals = whitened_pc_loadings @ self.unmix_mat # Z'@W^T # (n_datapoints, n_components_ica) @ (n_components_ica, n_components_ica) --> (n_datapoints, n_components_ica)
+        source_signals = whitened_pc_loadings @ self.unmix_mat_T # Z'@W^T (N, K) @ (K, K)
 
         if num_hx_dims > 2:
             source_signals = torch.unsqueeze(source_signals, dim=1)
@@ -96,13 +105,13 @@ class HiddenStateDimensionalityReducer():
 
     def project_gradients_into_pc_space(self, grad_data):
         sigma = np.diag(self.hx_std)
-        grad_data = grad_data.T  # So each column is a grad vector for a hx
-        scaled_pc_comps = self.pcs.T @ sigma  # PCs calculated on X'=(X-mu)/sigma are scaled so it's like they were calculated on X
-        projected_grads = scaled_pc_comps @ grad_data  # grads are projected onto the scaled PCs
-        return projected_grads.T
+        # grad_data = grad_data.T  # So each column is a grad vector for a hx
+        scaled_pc_comps = sigma @ self.pcs_T # PCs calculated on X'=(X-mu)/sigma are scaled so it's like they were calculated on X
+        projected_grads = grad_data @ scaled_pc_comps # grads are projected onto the scaled PCs
+        return projected_grads
 
     def project_gradients_into_ica_space(self, grad_data):
-        pcs = self.pcs[:,:self.num_ica_components]
+        pcs = self.pcs_T[:,:self.num_ica_components]
         pc_std = self.pc_std[:self.num_ica_components]
 
         Qt = self.diag(self.hx_std) @ pcs # (sigma_x @ C^T )
