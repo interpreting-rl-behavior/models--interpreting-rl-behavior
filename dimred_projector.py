@@ -81,13 +81,17 @@ class HiddenStateDimensionalityReducer():
         return pc_loadings
 
     def ica_transform(self, hx):
-        if len(hx.shape) > 2:
+        num_hx_dims = len(hx.shape)
+        if num_hx_dims > 2:
             hx = hx.squeeze()
         hx_z = (hx - self.hx_mu) / self.hx_std
         pc_loadings = hx_z @ self.pcs  # (n_datapoints, n_features) @ (n_features, n_components) --> (n_datapoints, n_components)
         pc_loadings = pc_loadings[:, :self.num_ica_components]  # (n_datapoints, n_components) --> (n_datapoints, n_components_ica)
         whitened_pc_loadings = pc_loadings / self.pc_std[:self.num_ica_components]
         source_signals = whitened_pc_loadings @ self.unmix_mat # Z'@W^T # (n_datapoints, n_components_ica) @ (n_components_ica, n_components_ica) --> (n_datapoints, n_components_ica)
+
+        if num_hx_dims > 2:
+            source_signals = torch.unsqueeze(source_signals, dim=1)
         return source_signals
 
     def project_gradients_into_pc_space(self, grad_data):
