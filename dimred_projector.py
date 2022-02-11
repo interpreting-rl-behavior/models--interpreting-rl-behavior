@@ -66,7 +66,7 @@ class HiddenStateDimensionalityReducer():
             self.unmix_mat = np.load(ica_directions_path) # (n_components, n_features)
             self.unmix_mat = self.unmix_mat.transpose(0, 1)  # (n_features, n_components)
             self.mix_mat = np.load(ica_mixmat_path) # (n_features, n_components)
-            self.mix_mat = self.mix_mat.transpose(0, 1)  # (n_components, n_features)
+            #self.mix_mat = self.mix_mat.transpose(0, 1)  # (n_components, n_features)
 
             if data_type == torch.tensor:
                 self.unmix_mat = torch.tensor(self.unmix_mat).to(
@@ -80,13 +80,13 @@ class HiddenStateDimensionalityReducer():
         pc_loadings = hx_z @ self.pcs  # (n_datapoints, n_features) @ (n_features, n_components) --> (n_datapoints, n_components)
         return pc_loadings
 
-    def ica_transform(self, hx): # TODO add whitening step
+    def ica_transform(self, hx):
         if len(hx.shape) > 2:
             hx = hx.squeeze()
         hx_z = (hx - self.hx_mu) / self.hx_std
         pc_loadings = hx_z @ self.pcs  # (n_datapoints, n_features) @ (n_features, n_components) --> (n_datapoints, n_components)
         pc_loadings = pc_loadings[:, :self.num_ica_components]  # (n_datapoints, n_components) --> (n_datapoints, n_components_ica)
-        whitened_pc_loadings = pc_loadings @ self.diag(self.pc_std[:self.num_ica_components])
+        whitened_pc_loadings = pc_loadings / self.pc_std[:self.num_ica_components]
         source_signals = whitened_pc_loadings @ self.unmix_mat # Z'@W^T # (n_datapoints, n_components_ica) @ (n_components_ica, n_components_ica) --> (n_datapoints, n_components_ica)
         return source_signals
 
@@ -97,11 +97,19 @@ class HiddenStateDimensionalityReducer():
         projected_grads = scaled_pc_comps @ grad_data  # grads are projected onto the scaled PCs
         return projected_grads.T
 
-    def project_gradients_into_ica_space(self, grad_data): # TODO rewrite this whole func with new maths and add whitening
-        sigma = self.diag(self.hx_std)
-        grad_data = grad_data.T  # So each column is a grad vector for a hx i.e. (n_datapoints, n_features) --> (n_features, n_datapoints)
-        scaled_pc_comps = self.pcs.T @ sigma  # PCs calculated on X'=(X-mu)/sigma are scaled so it's like they were calculated on X
-        projected_grads_to_pc_space = scaled_pc_comps @ grad_data  # grads are projected onto the scaled PCs
-        projected_grads_to_pc_space = projected_grads_to_pc_space[:self.num_ica_components, :]
-        projected_grads_to_ic_space = projected_grads_to_pc_space.T @ self.mix_mat.T
-        return projected_grads_to_ic_space
+    def project_gradients_into_ica_space(self, grad_data):
+        pcs = self.pcs[:,:self.num_ica_components]
+        pc_std = self.pc_std[:self.num_ica_components]
+
+        Qt = self.diag(self.hx_std) @ pcs # (sigma_x @ C^T )
+        Qt = Qt @ self.diag(pc_std)
+        Qt = Qt @ self.mix_mat  # (cols are indep components)
+        projected_grads = grad_data @ Qt
+        # sigma = self.diag(self.hx_std)
+        # grad_data = grad_data.T  # So each column is a grad vector for a hx i.e. (n_datapoints, n_features) --> (n_features, n_datapoints)
+        # scaled_pc_comps = self.pcs.T @ sigma  # PCs calculated on X'=(X-mu)/sigma are scaled so it's like they were calculated on X
+        # projected_grads_to_pc_space = scaled_pc_comps @ grad_data  # grads are projected onto the scaled PCs
+        # projected_grads_to_pc_space = projected_grads_to_pc_space[:self.num_ica_components, :]
+        # projected_grads_to_ic_space = projected_grads_to_pc_space.T @ self.mix_mat.T
+        # return projected_grads_to_ic_space
+        return projected_grads
