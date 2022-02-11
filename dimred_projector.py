@@ -34,13 +34,13 @@ class HiddenStateDimensionalityReducer():
                                            f'pcomponents_{num_analysis_samples}.npy')
             hx_mu_path = os.path.join(hx_analysis_dir, f'hx_mu_{num_analysis_samples}.npy')
             hx_std_path = os.path.join(hx_analysis_dir, f'hx_std_{num_analysis_samples}.npy')
-            pc_std_path = os.path.join(hx_analysis_dir, f'pc_loading_variances_{num_analysis_samples}.npy')
+            pc_variances_path = os.path.join(hx_analysis_dir, f'pc_loading_variances_{num_analysis_samples}.npy')
 
             self.pcs = np.load(directions_path)  # shape = (n_components, n_features)
             self.pcs = self.pcs.transpose(0, 1)  # shape = (n_features, n_components)
             self.hx_mu = np.load(hx_mu_path)
             self.hx_std = np.load(hx_std_path)
-            self.pc_std = np.load(pc_std_path)
+            self.pc_std = np.sqrt(np.load(pc_variances_path))
 
             if data_type == torch.tensor:
                 self.pcs = torch.tensor(self.pcs).to(
@@ -74,9 +74,6 @@ class HiddenStateDimensionalityReducer():
                 self.mix_mat = torch.tensor(self.mix_mat).to(
                     device).float().requires_grad_()  # (n_features, n_components)
 
-
-    # TODO add an option for whether to give the output as a torch or numpy variable.
-
     def pca_transform(self, hx):
         # Scale and project hx onto direction
         hx_z = (hx - self.hx_mu) / self.hx_std
@@ -89,7 +86,8 @@ class HiddenStateDimensionalityReducer():
         hx_z = (hx - self.hx_mu) / self.hx_std
         pc_loadings = hx_z @ self.pcs  # (n_datapoints, n_features) @ (n_features, n_components) --> (n_datapoints, n_components)
         pc_loadings = pc_loadings[:, :self.num_ica_components]  # (n_datapoints, n_components) --> (n_datapoints, n_components_ica)
-        source_signals = pc_loadings @ self.unmix_mat  # (n_features, n_components_ica) @ (n_components_ica, n_components_ica) --> (n_features, n_components_ica)
+        whitened_pc_loadings = pc_loadings @ self.diag(self.pc_std[:self.num_ica_components])
+        source_signals = whitened_pc_loadings @ self.unmix_mat # Z'@W^T # (n_datapoints, n_components_ica) @ (n_components_ica, n_components_ica) --> (n_datapoints, n_components_ica)
         return source_signals
 
     def project_gradients_into_pc_space(self, grad_data):
