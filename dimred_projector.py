@@ -96,12 +96,18 @@ class HiddenStateDimensionalityReducer():
             hx_z = (test_hx_raw - self.hx_mu) / self.hx_std
             np.isclose(test_hx_pca, hx_z @ self.pcs.T, atol=0.05)
 
-
     def pca_transform(self, hx):
         # Scale and project hx onto direction
         hx_z = (hx - self.hx_mu) / self.hx_std
         pc_loadings = hx_z @ self.pcs_T  # (N, D) @ (D, D) --> (N, D) # transposed pcs so that cols are PCs
         return pc_loadings
+
+    def project_gradients_into_pc_space(self, grad_data):
+        sigma = np.diag(self.hx_std)
+        # grad_data = grad_data.T  # So each column is a grad vector for a hx
+        scaled_pc_comps = sigma @ self.pcs_T # PCs calculated on X'=(X-mu)/sigma are scaled so it's like they were calculated on X
+        projected_grads = grad_data @ scaled_pc_comps # grads are projected onto the scaled PCs
+        return projected_grads
 
     def ica_transform(self, hx):
         num_hx_dims = len(hx.shape)
@@ -117,18 +123,11 @@ class HiddenStateDimensionalityReducer():
             source_signals = torch.unsqueeze(source_signals, dim=1)
         return source_signals
 
-    def project_gradients_into_pc_space(self, grad_data):
-        sigma = np.diag(self.hx_std)
-        # grad_data = grad_data.T  # So each column is a grad vector for a hx
-        scaled_pc_comps = sigma @ self.pcs_T # PCs calculated on X'=(X-mu)/sigma are scaled so it's like they were calculated on X
-        projected_grads = grad_data @ scaled_pc_comps # grads are projected onto the scaled PCs
-        return projected_grads
-
     def project_gradients_into_ica_space(self, grad_data):
-        pcs = self.pcs_T[:,:self.num_ica_components]
+        pcs_T = self.pcs_T[:,:self.num_ica_components]
         pc_std = self.pc_std[:self.num_ica_components]
 
-        Qt = self.diag(self.hx_std) @ pcs # (sigma_x @ C^T )
+        Qt = self.diag(self.hx_std) @ pcs_T # (sigma_x @ C^T )
         Qt = Qt @ self.diag(pc_std)
         Qt = Qt @ self.mix_mat  # (cols are indep components)
         projected_grads = grad_data @ Qt
