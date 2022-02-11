@@ -12,6 +12,10 @@ class HiddenStateDimensionalityReducer():
         transformed vectors.
         """
         super(HiddenStateDimensionalityReducer, self).__init__()
+
+        # BEWARE: numpymatrix.T != numpymatrix.transpose(0,1). This lost me
+        # almost a full day of time.
+
         self.hp = hp
         self.device = device
         self.type_of_dim_red = type_of_dim_red
@@ -36,8 +40,8 @@ class HiddenStateDimensionalityReducer():
             hx_std_path = os.path.join(hx_analysis_dir, f'hx_std_{num_analysis_samples}.npy')
             pc_variances_path = os.path.join(hx_analysis_dir, f'pc_loading_variances_{num_analysis_samples}.npy')
 
-            self.pcs = np.load(directions_path)  # shape = (D, D) (n_components, n_features) (rows are components)
-            self.pcs_T = self.pcs.transpose(0, 1)  # shape = (D, D) (n_features, n_components)
+            self.pcs = np.load(directions_path) # C # shape = (D, D) (n_components, n_features) (rows are components)
+            self.pcs_T = self.pcs.T  # C^T # shape = (D, D) (n_features, n_components)
             self.hx_mu = np.load(hx_mu_path)
             self.hx_std = np.load(hx_std_path)
             self.pc_std = np.sqrt(np.load(pc_variances_path))
@@ -67,7 +71,7 @@ class HiddenStateDimensionalityReducer():
 
             # W
             self.unmix_mat = np.load(ica_directions_path) # (K x D) (n_components_ica, n_features) (rows are IndepComps)
-            self.unmix_mat_T = self.unmix_mat.transpose(0, 1)  # (D x K) (n_features, n_components_ica) (cols are IndepComps)
+            self.unmix_mat_T = self.unmix_mat.T  # (D x K) (n_features, n_components_ica) (cols are IndepComps)
 
             # A
             self.mix_mat = np.load(ica_mixmat_path)  # (D x K) (n_features, n_components_ica) (cols are IndepComps)
@@ -81,7 +85,16 @@ class HiddenStateDimensionalityReducer():
                 self.mix_mat = torch.tensor(self.mix_mat).to(
                     device).float().requires_grad_()
 
-            # TODO if this fails, then just run some tests with real data.
+        # Tests
+        test_hx_raw = np.load(os.path.join("./data", 'episode_00000/hx.npy'))[1:]
+        num_ts_test = test_hx_raw.shape[0]
+        test_hx_pca = np.load(os.path.join(os.getcwd(), hx_analysis_dir,
+                               f'hx_pca_{num_analysis_samples}.npy'))[:num_ts_test]
+        test_hx_ica = np.load(os.path.join(os.getcwd(), hx_analysis_dir,
+                             f'ica_source_signals_hx_{num_analysis_samples}.npy'))[:num_ts_test]
+        hx_z = (test_hx_raw - self.hx_mu) / self.hx_std
+        np.isclose(test_hx_pca, hx_z @ self.pcs.T, atol=0.05)
+
 
     def pca_transform(self, hx):
         # Scale and project hx onto direction
