@@ -86,14 +86,15 @@ class HiddenStateDimensionalityReducer():
                     device).float().requires_grad_()
 
         # Tests
-        test_hx_raw = np.load(os.path.join("./data", 'episode_00000/hx.npy'))[1:]
-        num_ts_test = test_hx_raw.shape[0]
-        test_hx_pca = np.load(os.path.join(os.getcwd(), hx_analysis_dir,
-                               f'hx_pca_{num_analysis_samples}.npy'))[:num_ts_test]
-        test_hx_ica = np.load(os.path.join(os.getcwd(), hx_analysis_dir,
-                             f'ica_source_signals_hx_{num_analysis_samples}.npy'))[:num_ts_test]
-        hx_z = (test_hx_raw - self.hx_mu) / self.hx_std
-        np.isclose(test_hx_pca, hx_z @ self.pcs.T, atol=0.05)
+        if data_type == np.ndarray:
+            test_hx_raw = np.load(os.path.join("./data", 'episode_00000/hx.npy'))[1:]
+            num_ts_test = test_hx_raw.shape[0]
+            test_hx_pca = np.load(os.path.join(os.getcwd(), hx_analysis_dir,
+                                   f'hx_pca_{num_analysis_samples}.npy'))[:num_ts_test]
+            test_hx_ica = np.load(os.path.join(os.getcwd(), hx_analysis_dir,
+                                 f'ica_source_signals_hx_{num_analysis_samples}.npy'))[:num_ts_test]
+            hx_z = (test_hx_raw - self.hx_mu) / self.hx_std
+            np.isclose(test_hx_pca, hx_z @ self.pcs.T, atol=0.05)
 
 
     def pca_transform(self, hx):
