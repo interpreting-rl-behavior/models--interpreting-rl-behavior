@@ -34,7 +34,8 @@ class DataImporter():
         self.projector = HiddenStateDimensionalityReducer(self.hp,
                                                          self.direction_type,
                                                          self.n_suffix,
-                                                         data_type=np.ndarray)
+                                                         data_type=np.ndarray,
+                                                         test_hx=True)
 
         # self.pca_components = np.load(
         #     f"{self.hx_analysis_dir}/pcomponents_{self.n_suffix}.npy")
@@ -115,7 +116,11 @@ class DataImporter():
         grad_hx_action_loadings = self.projector.project_gradients(grad_hx_action).tolist()
         grad_hx_value_loadings = self.projector.project_gradients(grad_hx_value).tolist()
 
+        agent_logprobs = np.load(sample_path + '/agent_logprobs.npy')
+        actions = agent_logprobs.argmax(axis=-1).tolist()
+
         loadings_dict = {
+            "actions": actions,
             "hx_loadings": hx_loadings,
             "grad_hx_value_loadings": grad_hx_value_loadings,
             "grad_hx_action_loadings": grad_hx_action_loadings,
@@ -138,6 +143,10 @@ class DataImporter():
         for i in range(arr.shape[0]):
             im = Image.fromarray(arr[i], mode='RGB')
             im.save(f"{path}/{i}.png")
+        # Concatenate images horizontally. Needs einops package.
+        # comb_arr = einops.rearrange(arr, 'b h w c -> h (b w) c')
+        # im = Image.fromarray(comb_arr, mode='RGB')
+        # im.save(f"{path}/all.png")
 
     def save_sample_images(self, sample_name):
         sample_in = f"{self.args.input_directory}/generative/rec_gen_mod_data/informed_init/{sample_name}"

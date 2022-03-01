@@ -4,7 +4,7 @@ import torch
 
 
 class HiddenStateDimensionalityReducer():
-    def __init__(self, hp, type_of_dim_red, num_analysis_samples, data_type=torch.tensor, device='cuda'):
+    def __init__(self, hp, type_of_dim_red, num_analysis_samples, data_type=torch.tensor, device='cuda', test_hx=True):
         """
         By default, the methods of this class take a NxD set of vectors,
         where N is the number of vectors and D is their dimension, and they
@@ -86,7 +86,7 @@ class HiddenStateDimensionalityReducer():
                     device).float().requires_grad_()
 
         # Tests
-        if data_type == np.ndarray:
+        if test_hx and data_type == np.ndarray:
             test_hx_raw = np.load(os.path.join("./data", 'episode_00000/hx.npy'))[1:]
             num_ts_test = test_hx_raw.shape[0]
             test_hx_pca = np.load(os.path.join(os.getcwd(), hx_analysis_dir,
