@@ -35,7 +35,7 @@ class DataImporter():
                                                          self.direction_type,
                                                          self.n_suffix,
                                                          data_type=np.ndarray,
-                                                         test_hx=True)
+                                                         test_hx=False)
 
         # self.pca_components = np.load(
         #     f"{self.hx_analysis_dir}/pcomponents_{self.n_suffix}.npy")
@@ -111,19 +111,26 @@ class DataImporter():
             np.load(sample_path + f'/grad_hx_hx_direction_%i_{self.direction_type}.npy' % idx)
             for idx in range(self.min_pc_directions, self.max_pc_directions)]
 
-        hx_loadings = self.projector.transform(hx).tolist() #self.hx_to_loading_transform(hx).tolist()
+        hx_loadings = self.projector.transform(hx) #self.hx_to_loading_transform(hx).tolist()
         # Not entirely clear what the most principled choice is, especially on if we should scale by original hx_sigma.
-        grad_hx_action_loadings = self.projector.project_gradients(grad_hx_action).tolist()
-        grad_hx_value_loadings = self.projector.project_gradients(grad_hx_value).tolist()
+        grad_hx_action_loadings = self.projector.project_gradients(grad_hx_action)
+        grad_hx_value_loadings = self.projector.project_gradients(grad_hx_value)
 
         agent_logprobs = np.load(sample_path + '/agent_logprobs.npy')
         actions = agent_logprobs.argmax(axis=-1).tolist()
 
+        # Want to know which timestep the saliency was taken from. Note that it would be more
+        # principled to save this when running the saliency experiment as opposed to inferring it
+        # by the first timestep in which the grads are all zero (as is done here).
+        saliency_step = np.where(
+            (grad_hx_action_loadings == np.zeros(grad_hx_action_loadings.shape[1])).all(axis=1)
+        )[0][0]
         loadings_dict = {
+            "saliency_step": int(saliency_step),
             "actions": actions,
-            "hx_loadings": hx_loadings,
-            "grad_hx_value_loadings": grad_hx_value_loadings,
-            "grad_hx_action_loadings": grad_hx_action_loadings,
+            "hx_loadings": hx_loadings.tolist(),
+            "grad_hx_value_loadings": grad_hx_value_loadings.tolist(),
+            "grad_hx_action_loadings": grad_hx_action_loadings.tolist(),
         }
 
         # Now do the same iteratively for the PC direction loadings
