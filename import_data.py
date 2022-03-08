@@ -4,6 +4,7 @@ import argparse
 import json
 
 import numpy as np
+import matplotlib.pyplot as plt
 from PIL import Image
 import yaml, munch
 from dimred_projector import HiddenStateDimensionalityReducer
@@ -243,6 +244,31 @@ class DataImporter():
             self.make_img_set_from_arr(f"{sample_out}/sal_hx_direction_%i" % idx,
                                   sal)
 
+    def plot_hx_histograms(self, hx):
+        outdir = f"{self.args.output_directory}/component_histograms"
+        os.mkdir(outdir)
+        n_samples = 5000
+        # Reduce data for efficiency
+        sub_hx = hx[:n_samples]
+
+        for comp in range(hx.shape[1]):
+            plt.figure()
+            plt.hist(sub_hx[:,comp], bins=30)
+            plt.title(f"Component {comp} - {n_samples} samples")
+            plt.savefig(os.path.join(outdir, f"Component{comp}.png"))
+
+        # Below is for creating a single plot for all components
+        # nrows = 4
+        # ncols = 4
+        # fig, axs = plt.subplots(nrows, ncols, sharex=False)
+        # fig.suptitle(f"Activation histograms per component - {n_samples} samples")
+        # for comp in range(hx.shape[1]):
+        #     x = comp // ncols
+        #     y = comp % nrows
+        #     axs[x, y].hist(sub_hx[:,comp], bins=30)
+        # plt.tight_layout()
+        # fig.savefig(os.path.join(outdir, "all.png"))
+
     def run(self, ):
 
         print(f"Output folder: {os.path.abspath(self.args.output_directory)}")
@@ -260,6 +286,8 @@ class DataImporter():
             print(
                 "Making jsons")
             hx_in_pca = np.load(f"{self.hx_analysis_dir}/{self.data_name_root}{self.n_suffix}.npy")
+
+            self.plot_hx_histograms(hx_in_pca)
             self.find_extrema_values(hx_in_pca)
 
             data = {
@@ -293,6 +321,7 @@ class DataImporter():
 
         else:
             print("Process cancelled!")
+
 
 if __name__ == "__main__":
     importer = DataImporter()
