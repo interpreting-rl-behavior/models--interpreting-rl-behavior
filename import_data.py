@@ -98,6 +98,71 @@ class DataImporter():
         projected_grads_to_ic_space = projected_grads_to_pc_space.T @ self.mix_mat
         return projected_grads_to_ic_space
 
+    def find_extrema_values(self, hx):
+        """
+        For each ica/pca component, find high/medium/low threshold values based on the proportions
+        given in self.hp.analysis.saliency.extrema_threshold.
+
+        hx is a tensor of shape (total_examples, components).
+        """
+        # Sort the hxs for each component
+        hx_sorted = np.sort(hx, axis=0)
+
+        threshold = self.hp.analysis.saliency.extrema_threshold
+        n = hx_sorted.shape[0]
+
+        self.extrema_values = {
+            "high": hx_sorted[n - int(n * threshold)],
+            "middle_upper": hx_sorted[int(n / 2 + (n * (threshold / 2)))],
+            "middle_lower": hx_sorted[int(n / 2 - (n * (threshold / 2)))],
+            "low": hx_sorted[int(n * threshold)],
+        }
+
+    def get_extrema_samples(self, data):
+        """
+        Create a json object identifying which samples have activations that are low, middle or
+        high for each pca/ica component. We store data corresponding to whether a sample has any
+        activation in each group, as well as whether it has an activation in each group for the
+        timestep in which the saliency is taken from.
+        """
+        extrema_list = {
+            ext_type: {level: []
+            for level in ["high", "middle", "low"]}
+            for ext_type in ["any", "saliency_step"]
+        }
+        sample_names = list(data.keys())
+        for sample_name in sample_names:
+            sample_data = data[sample_name]
+            hx_sample = np.array(sample_data["hx_loadings"])
+
+            high_arr = hx_sample > self.extrema_values["high"]
+            middle_arr =  ((hx_sample < self.extrema_values["middle_upper"])
+                       & (hx_sample > self.extrema_values["middle_lower"]))
+            low_arr =  hx_sample < self.extrema_values["middle_lower"]
+
+            extrema_list["any"]["high"].append(np.any(high_arr, axis=0))
+            extrema_list["any"]["middle"].append(np.any(middle_arr, axis=0))
+            extrema_list["any"]["low"].append(np.any(low_arr, axis=0))
+
+            extrema_list["saliency_step"]["high"].append(high_arr[sample_data["saliency_step"]])
+            extrema_list["saliency_step"]["middle"].append(middle_arr[sample_data["saliency_step"]])
+            extrema_list["saliency_step"]["low"].append(low_arr[sample_data["saliency_step"]])
+
+        extrema_samples = {
+            ext_type: {level: {comp: []
+            for comp in range(hx_sample.shape[-1])}
+            for level in ["high", "middle", "low"]}
+            for ext_type in ["any", "saliency_step"]
+        }
+        for ext_type in ["any", "saliency_step"]:
+            for level in ["high", "middle", "low"]:
+                arr = np.array(extrema_list[ext_type][level])
+                samples, components = arr.nonzero()
+                for i in range(len(samples)):
+                    extrema_samples[ext_type][level][components[i]].append(sample_names[samples[i]])
+
+        return extrema_samples
+
     def sample_info_for_panel_data(self, sample_name):
         """
         Return the data formatted for inclusion in panel_data.json
@@ -195,9 +260,22 @@ class DataImporter():
             print(
                 "Making jsons")
             hx_in_pca = np.load(f"{self.hx_analysis_dir}/{self.data_name_root}{self.n_suffix}.npy")
+            self.find_extrema_values(hx_in_pca)
+
+            data = {
+                sample_name: self.sample_info_for_panel_data(sample_name)
+                for sample_name in self.sample_names
+            }
+            extrema = self.get_extrema_samples(data)
+
+            with open(self.args.output_directory + "/extrema.json", 'w') as f:
+                json.dump(extrema, f, indent=4)
+
             with open(self.args.output_directory + "/panel_data.json", 'w') as f:
                 json.dump({
-                    "base_hx_loadings": hx_in_pca[:3000, :20].tolist(),
+                    # Only store 3000 datapoints for each component (we couldn't show more on a
+                    # plot easily anyway)
+                    "base_hx_loadings": hx_in_pca[:3000].tolist(),
                     # was just 1000 instead of n_suffix
                     "samples": {
                         sample_name: self.sample_info_for_panel_data(
