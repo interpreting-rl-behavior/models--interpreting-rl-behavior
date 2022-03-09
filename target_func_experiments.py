@@ -7,6 +7,7 @@ from generative.rssm.functions import safe_normalize_with_grad
 from datetime import datetime
 import torchvision.io as tvio
 import matplotlib.pyplot as plt
+from target_functions import TargetFunction
 
 class TargetFuncExperiment(GenerativeModelExperiment):
     """Inherits everything from GenerativeModelExperiment but several methods
@@ -23,6 +24,8 @@ class TargetFuncExperiment(GenerativeModelExperiment):
         self.bottleneck_vec_size = self.hp.gen_model.bottleneck_vec_size
         self.perturbation_scale = self.hp.analysis.saliency.perturbation_scale #0.0001  #was0.01# 2e-2
         self.num_epochs = self.hp.analysis.target_func.num_epochs
+        self.previous_bottleneck_vecs = None
+        self.previous_metric = None
 
         # Whether to use rand init vectors or informed init vectors
         if True:
@@ -56,6 +59,13 @@ class TargetFuncExperiment(GenerativeModelExperiment):
             self.target_func_types.pop(rm_ind)
             for incr_or_decr in self.hp.analysis.target_func.func_incr_or_decr:
                 target_func_name = incr_or_decr + '_value'
+                self.target_func_types.append(target_func_name)
+
+        if 'value_delta' in self.target_func_types:
+            rm_ind = self.target_func_types.index('value_delta')
+            self.target_func_types.pop(rm_ind)
+            for incr_or_decr in self.hp.analysis.target_func.func_incr_or_decr:
+                target_func_name = incr_or_decr + '_value_delta'
                 self.target_func_types.append(target_func_name)
 
 
@@ -102,8 +112,17 @@ class TargetFuncExperiment(GenerativeModelExperiment):
                     new_names_list.append(target_func_name_id)
             self.target_func_types.extend(new_names_list)
 
-
-
+    def rejection_step(self, current_vecs, proposal_vecs, current_criterion, new_criterion, target_func_opt):
+        temp = 100. * target_func_opt.param_groups[0]['lr']
+        score_condition = new_criterion < current_criterion
+        acceptance_prob = torch.where(score_condition,
+                                      torch.ones(self.target_func_batch_size, device=self.device),
+                                      torch.exp(-(new_criterion - current_criterion) / temp))
+        threshold = torch.rand(self.target_func_batch_size, device=self.device)
+        accept_cond = acceptance_prob > threshold
+        accept_cond = torch.stack([accept_cond] * proposal_vecs.shape[1], dim=1)
+        returned_vecs = torch.where(accept_cond, proposal_vecs, current_vecs)
+        return returned_vecs
 
     def run_target_func_recording_loop(self):
         """Runs the different target func experiments consecutively."""
@@ -131,40 +150,49 @@ class TargetFuncExperiment(GenerativeModelExperiment):
                 target_func_opt = torch.optim.SGD(params=[bottleneck_vecs],
                                                 momentum=0.2,
                                                 lr=target_func.lr,
-                                                nesterov=True)  # TODO try alternatives
-                # targ_func_opt = torch.optim.Adam(params=[bottleneck_vecs], lr=target_func.lr)
+                                                nesterov=True)
 
                 self.optimize_target_func(bottleneck_vecs, target_func, target_func_opt)
-    #TODO go through changing bottleneck_vecs to vec or vicever
+
     def optimize_target_func(self, bottleneck_vecs, target_func, target_func_opt):
         """Run the forwardbackwardpass+update in a loop"""
         # Start target func optimization loop
         run_target_func_loop = True
         iteration_count = 0
+        initial_lr = new_lr = target_func.lr
         start_bottleneck_vecs = bottleneck_vecs.clone().detach()
+        prev_criterion = None
         while run_target_func_loop:
 
-            preds_dict, loss_info = self.forward_backward_update(bottleneck_vecs, target_func, target_func_opt, iteration_count)
+            prev_bottleneck_vecs = bottleneck_vecs.clone().detach() # TODO modularise this code
+            # bottleneck_vecs = bottleneck_vecs + (0.0001 * new_lr * torch.randn_like(bottleneck_vecs, device=self.device))
+            # norm = torch.norm(bottleneck_vecs, dim=1)
+            # norm = norm + torch.ones_like(norm, device=self.device) * 1e-7
+            # bottleneck_vecs = bottleneck_vecs / norm.unsqueeze(dim=1)
 
-            # Decide whether to stop the target func optimization
-            pairwise_dists = np.linalg.norm(bottleneck_vecs[:, None,
-                                            :].detach().clone().cpu().numpy() - \
-                                            bottleneck_vecs[None, :,
-                                            :].detach().clone().cpu().numpy(),
-                                            axis=-1)
-            print(
-                "Distances between samples: %f" % pairwise_dists.mean())
+            # Replace the param of the optimizer with the new, normalized vec
+            # bottleneck_vecs = torch.nn.Parameter(bottleneck_vecs,
+            #                                      requires_grad=True)
+            # target_func_opt.param_groups[0]['params'][0] = bottleneck_vecs
 
-            # Decide whether to stop loop
-            # percentile = np.percentile(target_func.loss_record, 75)
-            if loss_info['top_quartile_loss'] < target_func.min_loss or \
-                    iteration_count > target_func.num_its or \
-                    pairwise_dists.mean() < target_func.distance_threshold:
-                run_target_func_loop = False
 
-            print("Total distance: %f" % \
-                  ((bottleneck_vecs - start_bottleneck_vecs) ** 2).sum().sqrt())
-            print("\n")
+            preds_dict, losses, opt_proxy = self.forward_backward_update(bottleneck_vecs, target_func, target_func_opt, iteration_count)
+
+            if target_func.target_function_type in ['action']:
+                criterion = losses
+            else:
+                criterion = opt_proxy
+            if prev_criterion is None:
+                prev_criterion = criterion
+
+            bottleneck_vecs = self.rejection_step(prev_bottleneck_vecs, bottleneck_vecs, prev_criterion, criterion, target_func_opt)
+
+            # Simulated annealing (Cool temperature/update learning rate & add noise)
+            new_lr = initial_lr * (1 - (iteration_count / target_func.num_its))
+            target_func_opt.param_groups[0]['lr'] = new_lr
+            print("Temp/LR: %f" % target_func_opt.param_groups[0]['lr'])
+
+
 
             # Normalize vector to hypersphere
             norm = torch.norm(bottleneck_vecs, dim=1)
@@ -178,6 +206,52 @@ class TargetFuncExperiment(GenerativeModelExperiment):
             # Prepare for the next step
             target_func_opt.zero_grad()
             iteration_count += 1
+            print("\n")
+
+            # Decide whether to stop the target func optimization
+            pairwise_dists = np.linalg.norm(bottleneck_vecs[:, None,
+                                            :].detach().clone().cpu().numpy() - \
+                                            bottleneck_vecs[None, :,
+                                            :].detach().clone().cpu().numpy(),
+                                            axis=-1)
+            print("Distances between samples: %f" % pairwise_dists.mean())
+            print(bottleneck_vecs.shape, start_bottleneck_vecs.shape)
+            print("Total distance: %f" % \
+                  ((bottleneck_vecs - start_bottleneck_vecs) ** 2).sum().sqrt())
+
+            if iteration_count >= target_func.num_its or \
+                    pairwise_dists.mean() < target_func.distance_threshold:
+                run_target_func_loop = False
+
+                sample_root = f'sample_{target_func.target_function_type}'
+                self.visualize_single(iteration_count,
+                         iteration_count,
+                         data=None,
+                         preds=None,
+                          bottleneck_vec=bottleneck_vecs, use_true_actions=False,
+                          save_dir=self.sess_dir,
+                          save_root=sample_root, batch_size=self.target_func_batch_size, numbering_scheme="ebi",
+                          samples_so_far=0)
+                self.plot_opt_proxy(target_func)
+                self.plot_loss(target_func)
+                self.save_results(bottleneck_vecs, target_func)
+
+
+            # dev
+            if iteration_count % 5000 == 0:
+                sample_root = f'sample_{target_func.target_function_type}'
+                self.visualize_single(iteration_count,
+                                      iteration_count,
+                                      data=None,
+                                      preds=None,
+                                      bottleneck_vec=bottleneck_vecs, use_true_actions=False,
+                                      save_dir=self.sess_dir,
+                                      save_root=sample_root, batch_size=self.target_func_batch_size, numbering_scheme="ebi",
+                                      samples_so_far=0)
+                self.plot_opt_proxy(target_func)
+                self.plot_loss(target_func)
+                self.save_results(bottleneck_vecs, target_func)
+
         return preds_dict
 
     def forward_backward_update(self, bottleneck_vec, target_func,
@@ -210,29 +284,97 @@ class TargetFuncExperiment(GenerativeModelExperiment):
                 retain_grads=True, )
 
         # Calculate target_func loss
-        target_func_loss, loss_info = \
+        target_func_losses, opt_proxy = \
             target_func.loss_func(unstacked_preds_dict)
+        mean_loss = target_func_losses.mean()
         print("Iteration %i target function loss: %f" % (
             iteration_count,
-            float(target_func_loss.item())))
-        target_func.loss_record.append(target_func_loss)
+            float(mean_loss.item())))
 
         # Get gradient and step the optimizer
-        target_func_loss.backward()
+        mean_loss.backward()
 
         print("Biggest grad: %f" % torch.abs(
             bottleneck_vec.grad).max().item())
         print("Prenorm grad mean mag: %f" % torch.abs(
             bottleneck_vec.grad).mean())
 
-        torch.nn.utils.clip_grad_norm_(bottleneck_vec,
-                                       target_func.grad_norm,
-                                       norm_type=2.0)
         target_func_opt.step()
 
-        return preds_dict, loss_info
+        return preds_dict, target_func_losses, opt_proxy
 
-    def save_results(self, bottleneck_vecs, pred_obs, target_func):
+    def plot_opt_proxy(self, target_func):
+        opt_prox_record = torch.stack(target_func.optimized_proxy_record, dim=1)
+        opt_prox_record = opt_prox_record.clone().detach().cpu().numpy()
+        # plot optimized quantities over time
+        for b in range(opt_prox_record.shape[0]):
+            plt.plot(range(len(target_func.optimized_proxy_record)),
+                     opt_prox_record[b])
+        opt_q_plot_str = self.sess_dir + '/plot_opt_proxy_' + \
+                         target_func.target_function_type + '.png'
+        plt.xlabel("Iterations")
+        plt.ylabel(target_func.optimized_proxy_record_name)
+        plt.legend(range(opt_prox_record.shape[0]))
+        plt.savefig(opt_q_plot_str)
+        plt.close()
+
+        # Mean only
+        plt.plot(range(len(target_func.optimized_proxy_record)),
+                 opt_prox_record.mean(0))
+        opt_q_plot_str = self.sess_dir + '/mean_plot_opt_proxy_' + \
+                         target_func.target_function_type + '.png'
+        plt.xlabel("Iterations")
+        plt.ylabel(target_func.optimized_proxy_record_name)
+        plt.savefig(opt_q_plot_str)
+        plt.close()
+
+    def plot_loss(self, target_func):
+        loss_record = np.stack(target_func.loss_record, axis=1)
+        # plot optimized quantities over time
+        for b in range(loss_record.shape[0]):
+            plt.plot(range(len(target_func.loss_record)),
+                     loss_record[b])
+        opt_q_plot_str = self.sess_dir + '/plot_loss_' + \
+                         target_func.target_function_type + '.png'
+        plt.xlabel("Iterations")
+        plt.ylabel("Loss") #TODO loss name
+        plt.legend(range(loss_record.shape[0]))
+        plt.savefig(opt_q_plot_str)
+        plt.close()
+
+        # Mean only
+        plt.plot(range(len(target_func.loss_record)),
+                 loss_record.mean(0))
+        opt_q_plot_str = self.sess_dir + '/mean_plot_loss_' + \
+                         target_func.target_function_type + '.png'
+        plt.xlabel("Iterations")
+        plt.ylabel("Loss") #TODO loss name
+        plt.savefig(opt_q_plot_str)
+        plt.close()
+
+    def save_results(self, bottleneck_vecs, target_func):
+        """Save the optimized target functions"""
+        opt_prox_record = torch.stack(target_func.optimized_proxy_record, dim=1)
+        opt_prox_record = opt_prox_record.clone().detach().cpu().numpy()
+        loss_record = np.stack(target_func.loss_record, axis=1)
+
+        # Save results
+        bottleneck_vec_save_str = self.sess_dir + '/bottleneck_vecs_' + \
+                                  target_func.target_function_type + '.npy'
+        np.save(bottleneck_vec_save_str,
+                bottleneck_vecs.clone().detach().cpu().numpy())
+
+        opt_quant_save_str = self.sess_dir + '/opt_proxy_' + \
+                             target_func.target_function_type + '.npy'
+        np.save(opt_quant_save_str,
+                opt_prox_record)
+
+        loss_save_str = self.sess_dir + '/loss_' + \
+                             target_func.target_function_type + '.npy'
+        np.save(loss_save_str, loss_record)
+
+
+    def lsave_results(self, bottleneck_vecs, pred_obs, target_func):
         """Save the optimized target functions"""
 
         # Save results
@@ -243,14 +385,14 @@ class TargetFuncExperiment(GenerativeModelExperiment):
         opt_quant_save_str = self.sess_dir + '/opt_quants_' + \
                              target_func.target_function_type + '.npy'
         np.save(opt_quant_save_str,
-                np.array(target_func.optimized_quantity))
+                np.array(target_func.optimized_proxy))
         # plot optimized quantities over time
-        plt.plot(range(len(target_func.optimized_quantity)),
-                 target_func.optimized_quantity)
+        plt.plot(range(len(target_func.optimized_proxy)),
+                 target_func.optimized_proxy)
         opt_q_plot_str = self.sess_dir + '/plot_opt_quants_' + \
                          target_func.target_function_type + '.png'
         plt.xlabel("Optimization iterations")
-        plt.ylabel(target_func.optimized_quantity_name)
+        plt.ylabel(target_func.optimized_proxy_name)
         plt.savefig(opt_q_plot_str)
         plt.close()
 
@@ -323,503 +465,6 @@ class TargetFuncExperiment(GenerativeModelExperiment):
 
         return bottleneck_vecs
 
-
-
-
-
-
-
-
-
-
-
-
-class TargetFunction():
-    def __init__(self, target_func_type,
-                                         hyperparams,
-                                         device='cuda'):
-        """
-        """
-        super(TargetFunction, self).__init__()
-        self.target_function_type = target_func_type
-        self.hp = hyperparams
-        self.device = device
-        print("Target function type: %s" % self.target_function_type )
-        self.coinrun_actions = {0: 'downleft', 1: 'left', 2: 'upleft',
-                                3: 'down', 4: None, 5: 'up',
-                                6: 'downright', 7: 'right', 8: 'upright',
-                                9: None, 10: None, 11: None,
-                                12: None, 13: None, 14: None}
-        # self.coinrun_actions = {k: v for k, v in self.coinrun_actions.items()
-        #                         if v is not None}
-
-        # Set default settings (particular target funcs will modify some of
-        #  these)
-        # TODO add decaying 'temperature' setting that forces samples to be
-        #  different
-        self.sim_len = self.hp.analysis.target_func.num_sim_steps
-        self.lr = self.hp.analysis.target_func.lr
-        value_lr = self.hp.analysis.target_func.value_lr
-        self.min_loss = self.hp.analysis.target_func.min_loss
-        self.num_its = self.hp.analysis.target_func.num_its
-        num_its_hx = self.hp.analysis.target_func.num_its_hx
-        num_its_action = self.hp.analysis.target_func.num_its_action
-        num_its_direction = self.hp.analysis.target_func.num_its_direction
-        num_its_value = self.hp.analysis.target_func.num_its_value
-
-        self.num_epochs = self.hp.analysis.target_func.num_epochs
-        self.time_of_jump = min([15, self.sim_len//2])
-        self.targ_func_loss_scale = self.hp.analysis.target_func.targ_func_loss_scale
-        self.directions_scale = self.hp.analysis.target_func.directions_scale
-        self.timesteps = list(range(0, self.sim_len))
-        self.distance_threshold = self.hp.analysis.target_func.distance_threshold
-        hx_timesteps = (4,)
-        directions_timesteps = (4,)
-        num_episodes_precomputed = self.hp.analysis.target_func.num_samples_precomputed #4000 # hardcoded for dev
-        self.num_episodes_precomputed = self.hp.analysis.target_func.num_samples_precomputed
-
-        self.grad_norm = self.hp.analysis.target_func.grad_norm
-        value_grad_norm = self.hp.analysis.target_func.value_grad_norm
-        self.optimized_quantity = []
-        self.loss_record = []
-
-
-        # Set settings for specific target functions
-        if 'action' in self.target_function_type:
-            self.action_id = self.target_function_type.split('_')[-1]
-            self.num_epochs = 1
-            self.timesteps = (0,1,2)
-            self.lr = 1e-1
-            self.increment = 1.5
-            self.targ_func_loss_scale = 10.
-            self.num_its = num_its_action
-            self.loss_func = self.make_action_target_function(action_id=self.action_id,
-                                                              timesteps=self.timesteps)
-            self.optimized_quantity_name = 'Logit of action minus logit of action with largest logit'
-        elif 'hx_neuron' in self.target_function_type:
-            self.nrn_id = self.target_function_type.split('_')[-1]
-            self.num_epochs = 64
-            self.increment = 1.0
-            self.timesteps = hx_timesteps
-            self.loss_func = self.make_hx_neuron_target_function(self.nrn_id,
-                                                                 self.timesteps)
-        elif 'hx_direction' in self.target_function_type:
-            self.direction_id = self.target_function_type.split('_')[-1]
-            self.num_epochs = 64
-            self.increment = 1.0
-            self.timesteps = hx_timesteps
-            self.loss_func = self.make_hx_direction_target_function(self.direction_id,
-                                                                 self.timesteps)
-        elif self.target_function_type == 'increase_value_delta':
-            self.loss_func = self.value_incr_or_decr_target_function
-            self.increment = 1.0
-            self.lr = value_lr
-            self.targ_func_loss_scale = 1.
-            self.grad_norm = value_grad_norm
-            self.num_its = num_its_value
-            self.optimized_quantity_name = 'Difference between values in 1st and 2nd half of sequence'
-        elif self.target_function_type == 'decrease_value_delta':
-            self.loss_func = self.value_incr_or_decr_target_function
-            self.increment = 1.0 * -1. # because decrease
-            self.lr = value_lr
-            self.targ_func_loss_scale = 1.
-            self.grad_norm = value_grad_norm
-            self.num_its = num_its_value
-            self.optimized_quantity_name = 'Difference between values in 1st and 2nd half of sequence'
-        elif self.target_function_type == 'increase_value':
-            self.loss_func = self.value_high_or_low_target_function
-            self.increment = 1.0
-            #self.timesteps = (0,)
-            self.lr = value_lr
-            self.targ_func_loss_scale = 1.
-            self.grad_norm = value_grad_norm
-            self.num_its = num_its_value
-            self.optimized_quantity_name = 'Mean value during sequence'
-        elif self.target_function_type == 'decrease_value':
-            self.loss_func = self.value_high_or_low_target_function
-            self.increment = 1.0 * -1. # because decrease
-            self.lr = value_lr
-            self.targ_func_loss_scale = 1.
-            self.grad_norm = value_grad_norm
-            self.num_its = num_its_value
-            self.optimized_quantity_name = 'Mean value during sequence'
-        elif self.target_function_type == 'increase_hx_neuron':
-            self.nrn_id = self.target_function_type.split('_')[-1]
-
-
-            self.num_epochs = 64
-            self.increment = 1.0
-            self.timesteps = hx_timesteps
-            self.loss_func = self.make_hx_neuron_target_function(self.nrn_id,
-                                                                 self.timesteps)
-            self.lr = 1e-0
-            self.num_its = num_its_hx
-            self.optimized_quantity_name = 'Neuron activation'
-        elif self.target_function_type == 'decrease_hx_neuron':
-            self.loss_func = self.hx_neuron_target_function
-            self.num_epochs = 64
-            self.increment = 1.0 * -1. # because decrease
-            self.timesteps = hx_timesteps
-            self.lr = 1e-0
-            self.num_its = num_its_hx
-            self.optimized_quantity_name = 'Neuron activation'
-        elif self.target_function_type == 'increase_hx_direction_pca':
-            self.loss_func = self.hx_direction_target_function
-            self.increment = 1.0
-            self.lr = 1e-1
-            self.num_its = num_its_direction
-            self.optimized_quantity_name = 'Inner product between PC and hidden state'
-        elif self.target_function_type == 'decrease_hx_direction_pca':
-            self.loss_func = self.hx_direction_target_function
-            directions = np.load(self.hp.analysis.agent_h.precomputed_analysis_data_path + \
-                                      '/pcomponents_%i.npy' %
-                                      num_episodes_precomputed)
-            self.num_epochs = directions.shape[0]
-            self.timesteps = directions_timesteps
-            directions = [directions.copy()
-                               for _ in range(len(self.timesteps))]
-            self.directions = np.stack(directions, axis=0)
-            # self.increment = 1.0 * -1. # because decrease
-            self.directions_scale = 0.05 * -1  # because decrease
-            self.num_its = num_its_direction
-            self.lr = 1e-1
-            self.optimized_quantity_name = 'Inner product between PC and hidden state'
-        elif self.target_function_type == 'increase_hx_direction_nmf':
-            self.loss_func = self.hx_direction_target_function
-            directions = np.load(self.hp.analysis.agent_h.precomputed_analysis_data_path + \
-                                      '/nmf_components_%i.npy' %
-                                      num_episodes_precomputed)
-            self.num_epochs = directions.shape[0]
-            self.timesteps = directions_timesteps
-            directions = [directions.copy()
-                               for _ in range(len(self.timesteps))]
-            self.directions = np.stack(directions, axis=0)
-            self.increment = 1.0
-            self.lr = 1e-1
-            self.num_its = num_its_direction
-            self.optimized_quantity_name = 'Inner product between NMF factor and hidden state'
-        elif self.target_function_type == 'decrease_hx_direction_nmf':
-            self.loss_func = self.hx_direction_target_function
-            directions = np.load(self.hp.analysis.agent_h.precomputed_analysis_data_path + \
-                                      '/nmf_components_%i.npy' %
-                                      num_episodes_precomputed)
-            self.num_epochs = directions.shape[0]
-            self.timesteps = directions_timesteps
-            directions = [directions.copy()
-                               for _ in range(len(self.timesteps))]
-            self.directions = np.stack(directions, axis=0)
-            # self.increment = 1.0 * -1. # because decrease
-            self.directions_scale = 0.05 * -1  # because decrease
-            self.lr = 1e-1
-            self.num_its = num_its_direction
-            self.optimized_quantity_name = 'Inner product between NMF factor and hidden state'
-        elif self.target_function_type == 'hx_location_as_cluster_mean':
-            self.loss_func = self.hx_location_target_function
-            directions = np.load(self.hp.analysis.agent_h.precomputed_analysis_data_path + \
-                                      '/cluster_means_%i.npy' %
-                                      num_episodes_precomputed)
-            # clusters_to_viz = (15, )
-            self.num_epochs = directions.shape[0]
-            self.timesteps = directions_timesteps
-            directions = [directions.copy()
-                          for _ in range(len(self.timesteps))]
-            self.directions = np.stack(directions, axis=0)
-            self.increment = 1.0
-            self.lr = 1e-2
-            self.num_its = 90000
-            self.targ_func_loss_scale = 15.
-            self.optimized_quantity_name = 'Distance of hx from target hx'
-
-
-
-
-
-
-    def make_action_target_function(self, action_id, timesteps):
-        optimized_quantity = self.optimized_quantity
-        increment = self.increment
-        device = self.device
-        target_func_loss_scale = self.targ_func_loss_scale
-        target_action_idx = int(action_id)
-
-        def action_target_function(preds_dict):
-            preds = preds_dict['act_log_prob']
-            preds = torch.stack(preds, dim=1).squeeze()
-
-            # Make a target log prob that is simply slightly higher than
-            # the current prediction.
-            target_log_probs = preds.clone().detach().cpu().numpy()
-            argmaxes = target_log_probs[:, timesteps].argmax(axis=2)
-            logitmaxes = target_log_probs[:, timesteps].max(axis=2)
-            total_num_acts = np.product(np.array(argmaxes.shape))
-            fraction_correct = (argmaxes == target_action_idx).sum() / total_num_acts
-            opt_quant = fraction_correct
-            logitlogitmax = \
-                (target_log_probs[:, timesteps, target_action_idx] -
-                 logitmaxes).mean()
-            optimized_quantity.append(opt_quant)
-            print("fraction correct: %f" % opt_quant)
-            print("logit-maxlogit: %f" % logitlogitmax)
-
-            target_log_probs[:, timesteps, target_action_idx] += \
-                increment * 10
-            target_log_probs[:, timesteps] -= increment * 3
-            target_log_probs = torch.tensor(target_log_probs, device=device)
-
-            # Calculate the difference between the target log probs and the pred
-            diff = torch.abs(target_log_probs - preds)
-            loss_sum = diff.mean() * target_func_loss_scale
-
-            # Calculate the cumulative distribution of the samples' losses and
-            # find the top quartile boundary
-            diff_cum_df = torch.cumsum(diff.sum(dim=[1,2]), dim=0)
-            top_quart_ind = int(diff_cum_df.shape[0] * 0.75)
-            loss_info_dict = {'top_quartile_loss': diff_cum_df[top_quart_ind]}
-
-            print("TargFunc loss: %f " % loss_sum)
-
-            return loss_sum, loss_info_dict
-        return action_target_function
-
-    def make_hx_neuron_target_function(self, nrn_id, timesteps):
-        optimized_quantity = self.optimized_quantity
-        increment = self.increment
-        device = self.device
-        target_func_loss_scale = self.targ_func_loss_scale
-        nrn_id = int(nrn_id)
-
-        def hx_neuron_target_function(preds_dict):
-            preds = preds_dict['hx']
-            bottleneck_vecs = preds_dict['bottleneck_vec']
-            preds = torch.stack(preds, dim=1).squeeze()
-            neuron_optimized = nrn_id
-
-            # Make a target that is simply slightly higher than
-            # the current prediction.
-
-            target_hx = preds.clone().detach().cpu().numpy()
-            print(f"Neuron values: {target_hx[:, timesteps, neuron_optimized].mean()}")
-            optimized_quantity.append(
-                target_hx[:, timesteps, neuron_optimized].mean())
-            target_hx[:, timesteps, neuron_optimized] += increment
-            target_hx = torch.tensor(target_hx, device=device)
-
-            # Calculate the difference between the target and the pred
-            diff = torch.abs(target_hx - preds)
-            loss_sum = diff.mean() * target_func_loss_scale
-
-            # Calculate the cumulative distribution of the samples' losses and
-            # find the top quartile boundary
-            diff_cum_df = torch.cumsum(diff.sum(dim=[1, 2]), dim=0)
-            top_quart_ind = int(diff_cum_df.shape[0] * 0.75)
-            loss_info_dict = {'top_quartile_loss': diff_cum_df[top_quart_ind]}
-
-            print("TargFunc loss: %f " % loss_sum)
-            return loss_sum, loss_info_dict
-        return hx_neuron_target_function
-
-    def make_hx_direction_target_function(self, direction_id, timesteps):
-        optimized_quantity = self.optimized_quantity
-        directions_scale = self.hp.analysis.target_func.directions_scale
-        increment = self.increment
-        device = self.device
-        target_func_loss_scale = self.targ_func_loss_scale
-        direction_id = int(direction_id)
-        directions = np.load(
-            self.hp.analysis.agent_h.precomputed_analysis_data_path + \
-            '/pcomponents_%i.npy' %
-            self.num_episodes_precomputed)
-        self.timesteps = timesteps
-        directions = [directions.copy()
-                      for _ in range(len(self.timesteps))]
-        directions = np.stack(directions, axis=0)
-        def hx_direction_target_function(preds_dict):
-            preds = preds_dict['hx']
-            bottleneck_vecs = preds_dict['bottleneck_vec']
-            preds = torch.stack(preds, dim=1).squeeze()
-            directions_f = directions[:, direction_id]
-            # pred_magnitude = np.linalg.norm(preds[:, timesteps], axis=1)
-            # directions_magnitude = np.linalg.norm(directions, axis=1)
-            # direc_scales = pred_magnitude/directions_magnitude
-
-            # Make a target that is more in the direction of the goal direction than
-            # the current prediction.
-            target_hx = preds.clone().detach().cpu().numpy()
-            opt_quant = np.inner(target_hx[:, timesteps],
-                                 directions_f).mean()
-            print(opt_quant)
-            optimized_quantity.append(opt_quant)
-            print("Opt quant: %f" % opt_quant)
-            target_hx[:, timesteps] += (directions_f * directions_scale)
-            target_hx = torch.tensor(target_hx, device=device)
-
-            # Calculate the difference between the target and the pred
-            diff = torch.abs(target_hx - preds)
-            loss_sum = diff.mean() * target_func_loss_scale
-
-            # Calculate the cumulative distribution of the samples' losses and
-            # find the top quartile boundary
-            diff_cum_df = torch.cumsum(diff.sum(dim=[1, 2]), dim=0)
-            top_quart_ind = int(diff_cum_df.shape[0] * 0.75)
-            loss_info_dict = {'top_quartile_loss': diff_cum_df[top_quart_ind]}
-
-            print("TargFunc loss: %f " % loss_sum)
-            return loss_sum, loss_info_dict
-        return hx_direction_target_function
-
-    def value_incr_or_decr_target_function(self, preds_dict):
-        preds = preds_dict['value']
-        bottleneck_vecs = preds_dict['bottleneck_vecs']
-        preds = torch.stack(preds, dim=1).squeeze()
-
-        # Make a target that is simply slightly higher than
-        # the current prediction.
-        target_values = preds.clone().detach().cpu().numpy()
-        print(target_values[:, :self.time_of_jump].mean())
-        print(target_values[:, self.time_of_jump:].mean())
-        opt_quant = target_values[:, self.time_of_jump:].mean() - \
-                    target_values[:, :self.time_of_jump].mean()
-        self.optimized_quantity.append(opt_quant)
-        base_increments = np.arange(start=-1, stop=1,
-                                    step=(2/target_values.shape[1]))
-        target_values += base_increments * self.increment
-        # target_values[:, :self.time_of_jump] -= self.increment
-        # target_values[:, self.time_of_jump:] += self.increment
-        target_values = torch.tensor(target_values, device=self.device)
-
-        # Calculate the difference between the target and the pred
-        diff = torch.abs(target_values - preds)
-        loss_sum = diff.mean() * self.targ_func_loss_scale
-
-        # Calculate the cumulative distribution of the samples' losses and
-        # find the top quartile boundary
-        diff_cum_df = torch.cumsum(diff.sum(dim=[1]), dim=0)
-        top_quart_ind = int(diff_cum_df.shape[0] * 0.75)
-        loss_info_dict = {'top_quartile_loss': diff_cum_df[top_quart_ind]}
-
-        print("TargFunc loss: %f " % loss_sum)
-
-        return loss_sum, loss_info_dict
-
-    def value_high_or_low_target_function(self, preds_dict):
-        preds = preds_dict['value']
-        bottleneck_vecs = preds_dict['bottleneck_vec']
-        preds = torch.stack(preds, dim=1).squeeze()
-
-        # Make a target that is simply slightly higher than
-        # the current prediction.
-        target_values = preds.clone().detach().cpu().numpy()
-        print(f"Target values: {target_values.mean()}")
-        self.optimized_quantity.append(target_values.mean())
-        target_values += self.increment
-        target_values = torch.tensor(target_values, device=self.device)
-
-        # Calculate the difference between the target and the pred
-        diff = torch.abs(target_values - preds)
-        loss_sum = diff.mean() * self.targ_func_loss_scale
-
-
-        # Calculate the cumulative distribution of the samples' losses and
-        # find the top quartile boundary
-        diff_cum_df = torch.cumsum(diff.sum(dim=[1]), dim=0)
-        top_quart_ind = int(diff_cum_df.shape[0] * 0.75)
-        loss_info_dict = {'top_quartile_loss': diff_cum_df[top_quart_ind]}
-
-        print("TargFunc loss: %f " % loss_sum)
-
-        return loss_sum, loss_info_dict
-
-    def hx_neuron_target_function(self, preds_dict, epoch):
-        preds = preds_dict['hx']
-        bottleneck_vecs = preds_dict['bottleneck_vec']
-        preds = torch.stack(preds, dim=1).squeeze()
-        neuron_optimized = epoch
-
-        # Make a target that is simply slightly higher than
-        # the current prediction.
-
-        target_hx = preds.clone().detach().cpu().numpy()
-        print(target_hx[:, self.timesteps, neuron_optimized].mean())
-        self.optimized_quantity.append(target_hx[:, self.timesteps, neuron_optimized].mean())
-        target_hx[:, self.timesteps, neuron_optimized] += self.increment
-        target_hx = torch.tensor(target_hx, device=self.device)
-
-        # Calculate the difference between the target and the pred
-        diff = torch.abs(target_hx - preds)
-        loss_sum = diff.mean() * self.targ_func_loss_scale
-
-        # Calculate the cumulative distribution of the samples' losses and
-        # find the top quartile boundary
-        diff_cum_df = torch.cumsum(diff.sum(dim=[1,2]), dim=0)
-        top_quart_ind = int(diff_cum_df.shape[0] * 0.75)
-        loss_info_dict = {'top_quartile_loss': diff_cum_df[top_quart_ind]}
-
-        print("TargFunc loss: %f " % loss_sum)
-
-        return loss_sum, loss_info_dict
-
-    def hx_direction_target_function(self, preds_dict, epoch):
-        preds = preds_dict['hx']
-        bottleneck_vecs = preds_dict['bottleneck_vec']
-        preds = torch.stack(preds, dim=1).squeeze()
-        directions = self.directions[:, epoch]
-        # pred_magnitude = np.linalg.norm(preds[:, self.timesteps], axis=1)
-        # directions_magnitude = np.linalg.norm(directions, axis=1)
-        # direc_scales = pred_magnitude/directions_magnitude
-
-        # Make a target that is more in the direction of the goal direction than
-        # the current prediction.
-        target_hx = preds.clone().detach().cpu().numpy()
-        opt_quant = np.inner(target_hx[:, self.timesteps], directions).mean()
-        print(opt_quant)
-        self.optimized_quantity.append(opt_quant)
-        print("Opt quant: %f" % opt_quant)
-        target_hx[:, self.timesteps] += (directions * self.directions_scale)
-        target_hx = torch.tensor(target_hx, device=self.device)
-
-        # Calculate the difference between the target and the pred
-        diff = torch.abs(target_hx - preds)
-        loss_sum = diff.mean() * self.targ_func_loss_scale
-
-        # Calculate the cumulative distribution of the samples' losses and
-        # find the top quartile boundary
-        diff_cum_df = torch.cumsum(diff.sum(dim=[1,2]), dim=0)
-        top_quart_ind = int(diff_cum_df.shape[0] * 0.75)
-        loss_info_dict = {'top_quartile_loss': diff_cum_df[top_quart_ind]}
-
-        print("TargFunc loss: %f " % loss_sum)
-
-        return loss_sum, loss_info_dict
-
-    def hx_location_target_function(self, preds_dict, epoch):
-        preds = preds_dict['hx']
-        bottleneck_vecs = preds_dict['bottleneck_vec']
-        preds = torch.stack(preds, dim=1).squeeze()
-        directions = self.directions[:, epoch]
-        directions = torch.tensor(directions, device=preds.device)
-
-        # Make a target that is the direction of the target than
-        # the current prediction.
-        # target_hx = preds.clone().detach()#.cpu().numpy()
-        # target_hx[:, self.timesteps] += (directions * self.directions_scale)
-        # target_hx = torch.tensor(target_hx, device=self.device)
-
-        # Calculate the difference between the target and the pred
-        diff = (preds[:, self.timesteps] - directions)**2
-        loss_sum = diff.sum(axis=2).mean() * self.targ_func_loss_scale
-        opt_quant = loss_sum.item()#.clone().detach()
-        print("Loss (distance): %f" % torch.sqrt(loss_sum))
-        self.optimized_quantity.append(opt_quant)
-
-        # Calculate the cumulative distribution of the samples' losses and
-        # find the top quartile boundary
-        diff_cum_df = torch.cumsum(diff.sum(dim=[1, 2]), dim=0)
-        top_quart_ind = int(diff_cum_df.shape[0] * 0.75)
-        loss_info_dict = {'top_quartile_loss': diff_cum_df[top_quart_ind]}
-
-        print("TargFunc loss: %f " % loss_sum)
-
-        return loss_sum, loss_info_dict
 
 
 
