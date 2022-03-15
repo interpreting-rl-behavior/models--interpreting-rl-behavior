@@ -64,38 +64,11 @@ class DataImporter():
         parser.add_argument(
             '--input_directory', type=str, default=".")
         parser.add_argument(
-            '--output_directory', type=str, default="../Brewing1.github.io/static/data")
+            '--output_directory', type=str, default="../Brewing1.github.io/static/localData")  # change to static/data if you don't want local?
         parser.add_argument(
             '--interpreting_params_name', type=str, default="defaults")
         args = parser.parse_args()
         return args
-
-    def pca_transform(self, X):
-        X_scaled = (X - self.all_hx_mu) / self.all_hx_sigma
-        return X_scaled @ self.pca_components.T
-
-    def project_gradients_into_pc_space(self, grad_data):
-        sigma = np.diag(self.all_hx_sigma)
-        grad_data = grad_data.T  # So each column is a grad vector for a hx
-        scaled_pc_comps = self.pca_components @ sigma  # PCs calculated on X'=(X-mu)/sigma are scaled so it's like they were calculated on X
-        projected_grads = scaled_pc_comps @ grad_data  # grads are projected onto the scaled PCs
-        return projected_grads.T
-
-    def ica_transform(self, X):
-        X_scaled = (X - self.all_hx_mu) / self.all_hx_sigma
-        pc_loadings = X_scaled @ self.pca_components.T
-        pc_loadings = pc_loadings[:,:self.num_ica_components]
-        source_signals = pc_loadings @ self.unmix_mat.T
-        return source_signals
-
-    def project_gradients_into_ica_space(self, grad_data): # TODO fix
-        sigma = np.diag(self.all_hx_sigma)
-        grad_data = grad_data.T  # So each column is a grad vector for a hx
-        scaled_pc_comps = self.pca_components @ sigma  # PCs calculated on X'=(X-mu)/sigma are scaled so it's like they were calculated on X
-        projected_grads_to_pc_space = scaled_pc_comps @ grad_data  # grads are projected onto the scaled PCs
-        projected_grads_to_pc_space = projected_grads_to_pc_space[:self.num_ica_components, :]
-        projected_grads_to_ic_space = projected_grads_to_pc_space.T @ self.mix_mat
-        return projected_grads_to_ic_space
 
     def sample_info_for_panel_data(self, sample_name):
         """
