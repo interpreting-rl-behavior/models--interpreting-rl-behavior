@@ -109,10 +109,15 @@ class DataImporter():
             sample_data = data[sample_name]
             hx_sample = np.array(sample_data["hx_loadings"])
 
-            high_arr = hx_sample > self.extrema_values["high"]
-            middle_arr =  ((hx_sample < self.extrema_values["middle_upper"])
-                       & (hx_sample > self.extrema_values["middle_lower"]))
-            low_arr =  hx_sample < self.extrema_values["middle_lower"]
+            high_arr = self.compare_columnwise(hx_sample, self.extrema_values["high"], np.greater)
+            middle_arr =  (self.compare_columnwise(hx_sample, self.extrema_values["middle_upper"], np.less)
+                       & self.compare_columnwise(hx_sample, self.extrema_values["middle_lower"], np.greater))
+            low_arr =  self.compare_columnwise(hx_sample, self.extrema_values["middle_lower"], np.less)
+
+            # high_arr = hx_sample > self.extrema_values["high"]
+            # middle_arr =  ((hx_sample < self.extrema_values["middle_upper"])
+            #            & (hx_sample > self.extrema_values["middle_lower"]))
+            # low_arr =  hx_sample < self.extrema_values["middle_lower"]
 
             extrema_list["any"]["high"].append(np.any(high_arr, axis=0))
             extrema_list["any"]["middle"].append(np.any(middle_arr, axis=0))
@@ -161,9 +166,10 @@ class DataImporter():
         # Want to know which timestep the saliency was taken from. Note that it would be more
         # principled to save this when running the saliency experiment as opposed to inferring it
         # by the first timestep in which the grads are all zero (as is done here).
-        saliency_step = np.where(
-            (grad_hx_action_loadings == np.zeros(grad_hx_action_loadings.shape[1])).all(axis=1)
-        )[0][0]
+        # saliency_step = np.where(
+        #     (grad_hx_action_loadings == np.zeros(grad_hx_action_loadings.shape[1])).all(axis=1)
+        # )[0][0]
+        saliency_step = 4 # It's always going to be 4.
         loadings_dict = {
             "saliency_step": int(saliency_step),
             "actions": actions,
@@ -258,10 +264,10 @@ class DataImporter():
             # output panel_data.json
             print(
                 "Making jsons")
-            hx_in_pca = np.load(f"{self.hx_analysis_dir}/{self.data_name_root}{self.n_suffix}.npy")
+            hx_in_ica = np.load(f"{self.hx_analysis_dir}/{self.data_name_root}{self.n_suffix}.npy")
 
-            self.plot_hx_histograms(hx_in_pca)
-            self.find_extrema_values(hx_in_pca)
+            self.plot_hx_histograms(hx_in_ica)
+            self.find_extrema_values(hx_in_ica)
 
             data = {
                 sample_name: self.sample_info_for_panel_data(sample_name)
@@ -276,7 +282,7 @@ class DataImporter():
                 json.dump({
                     # Only store 3000 datapoints for each component (we couldn't show more on a
                     # plot easily anyway)
-                    "base_hx_loadings": hx_in_pca[:3000].tolist(),
+                    "base_hx_loadings": hx_in_ica[:3000].tolist(),
                     # was just 1000 instead of n_suffix
                     "samples": {
                         sample_name: self.sample_info_for_panel_data(
@@ -294,6 +300,17 @@ class DataImporter():
 
         else:
             print("Process cancelled!")
+
+    def compare_columnwise(self, array, vec, op=np.greater):
+        num_rows, num_columns = array.shape
+        comparisons = []
+        for column_id in range(num_columns):
+            scalar = vec[column_id]
+            column = array[:, column_id]
+            comparison = op(column, scalar)
+            comparisons.append(comparison)
+        comparisons = np.stack(comparisons, axis=-1)
+        return comparisons
 
 
 if __name__ == "__main__":
