@@ -1,4 +1,5 @@
 av
+einops
 matplotlib
 munch
 numpy
