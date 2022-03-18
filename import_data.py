@@ -109,16 +109,17 @@ class DataImporter():
         for sample_name in sample_names:
             sample_data = data[sample_name]
             hx_sample = np.array(sample_data["hx_loadings"])
+            if np.any(hx_sample[:, 2] > np.ones(10) * 1.5144):
+                print("boop")
+            # high_arr = self.compare_columnwise(hx_sample, self.extrema_values["high"], np.greater)
+            # middle_arr =  (self.compare_columnwise(hx_sample, self.extrema_values["middle_upper"], np.less)
+            #            & self.compare_columnwise(hx_sample, self.extrema_values["middle_lower"], np.greater))
+            # low_arr =  self.compare_columnwise(hx_sample, self.extrema_values["middle_lower"], np.less)
 
-            high_arr = self.compare_columnwise(hx_sample, self.extrema_values["high"], np.greater)
-            middle_arr =  (self.compare_columnwise(hx_sample, self.extrema_values["middle_upper"], np.less)
-                       & self.compare_columnwise(hx_sample, self.extrema_values["middle_lower"], np.greater))
-            low_arr =  self.compare_columnwise(hx_sample, self.extrema_values["middle_lower"], np.less)
-
-            # high_arr = hx_sample > self.extrema_values["high"]
-            # middle_arr =  ((hx_sample < self.extrema_values["middle_upper"])
-            #            & (hx_sample > self.extrema_values["middle_lower"]))
-            # low_arr =  hx_sample < self.extrema_values["middle_lower"]
+            high_arr = hx_sample > self.extrema_values["high"]
+            middle_arr = ((hx_sample < self.extrema_values["middle_upper"])
+                          & (hx_sample > self.extrema_values["middle_lower"]))
+            low_arr = hx_sample < self.extrema_values["middle_lower"]
 
             extrema_list["any"]["high"].append(np.any(high_arr, axis=0))
             extrema_list["any"]["middle"].append(np.any(middle_arr, axis=0))
@@ -220,13 +221,13 @@ class DataImporter():
     def plot_hx_histograms(self, hx):
         outdir = f"{self.args.output_directory}/component_histograms"
         os.mkdir(outdir)
-        n_samples = 5000
+        n_samples = 4000
         # Reduce data for efficiency
         sub_hx = hx[:n_samples]
 
         for comp in range(hx.shape[1]):
             plt.figure()
-            plt.hist(sub_hx[:,comp], bins=30)
+            plt.hist(sub_hx[:,comp], bins=100)
             plt.title(f"Component {comp} - {n_samples} samples")
             plt.savefig(os.path.join(outdir, f"Component{comp}.png"))
 
@@ -250,23 +251,23 @@ class DataImporter():
         confirm = input("Continue? y/[n]: ")
         if confirm.lower() in ["y", "yes"]:
 
-            # Clear directory
-            if os.path.exists(self.args.output_directory):
-                shutil.rmtree(self.args.output_directory)
-            os.mkdir(self.args.output_directory)
+            # # Clear directory
+            # if os.path.exists(self.args.output_directory):
+            #     shutil.rmtree(self.args.output_directory)
+            # os.mkdir(self.args.output_directory)
 
             # output panel_data.json
-            print(
-                "Making jsons")
-            hx_in_ica = np.load(f"{self.hx_analysis_dir}/{self.data_name_root}{self.n_suffix}.npy")
-
-            self.plot_hx_histograms(hx_in_ica)
-            self.find_extrema_values(hx_in_ica)
-
+            print("Collecting sample data")
             data = {
                 sample_name: self.sample_info_for_panel_data(sample_name)
                 for sample_name in self.sample_names
             }
+            hx_in_ica = np.concatenate([np.array(list(data.values())[i]['hx_loadings']) for i in range(len(data))], axis=0)
+            print(
+                "Making jsons")
+
+            self.plot_hx_histograms(hx_in_ica)
+            self.find_extrema_values(hx_in_ica)
             extrema = self.get_extrema_samples(data)
 
             with open(self.args.output_directory + "/extrema.json", 'w') as f:
