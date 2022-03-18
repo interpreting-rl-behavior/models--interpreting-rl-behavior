@@ -3,6 +3,7 @@ import shutil
 import argparse
 import json
 
+import einops
 import numpy as np
 import matplotlib.pyplot as plt
 from PIL import Image
@@ -190,38 +191,31 @@ class DataImporter():
 
         return loadings_dict
 
-    def make_img_set_from_arr(self, path, arr):
-        os.mkdir(path)
-        for i in range(arr.shape[0]):
-            im = Image.fromarray(arr[i], mode='RGB')
-            im.save(f"{path}/{i}.png")
-        # Concatenate images horizontally. Needs einops package.
-        # comb_arr = einops.rearrange(arr, 'b h w c -> h (b w) c')
-        # im = Image.fromarray(comb_arr, mode='RGB')
-        # im.save(f"{path}/all.png")
+    def make_img_set_from_arr(self, path, im_dict):
+        for name, arr in im_dict.items():
+            # Concatenate images horizontally. Needs einops package.
+            comb_arr = einops.rearrange(arr, 'b h w c -> h (b w) c')
+            im = Image.fromarray(comb_arr, mode='RGB')
+            # im.save(f"{path}/all.png")
+            im.save(f"{path}/{name}.png")
 
     def save_sample_images(self, sample_name):
         sample_in = f"{self.args.input_directory}/generative/rec_gen_mod_data/informed_init/{sample_name}"
         sample_out = f"{self.args.output_directory}/{sample_name}"
         os.mkdir(sample_out)
 
-        ims = np.load(sample_in + '/ims.npy')
-        sal_action = np.load(sample_in + '/grad_processed_ims_action.npy')
-        sal_value = np.load(sample_in + '/grad_processed_ims_value.npy')
-
-        self.make_img_set_from_arr(f"{sample_out}/obs", ims)
-        self.make_img_set_from_arr(f"{sample_out}/sal_action", sal_action)
-        self.make_img_set_from_arr(f"{sample_out}/sal_value", sal_value)
-
-        # Now do iteratively for PC direction saliency
+        # Store observations and saliencies to a dictionary
+        im_dict = {}
+        im_dict["obs"] = np.load(sample_in + '/ims.npy')
+        im_dict["sal_action"] = np.load(sample_in + '/grad_processed_ims_action.npy')
+        im_dict["sal_value"] = np.load(sample_in + '/grad_processed_ims_value.npy')
+        # Note that we have a saliency array for each IC
         for idx in range(self.min_pc_directions, self.max_pc_directions):
-            sal = np.load(
-                sample_in + f'/grad_processed_ims_hx_direction_%i_{self.direction_type}.npy' % idx)
+            im_dict[f"sal_hx_direction_{idx}"] = np.load(
+                sample_in + f'/grad_processed_ims_hx_direction_{idx}_{self.direction_type}.npy')
 
-            # TODO maybe insert arrows here
-
-            self.make_img_set_from_arr(f"{sample_out}/sal_hx_direction_%i" % idx,
-                                  sal)
+        # Create and save images from numpy arrays
+        self.make_img_set_from_arr(sample_out, im_dict)
 
     def plot_hx_histograms(self, hx):
         outdir = f"{self.args.output_directory}/component_histograms"
