@@ -119,7 +119,7 @@ class DataImporter():
             high_arr = hx_sample > self.extrema_values["high"]
             middle_arr = ((hx_sample < self.extrema_values["middle_upper"])
                           & (hx_sample > self.extrema_values["middle_lower"]))
-            low_arr = hx_sample < self.extrema_values["middle_lower"]
+            low_arr = hx_sample < self.extrema_values["low"]
 
             extrema_list["any"]["high"].append(np.any(high_arr, axis=0))
             extrema_list["any"]["middle"].append(np.any(middle_arr, axis=0))
@@ -251,10 +251,10 @@ class DataImporter():
         confirm = input("Continue? y/[n]: ")
         if confirm.lower() in ["y", "yes"]:
 
-            # # Clear directory
-            # if os.path.exists(self.args.output_directory):
-            #     shutil.rmtree(self.args.output_directory)
-            # os.mkdir(self.args.output_directory)
+            # Clear directory
+            if os.path.exists(self.args.output_directory):
+                shutil.rmtree(self.args.output_directory)
+            os.mkdir(self.args.output_directory)
 
             # output panel_data.json
             print("Collecting sample data")
