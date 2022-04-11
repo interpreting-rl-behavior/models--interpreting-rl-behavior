@@ -192,12 +192,19 @@ class DataImporter():
         return loadings_dict
 
     def make_img_set_from_arr(self, path, im_dict):
-        for name, arr in im_dict.items():
-            # Concatenate images horizontally. Needs einops package.
-            comb_arr = einops.rearrange(arr, 'b h w c -> h (b w) c')
-            im = Image.fromarray(comb_arr, mode='RGB')
-            # im.save(f"{path}/all.png")
-            im.save(f"{path}/{name}.png")
+        # Save the saliencies in one grid-like image, with rows corresponding to saliency types
+        # and columns corresponding to the timestep
+        sal_arrays = []
+        for sal_type in self.saliency_types:
+            sal_arrays.append(im_dict[sal_type]) # (timesteps, height, width, channels)
+        comb_sal_array = np.stack(sal_arrays) # (sal_type, timesteps, height, width, channels)
+        comb_sal_array = einops.rearrange(comb_sal_array, "s t h w c -> (s h) (t w) c")
+        sal_im = Image.fromarray(comb_sal_array, mode='RGB')
+        sal_im.save(f"{path}/saliencies.png")
+
+        # Save observation as a single image concatenated over timesteps
+        obs_im = Image.fromarray(einops.rearrange(im_dict["obs"], 't h w c -> h (t w) c'))
+        obs_im.save(f"{path}/obs.png")
 
     def save_sample_images(self, sample_name):
         sample_in = f"{self.args.input_directory}/generative/rec_gen_mod_data/informed_init/{sample_name}"
@@ -285,6 +292,15 @@ class DataImporter():
                     }
                 }, f)
 
+            # Create a list of all the types of saliency we wish to store. The index of this list
+            # will correspond to the row number that its saliency type appears in a concatenated
+            # image
+            self.saliency_types = ["sal_action", "sal_value"] + [
+                f"sal_hx_direction_{idx}"
+                for idx in range(self.min_pc_directions, self.max_pc_directions)
+            ]
+            with open(self.args.output_directory + "/saliency_types.json", 'w') as f:
+                json.dump(self.saliency_types, f)
             # make a folder for each sample for images
             for sample in self.sample_names:
                 print(f"Importing sample {sample}")
