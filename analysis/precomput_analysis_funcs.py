@@ -41,6 +41,23 @@ def plot_variance_expl_plot(pca_object, num_pcs, plot_save_path, aux_name1,
     plt.close()
     return above95explained
 
+def plot_cum_variance_expl_plot(pca_object, num_pcs, plot_save_path, aux_name1,
+                            aux_name2):
+    pca_percent = 100 * pca_object.explained_variance_/sum(pca_object.explained_variance_)
+    above95explained = np.argmax(pca_percent.cumsum() > 95)
+    above90explained = np.argmax(pca_percent.cumsum() > 90)
+    plt.figure(figsize=(15, 5))
+    plt.bar(list(range(num_pcs)),
+            pca_percent.cumsum(),
+            color='blue',
+            )
+
+    plt.xlabel("Principle Component")
+    plt.ylabel("Variance Explained (%)")
+    plt.savefig(plot_save_path + f"/pca_cum_variance_explained_{aux_name1}_epis{aux_name2}.png")
+    plt.close()
+    return above95explained
+
 
 def clustering_after_pca(data, num_pcs, num_clusters, save_path, aux_name1,
                      aux_name2):
