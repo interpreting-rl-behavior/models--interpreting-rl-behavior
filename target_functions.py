@@ -122,6 +122,7 @@ class TargetFunction():
         optimized_proxy_record = self.optimized_proxy_record
         increment = self.increment
         device = self.device
+        loss_record = self.loss_record
         target_func_loss_scale = self.targ_func_loss_scale
         nrn_id = int(nrn_id)
 
@@ -134,19 +135,22 @@ class TargetFunction():
             # Make a target that is simply slightly higher than
             # the current prediction.
 
+            optimized_proxy = preds[:, timesteps, neuron_optimized].squeeze().clone().detach()
+
             target_hx = preds.clone().detach().cpu().numpy()
             print(f"Neuron values: {target_hx[:, timesteps, neuron_optimized].mean()}")
-            optimized_proxy_record.append(
-                target_hx[:, timesteps, neuron_optimized].mean())
+            optimized_proxy_record.append(optimized_proxy)
             target_hx[:, timesteps, neuron_optimized] += increment
             target_hx = torch.tensor(target_hx, device=device)
 
             # Calculate the difference between the target and the pred
             diff = torch.abs(target_hx - preds)
-            loss_sum = diff.mean() * target_func_loss_scale
+            losses = diff.mean(dim=[1,2])
 
-            print("TargFunc loss: %f " % loss_sum)
-            return loss_sum
+            loss_record.append(losses.clone().detach().cpu().numpy())
+            optimized_proxy_record.append(optimized_proxy)
+            print("TargFunc loss: %f " % losses.mean())
+            return losses, optimized_proxy
         return hx_neuron_target_function
 
     def make_hx_direction_target_function(self, direction_id, timesteps):
@@ -169,6 +173,9 @@ class TargetFunction():
             # pred_magnitude = np.linalg.norm(preds[:, timesteps], axis=1)
             # directions_magnitude = np.linalg.norm(directions, axis=1)
             # direc_scales = pred_magnitude/directions_magnitude
+            optimized_proxy = pred_directions[:, direction_id].squeeze().clone().detach()
+            optimized_proxy_mean = pred_directions[:, direction_id].mean().item()
+            print("Opt quant: %f" % optimized_proxy_mean)
 
             # Make a target that is more in the direction of the goal direction than
             # the current prediction.
@@ -176,16 +183,16 @@ class TargetFunction():
             target_directions[:, direction_id] += increment
             target_directions *= 0.999
 
-            optimized_proxy = pred_directions[:, direction_id].mean().item()
-            optimized_proxy_record.append(optimized_proxy)
-            print("Opt quant: %f" % optimized_proxy)
-
             # Calculate the difference between the target and the pred
             diff = torch.abs(target_directions - pred_directions)
+            losses = diff.mean(dim=-1)
             loss_sum = diff.mean() * target_func_loss_scale
 
             print("TargFunc loss: %f " % loss_sum)
-            return loss_sum
+            self.loss_record.append(losses.clone().detach().cpu().numpy())
+            self.optimized_proxy_record.append(optimized_proxy)
+
+            return losses, optimized_proxy
         return hx_direction_target_function
 
     def value_delta_incr_or_decr_target_function(self, preds_dict): # TODO individuate loss for batch eles
@@ -221,19 +228,22 @@ class TargetFunction():
 
         # Make a target that is simply slightly higher than
         # the current prediction.
+        optimized_proxy = preds.clone().detach().mean(dim=-1)
         target_values = preds.clone().detach().cpu().numpy()
         print(f"Target values: {target_values.mean()}")
-        self.optimized_proxy_record.append(target_values.mean())
         target_values += self.increment
         target_values = torch.tensor(target_values, device=self.device)
 
         # Calculate the difference between the target and the pred
         diff = torch.abs(target_values - preds)
+        losses = diff.mean(dim=-1)
         loss_sum = diff.mean() * self.targ_func_loss_scale #+ terminals.sum() * 0.1
 
         print("TargFunc loss: %f " % loss_sum)
+        self.loss_record.append(losses.clone().detach().cpu().numpy())
+        self.optimized_proxy_record.append(optimized_proxy)
 
-        return loss_sum
+        return losses, optimized_proxy
 
     def hx_location_target_function(self, preds_dict, epoch):
         preds = preds_dict['hx']
