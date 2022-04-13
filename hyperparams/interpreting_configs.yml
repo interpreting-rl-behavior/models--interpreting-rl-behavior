@@ -117,7 +117,7 @@ defaults:
             func_type: [hx_direction] # [value, action, hx_direction]
             direction_ids: ['0', 'to', '16']
             sample_ids: ['0', 'to', '400']
-            extrema_threshold: 0.1
+            extrema_threshold: 0.01
             batch_size: 9
             combine_samples_not_iterate: False
             perturbation_scale: 0.000125
@@ -127,14 +127,14 @@ defaults:
             save_dir: analysis/target_func_exps/
             batch_size: 16
             num_sim_steps: 10
-            func_type: [action]
+            func_type: ['hx_direction', 'hx_neuron'] #[hx_direction]
             func_incr_or_decr: ['increase', 'decrease']
             action_ids: ['0', 'to', '2']
-            direction_ids: ['0', 'to', '2']  # increase for after development
-            hx_neuron_ids: ['0', 'to', '2']
+            direction_ids: ['0', 'to', '16']  # increase for after development
+            hx_neuron_ids: ['0', 'to', '16']
             sample_ids: ['0', 'to', '2']
             viz_batch_size: 16
-            lr: 0.01
+            lr: 0.001 #action 0.01 # hx_neuron 0.001 # value 0.005 # hx_direction
             min_loss: 0.001
             num_its: 20000
             num_epochs: 1
