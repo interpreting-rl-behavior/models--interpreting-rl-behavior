@@ -24,7 +24,7 @@ def parse_args():
 # EPISODE_STRINGS = {v:str(v) for v in range(3431)}
 def run():
     args = parse_args()
-    num_samples_hx = 2000 # number of generated samples to use
+    num_samples_hx = 4000 # number of generated samples to use
     num_samples_env_h = 2000
     n_components_hx = 64
     n_components_env_h = 64

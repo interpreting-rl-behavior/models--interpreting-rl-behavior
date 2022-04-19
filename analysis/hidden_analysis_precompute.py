@@ -3,7 +3,8 @@ import numpy as np
 from sklearn.decomposition import PCA
 from sklearn.preprocessing import StandardScaler
 from precomput_analysis_funcs import \
-    plot_variance_expl_plot, clustering_after_pca, tsne_after_pca, \
+    plot_variance_expl_plot, plot_cum_variance_expl_plot,\
+    clustering_after_pca, tsne_after_pca, \
     nmf_then_save, nmf_crossvalidation, ica_then_save
 import argparse
 import os
@@ -105,29 +106,9 @@ def run():
     above95explained = \
        plot_variance_expl_plot(pca_obj, n_components_pca, plot_save_path,
                                "hx", num_episodes)
-    # TODO a cumulative variance explained plot
-
-    #
-    #
-    # # k-means clustering
-    # print('Starting clustering...')
-    # clustering_after_pca(hx, above95explained, n_clusters, save_path,
-    #                     "hx", num_episodes)
-    # print("Clustering finished.")
-    #
-    # # tSNE
-    # print('Starting tSNE...')
-    # tsne_after_pca(hx, above95explained, n_components_tsne,
-    #               save_path, "hx", num_episodes)
-    # print("tSNE finished.")
-    #
-    # # NMF
-    # print('Starting NMF...')
-    # nmf_then_save(hx, n_components_nmf, save_path, "hx", num_episodes,
-    #              max_iter=hp.analysis.agent_h.nmf_max_iter,
-    #              tol=hp.analysis.agent_h.nmf_tol)
-    # # nmf_crossvalidation(hx, save_path, "hx", num_episodes)
-    # print("NMF finished.")
+    above95explained = \
+       plot_cum_variance_expl_plot(pca_obj, n_components_pca, plot_save_path,
+                               "hx", num_episodes)
 
     # ICA
     print("Starting ICA")
@@ -140,6 +121,28 @@ def run():
                   max_iter=hp.analysis.agent_h.ica_max_iter,
                   tol=hp.analysis.agent_h.ica_tol)
     print("ICA finished")
+
+    # k-means clustering
+    print('Starting clustering...')
+    clustering_after_pca(hx, above95explained, n_clusters, save_path,
+                        "hx", num_episodes)
+    print("Clustering finished.")
+
+    # tSNE
+    print('Starting tSNE...')
+    tsne_after_pca(hx, above95explained, n_components_tsne,
+                  save_path, "hx", num_episodes)
+    print("tSNE finished.")
+
+    # # NMF
+    # print('Starting NMF...')
+    # nmf_then_save(hx, n_components_nmf, save_path, "hx", num_episodes,
+    #              max_iter=hp.analysis.agent_h.nmf_max_iter,
+    #              tol=hp.analysis.agent_h.nmf_tol)
+    # # nmf_crossvalidation(hx, save_path, "hx", num_episodes)
+    # print("NMF finished.")
+
+
 
 
 if __name__ == "__main__":

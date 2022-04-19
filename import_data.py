@@ -3,7 +3,9 @@ import shutil
 import argparse
 import json
 
+import einops
 import numpy as np
+import matplotlib.pyplot as plt
 from PIL import Image
 import yaml, munch
 from dimred_projector import HiddenStateDimensionalityReducer
@@ -34,7 +36,8 @@ class DataImporter():
         self.projector = HiddenStateDimensionalityReducer(self.hp,
                                                          self.direction_type,
                                                          self.n_suffix,
-                                                         data_type=np.ndarray)
+                                                         data_type=np.ndarray,
+                                                         test_hx=False)
 
         # self.pca_components = np.load(
         #     f"{self.hx_analysis_dir}/pcomponents_{self.n_suffix}.npy")
@@ -64,38 +67,82 @@ class DataImporter():
         parser.add_argument(
             '--input_directory', type=str, default=".")
         parser.add_argument(
-            '--output_directory', type=str, default="../Brewing1.github.io/static/data")
+            '--output_directory', type=str, default="../Brewing1.github.io/static/localData")  # change to static/data if you don't want local?
         parser.add_argument(
             '--interpreting_params_name', type=str, default="defaults")
         args = parser.parse_args()
         return args
 
-    def pca_transform(self, X):
-        X_scaled = (X - self.all_hx_mu) / self.all_hx_sigma
-        return X_scaled @ self.pca_components.T
+    def find_extrema_values(self, hx):
+        """
+        For each ica/pca component, find high/medium/low threshold values based on the proportions
+        given in self.hp.analysis.saliency.extrema_threshold.
 
-    def project_gradients_into_pc_space(self, grad_data):
-        sigma = np.diag(self.all_hx_sigma)
-        grad_data = grad_data.T  # So each column is a grad vector for a hx
-        scaled_pc_comps = self.pca_components @ sigma  # PCs calculated on X'=(X-mu)/sigma are scaled so it's like they were calculated on X
-        projected_grads = scaled_pc_comps @ grad_data  # grads are projected onto the scaled PCs
-        return projected_grads.T
+        hx is a tensor of shape (total_examples, components).
+        """
+        # Sort the hxs for each component
+        hx_sorted = np.sort(hx, axis=0)
 
-    def ica_transform(self, X):
-        X_scaled = (X - self.all_hx_mu) / self.all_hx_sigma
-        pc_loadings = X_scaled @ self.pca_components.T
-        pc_loadings = pc_loadings[:,:self.num_ica_components]
-        source_signals = pc_loadings @ self.unmix_mat.T
-        return source_signals
+        threshold = self.hp.analysis.saliency.extrema_threshold
+        n = hx_sorted.shape[0]
 
-    def project_gradients_into_ica_space(self, grad_data): # TODO fix
-        sigma = np.diag(self.all_hx_sigma)
-        grad_data = grad_data.T  # So each column is a grad vector for a hx
-        scaled_pc_comps = self.pca_components @ sigma  # PCs calculated on X'=(X-mu)/sigma are scaled so it's like they were calculated on X
-        projected_grads_to_pc_space = scaled_pc_comps @ grad_data  # grads are projected onto the scaled PCs
-        projected_grads_to_pc_space = projected_grads_to_pc_space[:self.num_ica_components, :]
-        projected_grads_to_ic_space = projected_grads_to_pc_space.T @ self.mix_mat
-        return projected_grads_to_ic_space
+        self.extrema_values = {
+            "high": hx_sorted[n - int(n * threshold)],
+            "middle_upper": hx_sorted[int(n / 2 + (n * (threshold / 2)))],
+            "middle_lower": hx_sorted[int(n / 2 - (n * (threshold / 2)))],
+            "low": hx_sorted[int(n * threshold)],
+        }
+
+    def get_extrema_samples(self, data):
+        """
+        Create a json object identifying which samples have activations that are low, middle or
+        high for each pca/ica component. We store data corresponding to whether a sample has any
+        activation in each group, as well as whether it has an activation in each group for the
+        timestep in which the saliency is taken from.
+        """
+        extrema_list = {
+            ext_type: {level: []
+            for level in ["high", "middle", "low"]}
+            for ext_type in ["any", "saliency_step"]
+        }
+        sample_names = list(data.keys())
+        for sample_name in sample_names:
+            sample_data = data[sample_name]
+            hx_sample = np.array(sample_data["hx_loadings"])
+            if np.any(hx_sample[:, 2] > np.ones(10) * 1.5144):
+                print("boop")
+            # high_arr = self.compare_columnwise(hx_sample, self.extrema_values["high"], np.greater)
+            # middle_arr =  (self.compare_columnwise(hx_sample, self.extrema_values["middle_upper"], np.less)
+            #            & self.compare_columnwise(hx_sample, self.extrema_values["middle_lower"], np.greater))
+            # low_arr =  self.compare_columnwise(hx_sample, self.extrema_values["middle_lower"], np.less)
+
+            high_arr = hx_sample > self.extrema_values["high"]
+            middle_arr = ((hx_sample < self.extrema_values["middle_upper"])
+                          & (hx_sample > self.extrema_values["middle_lower"]))
+            low_arr = hx_sample < self.extrema_values["low"]
+
+            extrema_list["any"]["high"].append(np.any(high_arr, axis=0))
+            extrema_list["any"]["middle"].append(np.any(middle_arr, axis=0))
+            extrema_list["any"]["low"].append(np.any(low_arr, axis=0))
+
+            extrema_list["saliency_step"]["high"].append(high_arr[sample_data["saliency_step"]])
+            extrema_list["saliency_step"]["middle"].append(middle_arr[sample_data["saliency_step"]])
+            extrema_list["saliency_step"]["low"].append(low_arr[sample_data["saliency_step"]])
+
+        extrema_samples = {
+            ext_type: {level: {comp: []
+            for comp in range(hx_sample.shape[-1])}
+            for level in ["high", "middle", "low"]}
+            for ext_type in ["any", "saliency_step"]
+        }
+        for ext_type in ["any", "saliency_step"]:
+            for level in ["high", "middle", "low"]:
+                arr = np.array(extrema_list[ext_type][level])
+                samples, components = arr.nonzero()
+                for i in range(len(samples)):
+                    extrema_samples[ext_type][level][components[i]].append(sample_names[samples[i]])
+
+        return extrema_samples
 
     def sample_info_for_panel_data(self, sample_name):
         """
@@ -110,15 +157,27 @@ class DataImporter():
             np.load(sample_path + f'/grad_hx_hx_direction_%i_{self.direction_type}.npy' % idx)
             for idx in range(self.min_pc_directions, self.max_pc_directions)]
 
-        hx_loadings = self.projector.transform(hx).tolist() #self.hx_to_loading_transform(hx).tolist()
+        hx_loadings = self.projector.transform(hx) #self.hx_to_loading_transform(hx).tolist()
         # Not entirely clear what the most principled choice is, especially on if we should scale by original hx_sigma.
-        grad_hx_action_loadings = self.projector.project_gradients(grad_hx_action).tolist()
-        grad_hx_value_loadings = self.projector.project_gradients(grad_hx_value).tolist()
+        grad_hx_action_loadings = self.projector.project_gradients(grad_hx_action)
+        grad_hx_value_loadings = self.projector.project_gradients(grad_hx_value)
 
+        agent_logprobs = np.load(sample_path + '/agent_logprobs.npy')
+        actions = agent_logprobs.argmax(axis=-1).tolist()
+
+        # Want to know which timestep the saliency was taken from. Note that it would be more
+        # principled to save this when running the saliency experiment as opposed to inferring it
+        # by the first timestep in which the grads are all zero (as is done here).
+        # saliency_step = np.where(
+        #     (grad_hx_action_loadings == np.zeros(grad_hx_action_loadings.shape[1])).all(axis=1)
+        # )[0][0]
+        saliency_step = 4 # It's always going to be 4.
         loadings_dict = {
-            "hx_loadings": hx_loadings,
-            "grad_hx_value_loadings": grad_hx_value_loadings,
-            "grad_hx_action_loadings": grad_hx_action_loadings,
+            "saliency_step": int(saliency_step),
+            "actions": actions,
+            "hx_loadings": hx_loadings.tolist(),
+            "grad_hx_value_loadings": grad_hx_value_loadings.tolist(),
+            "grad_hx_action_loadings": grad_hx_action_loadings.tolist(),
         }
 
         # Now do the same iteratively for the PC direction loadings
@@ -133,34 +192,56 @@ class DataImporter():
 
         return loadings_dict
 
-    def make_img_set_from_arr(self, path, arr):
-        os.mkdir(path)
-        for i in range(arr.shape[0]):
-            im = Image.fromarray(arr[i], mode='RGB')
-            im.save(f"{path}/{i}.png")
+    def make_img_set_from_arr(self, path, im_dict):
+        for name, arr in im_dict.items():
+            # Concatenate images horizontally. Needs einops package.
+            comb_arr = einops.rearrange(arr, 'b h w c -> h (b w) c')
+            im = Image.fromarray(comb_arr, mode='RGB')
+            # im.save(f"{path}/all.png")
+            im.save(f"{path}/{name}.png")
 
     def save_sample_images(self, sample_name):
         sample_in = f"{self.args.input_directory}/generative/rec_gen_mod_data/informed_init/{sample_name}"
         sample_out = f"{self.args.output_directory}/{sample_name}"
         os.mkdir(sample_out)
 
-        ims = np.load(sample_in + '/ims.npy')
-        sal_action = np.load(sample_in + '/grad_processed_ims_action.npy')
-        sal_value = np.load(sample_in + '/grad_processed_ims_value.npy')
-
-        self.make_img_set_from_arr(f"{sample_out}/obs", ims)
-        self.make_img_set_from_arr(f"{sample_out}/sal_action", sal_action)
-        self.make_img_set_from_arr(f"{sample_out}/sal_value", sal_value)
-
-        # Now do iteratively for PC direction saliency
+        # Store observations and saliencies to a dictionary
+        im_dict = {}
+        im_dict["obs"] = np.load(sample_in + '/ims.npy')
+        im_dict["sal_action"] = np.load(sample_in + '/grad_processed_ims_action.npy')
+        im_dict["sal_value"] = np.load(sample_in + '/grad_processed_ims_value.npy')
+        # Note that we have a saliency array for each IC
         for idx in range(self.min_pc_directions, self.max_pc_directions):
-            sal = np.load(
-                sample_in + f'/grad_processed_ims_hx_direction_%i_{self.direction_type}.npy' % idx)
+            im_dict[f"sal_hx_direction_{idx}"] = np.load(
+                sample_in + f'/grad_processed_ims_hx_direction_{idx}_{self.direction_type}.npy')
 
-            # TODO maybe insert arrows here
+        # Create and save images from numpy arrays
+        self.make_img_set_from_arr(sample_out, im_dict)
 
-            self.make_img_set_from_arr(f"{sample_out}/sal_hx_direction_%i" % idx,
-                                  sal)
+    def plot_hx_histograms(self, hx):
+        outdir = f"{self.args.output_directory}/component_histograms"
+        os.mkdir(outdir)
+        n_samples = 4000
+        # Reduce data for efficiency
+        sub_hx = hx[:n_samples]
+
+        for comp in range(hx.shape[1]):
+            plt.figure()
+            plt.hist(sub_hx[:,comp], bins=100)
+            plt.title(f"Component {comp} - {n_samples} samples")
+            plt.savefig(os.path.join(outdir, f"Component{comp}.png"))
+
+        # Below is for creating a single plot for all components
+        # nrows = 4
+        # ncols = 4
+        # fig, axs = plt.subplots(nrows, ncols, sharex=False)
+        # fig.suptitle(f"Activation histograms per component - {n_samples} samples")
+        # for comp in range(hx.shape[1]):
+        #     x = comp // ncols
+        #     y = comp % nrows
+        #     axs[x, y].hist(sub_hx[:,comp], bins=30)
+        # plt.tight_layout()
+        # fig.savefig(os.path.join(outdir, "all.png"))
 
     def run(self, ):
 
@@ -176,12 +257,27 @@ class DataImporter():
             os.mkdir(self.args.output_directory)
 
             # output panel_data.json
+            print("Collecting sample data")
+            data = {
+                sample_name: self.sample_info_for_panel_data(sample_name)
+                for sample_name in self.sample_names
+            }
+            hx_in_ica = np.concatenate([np.array(list(data.values())[i]['hx_loadings']) for i in range(len(data))], axis=0)
             print(
                 "Making jsons")
-            hx_in_pca = np.load(f"{self.hx_analysis_dir}/{self.data_name_root}{self.n_suffix}.npy")
+
+            self.plot_hx_histograms(hx_in_ica)
+            self.find_extrema_values(hx_in_ica)
+            extrema = self.get_extrema_samples(data)
+
+            with open(self.args.output_directory + "/extrema.json", 'w') as f:
+                json.dump(extrema, f, indent=4)
+
             with open(self.args.output_directory + "/panel_data.json", 'w') as f:
                 json.dump({
-                    "base_hx_loadings": hx_in_pca[:3000, :20].tolist(),
+                    # Only store 3000 datapoints for each component (we couldn't show more on a
+                    # plot easily anyway)
+                    "base_hx_loadings": hx_in_ica[:3000].tolist(),
                     # was just 1000 instead of n_suffix
                     "samples": {
                         sample_name: self.sample_info_for_panel_data(
@@ -199,6 +295,18 @@ class DataImporter():
 
         else:
             print("Process cancelled!")
+
+    def compare_columnwise(self, array, vec, op=np.greater):
+        num_rows, num_columns = array.shape
+        comparisons = []
+        for column_id in range(num_columns):
+            scalar = vec[column_id]
+            column = array[:, column_id]
+            comparison = op(column, scalar)
+            comparisons.append(comparison)
+        comparisons = np.stack(comparisons, axis=-1)
+        return comparisons
+
 
 if __name__ == "__main__":
     importer = DataImporter()

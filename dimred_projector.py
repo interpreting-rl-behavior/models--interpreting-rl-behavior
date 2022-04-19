@@ -4,7 +4,7 @@ import torch
 
 
 class HiddenStateDimensionalityReducer():
-    def __init__(self, hp, type_of_dim_red, num_analysis_samples, data_type=torch.tensor, device='cuda'):
+    def __init__(self, hp, type_of_dim_red, num_analysis_samples, data_type=torch.tensor, device='cuda', test_hx=True):
         """
         By default, the methods of this class take a NxD set of vectors,
         where N is the number of vectors and D is their dimension, and they
@@ -86,7 +86,7 @@ class HiddenStateDimensionalityReducer():
                     device).float().requires_grad_()
 
         # Tests
-        if data_type == np.ndarray:
+        if test_hx and data_type == np.ndarray:
             test_hx_raw = np.load(os.path.join("./data", 'episode_00000/hx.npy'))[1:]
             num_ts_test = test_hx_raw.shape[0]
             test_hx_pca = np.load(os.path.join(os.getcwd(), hx_analysis_dir,
@@ -96,12 +96,18 @@ class HiddenStateDimensionalityReducer():
             hx_z = (test_hx_raw - self.hx_mu) / self.hx_std
             np.isclose(test_hx_pca, hx_z @ self.pcs.T, atol=0.05)
 
-
     def pca_transform(self, hx):
         # Scale and project hx onto direction
         hx_z = (hx - self.hx_mu) / self.hx_std
         pc_loadings = hx_z @ self.pcs_T  # (N, D) @ (D, D) --> (N, D) # transposed pcs so that cols are PCs
         return pc_loadings
+
+    def project_gradients_into_pc_space(self, grad_data):
+        sigma = np.diag(self.hx_std)
+        # grad_data = grad_data.T  # So each column is a grad vector for a hx
+        scaled_pc_comps = sigma @ self.pcs_T # PCs calculated on X'=(X-mu)/sigma are scaled so it's like they were calculated on X
+        projected_grads = grad_data @ scaled_pc_comps # grads are projected onto the scaled PCs
+        return projected_grads
 
     def ica_transform(self, hx):
         num_hx_dims = len(hx.shape)
@@ -117,18 +123,11 @@ class HiddenStateDimensionalityReducer():
             source_signals = torch.unsqueeze(source_signals, dim=1)
         return source_signals
 
-    def project_gradients_into_pc_space(self, grad_data):
-        sigma = np.diag(self.hx_std)
-        # grad_data = grad_data.T  # So each column is a grad vector for a hx
-        scaled_pc_comps = sigma @ self.pcs_T # PCs calculated on X'=(X-mu)/sigma are scaled so it's like they were calculated on X
-        projected_grads = grad_data @ scaled_pc_comps # grads are projected onto the scaled PCs
-        return projected_grads
-
     def project_gradients_into_ica_space(self, grad_data):
-        pcs = self.pcs_T[:,:self.num_ica_components]
+        pcs_T = self.pcs_T[:,:self.num_ica_components]
         pc_std = self.pc_std[:self.num_ica_components]
 
-        Qt = self.diag(self.hx_std) @ pcs # (sigma_x @ C^T )
+        Qt = self.diag(self.hx_std) @ pcs_T # (sigma_x @ C^T )
         Qt = Qt @ self.diag(pc_std)
         Qt = Qt @ self.mix_mat  # (cols are indep components)
         projected_grads = grad_data @ Qt
