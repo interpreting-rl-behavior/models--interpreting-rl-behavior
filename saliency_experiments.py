@@ -40,6 +40,13 @@ class SaliencyExperiment(GenerativeModelExperiment):
         self.demo_savedir = self.hp.analysis.saliency.demo_savedir
         os.makedirs(self.demo_savedir, exist_ok=True)
 
+        if 'to' in self.hp.analysis.saliency.difference_demo_sample_ids:
+            self.difference_demo_sample_ids = range(
+                int(self.hp.analysis.saliency.difference_demo_sample_ids[0]),
+                int(self.hp.analysis.saliency.difference_demo_sample_ids[2]))
+        else:
+            self.difference_demo_sample_ids = self.hp.analysis.saliency.direction_ids
+
         # remove grads from generative model (we'll add them to the bottleneck
         # vectors later)
         self.gen_model.requires_grad = False
@@ -144,7 +151,7 @@ class SaliencyExperiment(GenerativeModelExperiment):
         saliency_func_loss = saliency_func.loss_func(unstacked_preds_dict)
 
         # Get gradient and step the optimizer
-        saliency_func_loss.backward()
+        saliency_func_loss.backward(retain_graph=True)
 
         # Collect into one tensor each
         grads_keys = ['ims', 'hx', 'env_h']
@@ -382,7 +389,7 @@ class SaliencyExperiment(GenerativeModelExperiment):
                                          hyperparams=self.hp,
                                          device=self.device)
 
-        for sample_id in self.saliency_sample_ids:
+        for sample_id in self.difference_demo_sample_ids:
             print("Sample ID: " + str(sample_id))
             bottleneck_vec_name = f"sample_{int(sample_id):05d}"
             savedir = os.path.join(self.demo_savedir,
@@ -402,13 +409,13 @@ class SaliencyExperiment(GenerativeModelExperiment):
                          saliency_func_type, timesteps, savedir, video_dir)
 
             # Forward and backward pass WITHOUT ENV GRADS
-            preds_dict, grads_dict = self.forward_backward_pass(bottleneck_vecs,
+            preds_dict_wo, grads_dict_wo = self.forward_backward_pass(bottleneck_vecs,
                                                                 saliency_func,
                                                                 env_grads=False)
 
             saliency_func_type = saliency_func_type + '_without_env_grads'
             # Save results
-            self.save_results(preds_dict, grads_dict, bottleneck_vec_name,
+            self.save_results(preds_dict_wo, grads_dict_wo, bottleneck_vec_name,
                          saliency_func_type, timesteps, savedir, video_dir)
 
 

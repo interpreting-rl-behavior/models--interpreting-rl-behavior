@@ -112,6 +112,7 @@ defaults:
             num_batches: 16
         saliency:
             demo_savedir: analysis/demo_with_without_env_grads
+            difference_demo_sample_ids: ['0', 'to', '10']
             num_sim_steps: 10
             num_sim_steps_manual_actions: 32
             common_timesteps: [4]

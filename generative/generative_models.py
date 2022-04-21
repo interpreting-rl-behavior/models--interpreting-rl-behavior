@@ -228,12 +228,8 @@ class AgentEnvironmentSimulator(nn.Module):
         pred_action_prev_inds = pred_action_prev_probs.argmax(dim=1)
         pred_action_prev_1hot = torch.nn.functional.one_hot(pred_action_prev_inds,
                                                             num_classes=self.action_space_size).to(self.device).float()
-
-        if env_grads:
-            pred_action_prev_1hot = pred_action_prev_probs + \
-                     (pred_action_prev_1hot - pred_action_prev_probs).detach()
-        else:
-            pred_action_prev_1hot = pred_action_prev_1hot.detach()
+        pred_action_prev_1hot = pred_action_prev_probs + \
+                 (pred_action_prev_1hot - pred_action_prev_probs).detach()
 
         if use_true_actions:
             action_prev  = true_actions_1hot[0]
@@ -294,6 +290,9 @@ class AgentEnvironmentSimulator(nn.Module):
             agent_h_prev.retain_grad()
             env_h_prev.retain_grad()
 
+        if not env_grads:
+            action_prev = action_prev.detach()
+
         for i in range(self.num_sim_steps):
             # Define the labels for the loss function because we calculate it
             #  in here.
@@ -305,6 +304,10 @@ class AgentEnvironmentSimulator(nn.Module):
                           'agent_h':agent_h_labels[i+1]}  #  +1 because ag_h_{t-1} is input to stepper and to agent, but it outputs ag_h_t(hat). We want the label to be ag_h_t.
             else:
                 labels = None
+
+            if not env_grads:
+                action_prev = action_prev.detach()
+
             embed = embeds[i]
 
             (post,    # tensor(B, 2*S) # TODO currently only posts if imagine = False. But when imagine = True then this is the prior.
@@ -464,6 +467,24 @@ class AgentEnvironmentSimulator(nn.Module):
             preds_dict,
             unstacked_preds_dict,
         )
+
+class GradientDestroyer(torch.autograd.Function):
+    """
+    The forward pass leaves the input unchanged, but the backward pass
+    turns all gradients to 0.
+    """
+
+    @staticmethod
+    def forward(ctx, input):
+        ctx.save_for_backward(input)
+        # ctx.mark_non_differentiable(input)
+        return input
+
+    @staticmethod
+    def backward(ctx, grad_output):
+        _, = ctx.saved_tensors
+        grad_input = torch.zeros_like(grad_output)
+        return grad_input
 
 
 class AgentEnvStepper(nn.Module):
