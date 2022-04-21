@@ -87,10 +87,10 @@ class DataImporter():
         n = hx_sorted.shape[0]
 
         self.extrema_values = {
-            "high": hx_sorted[n - int(n * threshold)],
-            "middle_upper": hx_sorted[int(n / 2 + (n * (threshold / 2)))],
-            "middle_lower": hx_sorted[int(n / 2 - (n * (threshold / 2)))],
-            "low": hx_sorted[int(n * threshold)],
+            "high": hx_sorted[n - int(n * threshold) - 1],
+            "middle_upper": hx_sorted[int(n / 2 + (n * (threshold / 2))) - 1],
+            "middle_lower": hx_sorted[int(n / 2 - (n * (threshold / 2))) - 1],
+            "low": hx_sorted[int(n * threshold) - 1],
         }
 
     def get_extrema_samples(self, data):
