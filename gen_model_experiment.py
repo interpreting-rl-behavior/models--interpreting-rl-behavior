@@ -519,7 +519,8 @@ class GenerativeModelExperiment():
                         imagine=True,
                         calc_loss=False,
                         modal_sampling=True,
-                        retain_grads=True, )
+                        retain_grads=True,
+                        env_grads=True, )
 
         # Use the latent vec given in the arguments
         elif preds is None and bottleneck_vec is not None:
@@ -548,7 +549,8 @@ class GenerativeModelExperiment():
                     imagine=True,
                     calc_loss=False,
                     modal_sampling=True,
-                    retain_grads=True)
+                    retain_grads=True,
+                    env_grads=True,)
 
         # Just visualise the given preds
         elif preds is not None and bottleneck_vec is None:

@@ -110,7 +110,8 @@ class AgentEnvironmentSimulator(nn.Module):
                              imagine=imagine,
                              calc_loss=calc_loss,
                              modal_sampling=modal_sampling,
-                             retain_grads=True,)
+                             retain_grads=True,
+                             env_grads=True,)
 
         if calc_loss:
             # # Loss for autoencoder bottleneck
@@ -164,6 +165,7 @@ class AgentEnvironmentSimulator(nn.Module):
                 calc_loss=True,
                 modal_sampling=False,
                 retain_grads=True,
+                env_grads=True,
                 ):
         """
         imagine: Whether or not to use the generated images as input to
@@ -226,8 +228,12 @@ class AgentEnvironmentSimulator(nn.Module):
         pred_action_prev_inds = pred_action_prev_probs.argmax(dim=1)
         pred_action_prev_1hot = torch.nn.functional.one_hot(pred_action_prev_inds,
                                                             num_classes=self.action_space_size).to(self.device).float()
-        pred_action_prev_1hot = pred_action_prev_probs + \
-                 (pred_action_prev_1hot - pred_action_prev_probs).detach()
+
+        if env_grads:
+            pred_action_prev_1hot = pred_action_prev_probs + \
+                     (pred_action_prev_1hot - pred_action_prev_probs).detach()
+        else:
+            pred_action_prev_1hot = pred_action_prev_1hot.detach()
 
         if use_true_actions:
             action_prev  = true_actions_1hot[0]

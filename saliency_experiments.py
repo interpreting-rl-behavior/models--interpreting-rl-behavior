@@ -37,6 +37,9 @@ class SaliencyExperiment(GenerativeModelExperiment):
             self.recording_data_save_dir = self.recording_data_save_dir_informed_init
         self.video_dir = os.path.join(self.recording_data_save_dir, 'videos')
         os.makedirs(self.video_dir, exist_ok=True)
+        self.demo_savedir = self.hp.analysis.saliency.demo_savedir
+        os.makedirs(self.demo_savedir, exist_ok=True)
+
         # remove grads from generative model (we'll add them to the bottleneck
         # vectors later)
         self.gen_model.requires_grad = False
@@ -104,7 +107,7 @@ class SaliencyExperiment(GenerativeModelExperiment):
 
             # TODO swap directions
 
-    def forward_backward_pass(self, bottleneck_vec, saliency_func):
+    def forward_backward_pass(self, bottleneck_vec, saliency_func, env_grads=True):
         (loss_dict_no_grad,
          loss_model,
          loss_agent_aux_init,
@@ -129,7 +132,8 @@ class SaliencyExperiment(GenerativeModelExperiment):
                 imagine=True,
                 calc_loss=False,
                 modal_sampling=True,
-                retain_grads=True, )
+                retain_grads=True,
+                env_grads=env_grads)
 
         # TODO go through making preds vs preds_dict consist
         # for tensor in preds_dict.values():
@@ -167,15 +171,16 @@ class SaliencyExperiment(GenerativeModelExperiment):
 
         saliency_func_type = saliency_func.saliency_func_type
         timesteps = saliency_func.timesteps
+        savedir = os.path.join(self.recording_data_save_dir,
+                               bottleneck_vec_name)
         # Save results
         self.save_results(preds_dict, grads_dict, bottleneck_vec_name,
-                     saliency_func_type, timesteps)
+                     saliency_func_type, timesteps, savedir)
 
     def save_results(self, preds_dict, grads_dict, bottleneck_vec_name,
                      saliency_func_type,
-                     timesteps):
-        savedir = os.path.join(self.recording_data_save_dir,
-                               bottleneck_vec_name)
+                     timesteps, savedir, video_dir):
+
         if not os.path.exists(savedir):
             os.makedirs(savedir)
         for key in grads_dict.keys():
@@ -245,7 +250,7 @@ class SaliencyExperiment(GenerativeModelExperiment):
         # Save vid
         # combined_vid = combined_vid.clone().detach().type(torch.uint8).cpu().numpy()
         combo_vid_name = f'{bottleneck_vec_name}_saliency_{saliency_func_type}.mp4'
-        combo_vid_name = os.path.join(self.video_dir,
+        combo_vid_name = os.path.join(video_dir,
                                       combo_vid_name)
         tvio.write_video(combo_vid_name, combined_vid, fps=14)
 
@@ -366,6 +371,47 @@ class SaliencyExperiment(GenerativeModelExperiment):
         bottleneck_vecs = safe_normalize(bottleneck_vecs)
         return bottleneck_vecs
 
+    def run_demo_saliency_differences(self, ):
+
+        self.gen_model.eval()
+
+        # Iterate over saliency func types and (possibly) over samples
+        saliency_func_type = 'value'
+        print(f"Saliency function type: {saliency_func_type}")
+        saliency_func = SaliencyFunction(saliency_func_type=saliency_func_type,
+                                         hyperparams=self.hp,
+                                         device=self.device)
+
+        for sample_id in self.saliency_sample_ids:
+            print("Sample ID: " + str(sample_id))
+            bottleneck_vec_name = f"sample_{int(sample_id):05d}"
+            savedir = os.path.join(self.demo_savedir,
+                                   bottleneck_vec_name)
+            video_dir = savedir
+            bottleneck_vecs = self.get_bottleneck_vecs(sample_id)
+
+            # Forward and backward pass WITH ENV GRADS
+            preds_dict, grads_dict = self.forward_backward_pass(bottleneck_vecs,
+                                                                saliency_func,
+                                                                env_grads=True)
+
+            saliency_func_type = saliency_func.saliency_func_type
+            timesteps = saliency_func.timesteps
+            # Save results
+            self.save_results(preds_dict, grads_dict, bottleneck_vec_name,
+                         saliency_func_type, timesteps, savedir, video_dir)
+
+            # Forward and backward pass WITHOUT ENV GRADS
+            preds_dict, grads_dict = self.forward_backward_pass(bottleneck_vecs,
+                                                                saliency_func,
+                                                                env_grads=False)
+
+            saliency_func_type = saliency_func_type + '_without_env_grads'
+            # Save results
+            self.save_results(preds_dict, grads_dict, bottleneck_vec_name,
+                         saliency_func_type, timesteps, savedir, video_dir)
+
+
 
 class SaliencyFunction():
     def __init__(self, saliency_func_type, hyperparams, device='cuda'):
@@ -423,36 +469,21 @@ class SaliencyFunction():
                                          timesteps,
                                          directions_transformer
                                          ):
-        # def hx_direction_saliency_loss_function(preds_dict):
-        #     preds = preds_dict['hx']
-        #     preds = torch.stack(preds, dim=1)
-        #     time_tuple = (timesteps[0] - 1,) + timesteps  # tuple of the past timestep and the present
-        #     preds = preds[:, time_tuple, :]
-        #
-        #     # Scale and project hx onto direction
-        #     preds = directions_transformer.transform(preds)
-        #
-        #     # Then just pick the direction we want to take the saliency of
-        #     preds = preds[:, :, direction_id]
-        #
-        #     # Then subtract the past from the present to get the delta for this
-        #     # direction at the previous timestep
-        #     preds = preds[:, 1] - preds[:, 0]
-        #
-        #     loss_sum = preds.mean()
-        #     return loss_sum
-        # return hx_direction_saliency_loss_function
 
         def hx_direction_saliency_loss_function(preds_dict):
             preds = preds_dict['hx']
             preds = torch.stack(preds, dim=1)
             preds = preds[:, timesteps, :]
-
+            print(preds.shape)
             # Scale and project hx onto direction
             preds = directions_transformer.transform(preds)
-
+            print(preds.shape)
             # Then just pick the direction we want to take the saliency of
             preds = preds[:, :, direction_id]
+
+            #     # Then subtract the past from the present to get the delta for this
+            #     # direction at the previous timestep
+            #     preds = preds[:, 1] - preds[:, 0]
 
             loss_sum = preds.mean()
             return loss_sum
@@ -512,5 +543,6 @@ class SaliencyFunction():
 
 if __name__ == "__main__":
     saliency_exp = SaliencyExperiment()
+    saliency_exp.run_demo_saliency_differences()
     saliency_exp.run_saliency_recording_loop()
     #saliency_exp.change_blur_in_saved_ims()

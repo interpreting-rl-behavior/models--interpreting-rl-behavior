@@ -117,7 +117,8 @@ class RecordingExperiment(GenerativeModelExperiment):
                     imagine=True,
                     calc_loss=False,
                     modal_sampling=True,
-                    retain_grads=True, )
+                    retain_grads=True,
+                    env_grads=True, )
 
         # Logging and saving info
         if batch_idx % self.hp.gen_model.log_interval == 0:

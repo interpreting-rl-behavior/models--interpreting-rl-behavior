@@ -67,6 +67,7 @@ defaults:
     analysis:
         tsne_seed: 42
         presaved_data_path: /media/lee/DATA/DDocs/AI_neuro_work/assurance_project_stuff/data/precollected/
+        save_dir: analysis/
         agent_h:
             informed_or_random_init: informed_init
             num_episodes: 4000
@@ -110,6 +111,7 @@ defaults:
         loss_over_time:
             num_batches: 16
         saliency:
+            demo_savedir: analysis/demo_with_without_env_grads
             num_sim_steps: 10
             num_sim_steps_manual_actions: 32
             common_timesteps: [4]

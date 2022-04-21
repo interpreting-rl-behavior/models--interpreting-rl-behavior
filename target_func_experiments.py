@@ -281,7 +281,8 @@ class TargetFuncExperiment(GenerativeModelExperiment):
                 imagine=True,
                 calc_loss=False,
                 modal_sampling=True,
-                retain_grads=True, )
+                retain_grads=True,
+                env_grads=True, )
 
         # Calculate target_func loss
         target_func_losses, opt_proxy = \
