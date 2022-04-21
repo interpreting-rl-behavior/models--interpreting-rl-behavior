@@ -118,7 +118,7 @@ if __name__=='__main__':
     if architecture == 'nature':
         model = NatureModel(in_channels=in_channels)
     elif architecture == 'impala':
-        model = ImpalaModel(in_channels=in_channels)
+        model = ImpalaModel(in_channels=in_channels, out_features=64)
 
     # Discrete action space
     recurrent = hyperparameters.get('recurrent', False)

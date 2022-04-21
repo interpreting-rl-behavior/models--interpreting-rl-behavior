@@ -118,7 +118,7 @@ class GenerativeModelExperiment():
         if architecture == 'nature':
             model = NatureModel(in_channels=in_channels)
         elif architecture == 'impala':
-            model = ImpalaModel(in_channels=in_channels)
+            model = ImpalaModel(in_channels=in_channels, out_features=64)
 
         ## Agent's discrete action space
         recurrent = hp.agent_gm.recurrent
