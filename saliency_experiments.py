@@ -6,6 +6,7 @@ from generative.rssm.functions import safe_normalize
 from overlay_image import overlay_actions
 import torchvision as tv
 import torchvision.io as tvio
+from PIL import Image
 from joblib import dump, load
 from dimred_projector import HiddenStateDimensionalityReducer
 
@@ -186,7 +187,7 @@ class SaliencyExperiment(GenerativeModelExperiment):
 
     def save_results(self, preds_dict, grads_dict, bottleneck_vec_name,
                      saliency_func_type,
-                     timesteps, savedir, video_dir):
+                     timesteps, savedir, video_dir, difference_demo=False):
 
         if not os.path.exists(savedir):
             os.makedirs(savedir)
@@ -200,13 +201,8 @@ class SaliencyExperiment(GenerativeModelExperiment):
         ims_grad = grads_dict['ims'].permute(0, 2, 3, 1)
         ims_grad = ims_grad.mean(3).unsqueeze(dim=3)  # mean over channel dim
 
-        # Collect actions together and take the average over the batches,
-        # yielding the average action per timestep.
-        # It's a bit hacky, but it works:
-        pred_agent_logprobs = preds_dict['act_log_prob']
-        pred_agent_logprobs = pred_agent_logprobs.cpu().detach().numpy()
-        actions = np.argmax(pred_agent_logprobs, axis=-1)
-        actions = np.mean(actions, axis=0).astype(int)
+        # Set actions to be those in the unperturbed sample
+        actions = preds_dict['action'][:,0].argmax(dim=1).cpu().detach().numpy()
 
         # Scale according to typical grad sizes for each timestep
         # ims_grad = ims_grad / torch.abs(ims_grad).mean([1, 2]).unsqueeze(
@@ -260,6 +256,27 @@ class SaliencyExperiment(GenerativeModelExperiment):
         combo_vid_name = os.path.join(video_dir,
                                       combo_vid_name)
         tvio.write_video(combo_vid_name, combined_vid, fps=14)
+
+        if difference_demo:
+            num_frames = sample_ims_copy.shape[0]
+            for i in range(num_frames):
+                # Save ims from standard vid
+                sample_im_name = f'{bottleneck_vec_name}_saliency_{saliency_func_type}_{int(i):03d}.png'
+                sample_im_path = os.path.join(video_dir, sample_im_name)
+                sample_im = sample_ims_copy[i]
+                sample_im = Image.fromarray(sample_im)
+                sample_im.save(sample_im_path)
+
+                # Save ims of grads
+                grads_im_name = f'{bottleneck_vec_name}_saliency_{saliency_func_type}_grads_{int(i):03d}.png'
+                grads_im_path = os.path.join(video_dir, grads_im_name)
+                grads_im = grad_vid[i]
+                grads_im = Image.fromarray(grads_im)
+                grads_im.save(grads_im_path)
+
+
+
+
 
     def change_blur_in_saved_ims(self):
         max_samples = 300
@@ -406,7 +423,7 @@ class SaliencyExperiment(GenerativeModelExperiment):
             timesteps = saliency_func.timesteps
             # Save results
             self.save_results(preds_dict, grads_dict, bottleneck_vec_name,
-                         saliency_func_type, timesteps, savedir, video_dir)
+                         saliency_func_type, timesteps, savedir, video_dir, difference_demo=True)
 
             # Forward and backward pass WITHOUT ENV GRADS
             preds_dict_wo, grads_dict_wo = self.forward_backward_pass(bottleneck_vecs,
@@ -416,7 +433,7 @@ class SaliencyExperiment(GenerativeModelExperiment):
             saliency_func_type = saliency_func_type + '_without_env_grads'
             # Save results
             self.save_results(preds_dict_wo, grads_dict_wo, bottleneck_vec_name,
-                         saliency_func_type, timesteps, savedir, video_dir)
+                         saliency_func_type, timesteps, savedir, video_dir, difference_demo=True)
 
 
 
