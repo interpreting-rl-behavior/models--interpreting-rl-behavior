@@ -109,12 +109,6 @@ class DataImporter():
         for sample_name in sample_names:
             sample_data = data[sample_name]
             hx_sample = np.array(sample_data["hx_loadings"])
-            if np.any(hx_sample[:, 2] > np.ones(10) * 1.5144):
-                print("boop")
-            # high_arr = self.compare_columnwise(hx_sample, self.extrema_values["high"], np.greater)
-            # middle_arr =  (self.compare_columnwise(hx_sample, self.extrema_values["middle_upper"], np.less)
-            #            & self.compare_columnwise(hx_sample, self.extrema_values["middle_lower"], np.greater))
-            # low_arr =  self.compare_columnwise(hx_sample, self.extrema_values["middle_lower"], np.less)
 
             high_arr = hx_sample > self.extrema_values["high"]
             middle_arr = ((hx_sample < self.extrema_values["middle_upper"])
@@ -194,7 +188,7 @@ class DataImporter():
 
     def make_img_set_from_arr(self, path, im_dict):
         for name, arr in im_dict.items():
-            # Concatenate images horizontally. Needs einops package.
+            # Concatenate images horizontally. Needs einops package. #TODO(Lee): Surely we can do this operation without importing a package?
             comb_arr = einops.rearrange(arr, 'b h w c -> h (b w) c')
             im = Image.fromarray(comb_arr, mode='RGB')
             # im.save(f"{path}/all.png")
