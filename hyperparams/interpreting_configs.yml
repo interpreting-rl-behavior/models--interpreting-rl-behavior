@@ -110,9 +110,11 @@ defaults:
             precomputed_analysis_data_path: analysis/bottleneck_vec_analysis_precomp/
         loss_over_time:
             num_batches: 16
+        plot_act_and_val_weights:
+            save_dir: analysis/plot_act_and_val_weights
         saliency:
             demo_savedir: analysis/demo_with_without_env_grads
-            difference_demo_sample_ids: ['0', 'to', '10']
+            difference_demo_sample_ids: ['0', 'to', '100']
             num_sim_steps: 10
             num_sim_steps_manual_actions: 32
             common_timesteps: [4]
