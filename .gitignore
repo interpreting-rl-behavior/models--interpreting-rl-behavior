@@ -8,6 +8,7 @@ agents/data/
 /logs
 analysis/*plots/
 analysis/*precomp/
+/archive
 lsf.*
 
 # Byte-compiled / optimized / DLL files
