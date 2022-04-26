@@ -14,7 +14,7 @@ class LossOverTimeExperiment(GenerativeModelExperiment):
     def __init__(self):
         super(LossOverTimeExperiment, self).__init__()
 
-        self.num_batches_collect = self.hp.num_batches
+        self.num_batches_collect = self.hp.analysis.loss_over_time.num_batches
         save_path = 'loss_over_time/'
         save_path = os.path.join(os.getcwd(), "analysis", save_path)
         loss_sess_name = datetime.now().strftime("%Y%m%d_%H%M%S")
@@ -63,7 +63,8 @@ class LossOverTimeExperiment(GenerativeModelExperiment):
                                use_true_agent_h0=True,
                                imagine=True,
                                calc_loss=True,  # This is the only instance where imagine and calc_loss are both true
-                               modal_sampling=False)
+                               modal_sampling=False,
+                               )
 
             # terminals = torch.cat([tensors_list[i]['pred_terminal']
             #                          for i in range(len(tensors_list))]) # (T, B)
