@@ -151,6 +151,10 @@ defaults:
             num_samples_precomputed: 4000
             distance_threshold: 0.1
             num_its_value: 100000
+        xplots:
+            save_dir: "cross_corr_and_causation_plots"
+            extrema_threshold: 0.02
+
 
 
 

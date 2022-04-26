@@ -1,15 +1,7 @@
 import pandas as pd
 import numpy as np
-from analysis.precomput_analysis_funcs import (
-    scale_then_pca_then_save,
-    plot_variance_expl_plot,
-    clustering_after_pca,
-    tsne_after_pca,
-    nmf_then_save,
-)
 from scipy.cluster.hierarchy import linkage, dendrogram
 from scipy.spatial.distance import pdist, squareform, cosine
-from sklearn import datasets
 import argparse
 import os
 import matplotlib.pyplot as plt
@@ -19,21 +11,18 @@ from dimred_projector import HiddenStateDimensionalityReducer
 pd.options.mode.chained_assignment = None  # default='warn'
 
 
-class xcorr_manager:
+class xplot_manager:
     def __init__(self):
         args = self.parse_args()
         self.hp = hpf.load_interp_configs(args.interpreting_params_name)
 
-        # TODO change these hard coded hyperparams to use the config file (self.hp)
         self.num_samples_hx = (
             self.hp.analysis.agent_h.num_episodes
         )  # number of generated samples to use
         self.num_samples_hx_grad = 4000
-        self.num_samples_env_h = 6000
-        n_components_hx = 64
-        n_components_env_h = 64
-        self.ts_per_sample = 10
-        self.direction_type = "ica"
+        self.num_samples_env_h = self.hp.analysis.env_h.num_samples
+        self.ts_per_sample = self.hp.analysis.saliency.num_sim_steps
+        self.direction_type = self.hp.analysis.saliency.direction_type
         self.num_ica_components = self.hp.analysis.agent_h.n_components_ica
         self.hx_projector = HiddenStateDimensionalityReducer(
             self.hp, self.direction_type, self.num_samples_hx, data_type=np.ndarray
@@ -56,98 +45,24 @@ class xcorr_manager:
         self.hx_std = np.load(
             hx_precomp_data_path + f"/hx_std_{self.num_samples_hx}.npy"
         )
-        # self.grad_projector = self.project_gradients_into_pc_space
-
-        if self.direction_type == "ica":
-            ica_directions_path = os.path.join(
-                hx_precomp_data_path,
-                f"ica_unmixing_matrix_hx_{self.num_samples_hx}.npy",
-            )
-            self.unmix_mat = np.load(ica_directions_path)
-            self.unmix_mat = self.unmix_mat.transpose()
-
-            self.mix_mat = np.load(
-                f"{hx_precomp_data_path}/ica_mixing_matrix_hx_{self.num_samples_hx}.npy"
-            )
-        #     # self.grad_projector = self.project_gradients_into_ica_space
 
         # Prepare load and save dirs
-        self.generated_data_path = args.generated_data_dir
-        self.save_path = "xcorr_matrices/"
-        self.save_path = os.path.join(os.getcwd(), "analysis", self.save_path)
+        self.generated_data_path = os.path.join(self.hp.generated_data_dir,
+                                                self.hp.analysis.agent_h.informed_or_random_init)
+        save_path = self.hp.analysis.xplots.save_dir  # "xcorr_matrices/"
+        self.save_path = os.path.join(os.getcwd(), "analysis", save_path)
         os.makedirs(self.save_path, exist_ok=True)
-
-    # def project_gradients_into_pc_space(self, grad_data):
-    #     sigma = np.diag(self.hx_std)
-    #     grad_data = grad_data.T  # So each column is a grad vector for a hx
-    #     scaled_pc_comps = self.hx_pc_components.T @ sigma  # PCs calculated on X'=(X-mu)/sigma are scaled so it's like they were calculated on X
-    #     projected_grads = scaled_pc_comps @ grad_data  # grads are projected onto the scaled PCs
-    #     return projected_grads.T
-    #
-    # def project_gradients_into_ica_space(self, grad_data): # TODO fix
-    #     sigma = np.diag(self.hx_std)
-    #     grad_data = grad_data.T  # So each column is a grad vector for a hx
-    #     scaled_pc_comps = self.hx_pc_components.T @ sigma  # PCs calculated on X'=(X-mu)/sigma are scaled so it's like they were calculated on X
-    #     projected_grads_to_pc_space = scaled_pc_comps @ grad_data  # grads are projected onto the scaled PCs
-    #     projected_grads_to_pc_space = projected_grads_to_pc_space[:self.num_ica_components, :]
-    #     projected_grads_to_ic_space = projected_grads_to_pc_space.T @ self.mix_mat
-    #     return projected_grads_to_ic_space
 
     def parse_args(self):
         parser = argparse.ArgumentParser(description="args for plotting")
-        parser.add_argument("--agent_env_data_dir", type=str, default="data/")
-        parser.add_argument(
-            "--generated_data_dir",
-            type=str,
-            default="generative/rec_gen_mod_data/informed_init",
-        )
-        # TODO change the above args to just use the config file/interpreting params (self.hp)
         parser.add_argument("--interpreting_params_name", type=str, default="defaults")
-
         args = parser.parse_args()
         return args
 
     def plot_direction_xcausation_multi_timestep(self):
+        sample_ids = range(0, self.num_samples_hx_grad)
+        stacked_samples_grads = self.collect_grads(sample_ids)
 
-        # Get hidden states gradients that were produced by the generative model
-        samples_dir_grads = []
-
-        print("Collecting data together...")
-        for ep in range(0, self.num_samples_hx_grad):
-            sample_dir_grads = []
-            for direction_id in range(self.num_ica_components):
-                grads_name = (
-                    f"grad_hx_hx_direction_{direction_id}_{self.direction_type}"
-                )
-                grads = np.load(
-                    os.path.join(
-                        self.generated_data_path, f"sample_{ep:05d}/{grads_name}.npy"
-                    )
-                )  # (T x hx)
-                # project grads from hx_space into hx_direction_space
-                dir_grads = self.grad_projector(grads)
-                sample_dir_grads.append(dir_grads)  # forms each column of a slice
-            stacked_sample_grads = np.stack(
-                sample_dir_grads, axis=-1
-            )  # forms the rows (by sticking columns together)
-            samples_dir_grads.append(
-                stacked_sample_grads
-            )  # So the columns are 'grads_wrt, the rows are 'grads_of'
-        stacked_samples_grads = np.stack(samples_dir_grads, axis=-1)
-
-        # Clip grads so that they're not larger than 1 std above or below
-        # grads_std = stacked_samples_grads.std(-1) / 2
-        # grads_mean = stacked_samples_grads.mean(-1)
-        # pos_std = np.stack([(grads_mean + grads_std)] * self.num_samples_hx_grad, axis=-1)
-        # neg_std = np.stack([(grads_mean - grads_std)] * self.num_samples_hx_grad, axis=-1)
-        # pos_grads_cond = stacked_samples_grads > pos_std
-        # neg_grads_cond = stacked_samples_grads < neg_std
-        # stacked_samples_grads = np.where(pos_grads_cond, pos_std, stacked_samples_grads)
-        # stacked_samples_grads = np.where(neg_grads_cond, neg_std, stacked_samples_grads)
-
-        # Average over samples
-        stacked_samples_grads = stacked_samples_grads.mean(-1)
-        print("Done collecting data together...")
         for ts in range(stacked_samples_grads.shape[0]):
             print("Timestep: %i " % ts)
             ts_slice = stacked_samples_grads[ts]
@@ -158,9 +73,96 @@ class xcorr_manager:
                 "xcaus_hx_t+%i" % int(ts),
                 title_name,
                 labels=None,
-                type_of_xcorr="causation",
                 clim=ts_slice.max() / 2,
             )
+
+    def plot_extrema_xcaus_plots(self):
+        """
+        For each direction, extrema timestep, and each extrema type
+        - Gathers the names of the samples for that d and type
+        - plots xcaus plot for that
+        """
+        hx_ics = self.gather_hx_ic_data()
+        extrema_types = ['high', 'low']
+        extrema_ts = [2, 4]
+        for direction_id in range(0, self.num_ica_components):
+            for ext_ts in extrema_ts:
+                ext_ts_cond = hx_ics['timestep'] == ext_ts
+                ts_sub_ext = self.hp.analysis.saliency.common_timesteps[0] - ext_ts
+
+                for extr_type in extrema_types:
+                    # First get extrema samples for this d
+                    extr_value = self.extrema_values[extr_type][direction_id]
+                    if extr_type == 'high':
+                        ic_cond = hx_ics[direction_id] > extr_value
+                    if extr_type == 'low':
+                        ic_cond = hx_ics[direction_id] < extr_value
+                    combo_cond = ic_cond & ext_ts_cond
+                    sample_ids = list(hx_ics[combo_cond]['sample_id'])
+                    sample_ids = [int(id) for id in sample_ids]
+                    num_samples = len(sample_ids)
+
+                    stacked_samples_grads = self.collect_grads(sample_ids)
+
+                    for ts in range(stacked_samples_grads.shape[0]):
+                        print("Timestep: %i " % ts)
+                        ts_slice = stacked_samples_grads[ts]
+                        ts_sub = self.hp.analysis.saliency.common_timesteps[0] - ts
+                        title_name = f"Cross-causation matrix: grads of hx_direction at t=0 (x-axis) \nwith respect to hx_directions at (t-{ts_sub}) (y-axis)\n Only samples where direction {direction_id} is extremely {extr_type} at timestep {ts_sub_ext} (N={num_samples} samples)"
+                        heatmap_name = f"xcaus_hx_t+{int(ts)}_d{direction_id}_{extr_type}_at_ts{ts_sub_ext}"
+                        self.plot_heatmap(
+                            ts_slice,
+                            heatmap_name,
+                            title_name,
+                            labels=None,
+                            clim=ts_slice.max() / 2,
+                        )
+
+
+    def gather_hx_ic_data(self):
+        # Collect hx loadings
+        hx_loadings = {}
+        full_hx_loading_arrs = []
+        for sample_id in range(self.num_samples_hx):
+            sample_id_str = f'sample_{sample_id:05d}'
+            hx = np.load(
+                os.path.join(self.generated_data_path,
+                             f"{sample_id_str}/agent_hs.npy")
+            )
+            hx_vecs = self.hx_projector.transform(hx)
+            hx_vecs = hx_vecs.transpose()
+            hx_loadings[sample_id] = hx_vecs
+            full_hx_loading_arrs.append(hx_vecs)
+            if (sample_id + 1) % 100 == 0:
+                print(f"Samples collected: {sample_id}/{self.num_samples_hx}")
+
+        full_hx_loading_array = np.concatenate(full_hx_loading_arrs, axis=1)
+        hx_sorted = np.sort(full_hx_loading_array, axis=1).transpose()
+        threshold = self.hp.analysis.xplots.extrema_threshold
+        n = hx_sorted.shape[0]
+        self.extrema_values = {
+            "high": hx_sorted[n - int(n * threshold) - 1],
+            "middle_upper": hx_sorted[int(n / 2 + (n * (threshold / 2))) - 1],
+            "middle_lower": hx_sorted[int(n / 2 - (n * (threshold / 2))) - 1],
+            "low": hx_sorted[int(n * threshold) - 1],
+        }
+
+        # Find the samples with extrema
+        col_names = ['sample_id', 'timestep']
+        col_names.extend(list(range(0, self.num_ica_components)))
+        flatten = lambda x: [item for sublist in x for item in sublist]
+        ts_per_sample = self.hp.analysis.saliency.num_sim_steps
+        sample_ids = [list(range(0, self.num_samples_hx))] * ts_per_sample
+        sample_ids = sorted(flatten(sample_ids))
+        sample_ids = [int(i) for i in sample_ids]
+        timesteps_vals = [list(range(0, ts_per_sample))] * self.num_samples_hx
+        timesteps_vals = flatten(timesteps_vals)
+        col_values = np.array([sample_ids, timesteps_vals])
+        col_values = np.concatenate([col_values.transpose(), full_hx_loading_array.transpose()], axis=1)
+        hx_ics = pd.DataFrame(col_values, columns=col_names)
+
+        return hx_ics
+
 
     def plot_direction_xcorrs_multi_timestep(self):
 
@@ -183,7 +185,7 @@ class xcorr_manager:
             env_vecs = env_pca_data[start_ts:stop_ts]
             samples_data_env.append(env_vecs.transpose())
 
-            # Agent hx # TODO convert to use the standardised grad transformer
+            # Agent hx
             hx = np.load(
                 os.path.join(self.generated_data_path, f"sample_{ep:05d}/agent_hs.npy")
             )
@@ -252,8 +254,40 @@ class xcorr_manager:
             )
             self.plot_heatmap(xcorrs_hx, "unordered_xcorr_hx_t+%i" % int(k), title_name)
 
+    def collect_grads(self, sample_ids):
+        # Get hidden states gradients that were produced by the generative model
+        samples_dir_grads = []
+
+        print("Collecting data together...")
+        for ep in sample_ids:
+            sample_dir_grads = []
+            for direction_id in range(self.num_ica_components):
+                grads_name = (
+                    f"grad_hx_hx_direction_{direction_id}_{self.direction_type}"
+                )
+                grads = np.load(
+                    os.path.join(
+                        self.generated_data_path, f"sample_{ep:05d}/{grads_name}.npy"
+                    )
+                )  # (T x hx)
+                # project grads from hx_space into hx_direction_space
+                dir_grads = self.grad_projector(grads)
+                sample_dir_grads.append(dir_grads)  # forms each column of a slice
+            stacked_sample_grads = np.stack(
+                sample_dir_grads, axis=-1
+            )  # forms the rows (by sticking columns together)
+            samples_dir_grads.append(
+                stacked_sample_grads
+            )  # So the columns are 'grads_wrt, the rows are 'grads_of'
+        stacked_samples_grads = np.stack(samples_dir_grads, axis=-1)
+
+        # Average over samples
+        stacked_samples_grads = stacked_samples_grads.mean(-1)
+        print("Done collecting grad data together...")
+        return stacked_samples_grads
+
     def plot_heatmap(
-        self, matrix, name, plot_title, labels=None, type_of_xcorr="causation", clim=1.0, clim_low=None,
+        self, matrix, name, plot_title, labels=None, clim=1.0, clim_low=None,
     ):
 
         plt.rcParams["figure.figsize"] = (10, 10)
@@ -369,7 +403,8 @@ class xcorr_manager:
 
 
 if __name__ == "__main__":
-    xcm = xcorr_manager()
+    xpm = xplot_manager()
+    xpm.plot_extrema_xcaus_plots()
     # xcm.plot_direction_xcausation_multi_timestep()
     # xcm.plot_direction_xcorrs_multi_timestep()
-    xcm.plot_cosine_sim_heatmap()
+    xpm.plot_cosine_sim_heatmap()
