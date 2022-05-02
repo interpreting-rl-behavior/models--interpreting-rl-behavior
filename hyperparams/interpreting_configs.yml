@@ -108,6 +108,19 @@ defaults:
             first_pc_ind: 0
             second_pc_ind: 1
             precomputed_analysis_data_path: analysis/bottleneck_vec_analysis_precomp/
+        jacobian:
+            num_samples: 4000
+            grad_timestep: 3
+            n_components_pca: 128
+            n_components_tsne: 2
+            n_components_nmf: 64
+            n_clusters: 64
+            nmf_max_iter: 5000
+            nmf_tol: 0.0001
+            first_pc_ind: 0
+            second_pc_ind: 1
+            third_pc_ind: 2
+            precomputed_analysis_data_path: analysis/jacob_analysis_precomp/
         loss_over_time:
             num_batches: 16
         plot_act_and_val_weights:

@@ -159,6 +159,7 @@ class DataImporter():
         agent_logprobs = np.load(sample_path + '/agent_logprobs.npy')
         actions = agent_logprobs.argmax(axis=-1).tolist()
 
+
         # Want to know which timestep the saliency was taken from. Note that it would be more
         # principled to save this when running the saliency experiment as opposed to inferring it
         # by the first timestep in which the grads are all zero (as is done here).
