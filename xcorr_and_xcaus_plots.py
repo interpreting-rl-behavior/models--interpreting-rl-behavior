@@ -88,7 +88,7 @@ class xplot_manager:
         for direction_id in range(0, self.num_ica_components):
             for ext_ts in extrema_ts:
                 ext_ts_cond = hx_ics['timestep'] == ext_ts
-                ts_sub_ext = self.hp.analysis.saliency.common_timesteps[0] - ext_ts
+                ts_sub_ext = ext_ts - self.hp.analysis.saliency.common_timesteps[0]
 
                 for extr_type in extrema_types:
                     # First get extrema samples for this d
@@ -102,14 +102,24 @@ class xplot_manager:
                     sample_ids = [int(id) for id in sample_ids]
                     num_samples = len(sample_ids)
 
-                    stacked_samples_grads = self.collect_grads(sample_ids)
+                    stacked_samples_grads = self.collect_grads(sample_ids,
+                                                               standardize_scale_per_sample=True,
+                                                               clip_grads=True)
 
                     for ts in range(stacked_samples_grads.shape[0]):
                         print("Timestep: %i " % ts)
                         ts_slice = stacked_samples_grads[ts]
-                        ts_sub = self.hp.analysis.saliency.common_timesteps[0] - ts
-                        title_name = f"Cross-causation matrix: grads of hx_direction at t=0 (x-axis) \nwith respect to hx_directions at (t-{ts_sub}) (y-axis)\n Only samples where direction {direction_id} is extremely {extr_type} at timestep {ts_sub_ext} (N={num_samples} samples)"
-                        heatmap_name = f"xcaus_hx_t+{int(ts)}_d{direction_id}_{extr_type}_at_ts{ts_sub_ext}"
+                        ts_sub = ts - self.hp.analysis.saliency.common_timesteps[0]
+                        if ts_sub > 0:
+                            op_str = '+'
+                        else:
+                            op_str = ''
+                        if ts_sub_ext >= 0:
+                            op_str_ext = '+'
+                        else:
+                            op_str_ext = ''
+                        title_name = f"Cross-causation matrix: grads of hx_direction at t=0 (x-axis) \nwith respect to hx_directions at (t{op_str}{ts_sub}) (y-axis)\n Only samples where direction {direction_id} is extremely {extr_type} at t{op_str_ext}{ts_sub_ext} (N={num_samples} samples)"
+                        heatmap_name = f"xcaus_hx_t{op_str}{ts_sub}_d{direction_id}_{extr_type}_at_t{op_str_ext}{ts_sub_ext}"
                         self.plot_heatmap(
                             ts_slice,
                             heatmap_name,
@@ -254,7 +264,7 @@ class xplot_manager:
             )
             self.plot_heatmap(xcorrs_hx, "unordered_xcorr_hx_t+%i" % int(k), title_name)
 
-    def collect_grads(self, sample_ids):
+    def collect_grads(self, sample_ids, standardize_scale_per_sample=False, clip_grads=False):
         # Get hidden states gradients that were produced by the generative model
         samples_dir_grads = []
 
@@ -280,6 +290,22 @@ class xplot_manager:
                 stacked_sample_grads
             )  # So the columns are 'grads_wrt, the rows are 'grads_of'
         stacked_samples_grads = np.stack(samples_dir_grads, axis=-1)
+
+        if clip_grads:
+            stacked_samples_grads = stacked_samples_grads.clip(-10, 10)
+
+        if standardize_scale_per_sample:
+            # per_sample AND per_timesteps
+            shp = stacked_samples_grads.shape
+            reshaped_grads = stacked_samples_grads.reshape([shp[0], shp[1] * shp[2], shp[3]])
+            std_per_sample = reshaped_grads.std(axis=1)
+            std_per_sample = std_per_sample.reshape(shp[0] * shp[3])
+            reshaped_grads = stacked_samples_grads.reshape(shp[0] * shp[3], shp[1] * shp[2])
+            std_per_sample = np.where(std_per_sample != 0,
+                                      std_per_sample,
+                                      np.ones_like(std_per_sample)) # make safe for div
+            reshaped_grads = reshaped_grads / (np.expand_dims(std_per_sample, axis=-1))
+            stacked_samples_grads = reshaped_grads.reshape(shp[0], shp[1], shp[2], shp[3])
 
         # Average over samples
         stacked_samples_grads = stacked_samples_grads.mean(-1)
