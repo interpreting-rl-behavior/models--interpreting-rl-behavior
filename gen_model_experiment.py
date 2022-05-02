@@ -10,8 +10,6 @@ from common import set_global_seeds, set_global_log_levels
 from train import create_venv
 from generative.generative_models import AgentEnvironmentSimulator
 from generative.procgen_dataset import ProcgenDataset
-from generative.rssm.functions import safe_normalize
-
 from overlay_image import overlay_actions, overlay_box_var
 
 from util.namespace import Namespace
@@ -493,7 +491,6 @@ class GenerativeModelExperiment():
                 bottleneck_vec = torch.randn(viz_batch_size,
                                              self.gen_model.bottleneck_vec_size,
                                              device=self.device)
-                bottleneck_vec = safe_normalize(bottleneck_vec)
 
                 (loss_dict_no_grad,
                  loss_model,

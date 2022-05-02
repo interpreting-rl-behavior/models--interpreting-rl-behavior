@@ -199,15 +199,3 @@ def terminal_labels_to_mask(terminals, num_unsqueezes=0):
         before_terminals = unsqz_lastdim(before_terminals)
 
     return before_terminals
-
-def safe_normalize(vec):
-    norm = torch.norm(vec, dim=1)
-    norm_safe = torch.clip(norm, min=1e-8)
-    normed_vec = vec / norm_safe.unsqueeze(dim=1)
-    return normed_vec
-
-def safe_normalize_with_grad(vec):
-    norm = torch.norm(vec, dim=1)
-    norm_safe = dclamp(norm, min=1e-8, max=1e8)
-    normed_vec = vec / norm_safe.unsqueeze(dim=1)
-    return normed_vec

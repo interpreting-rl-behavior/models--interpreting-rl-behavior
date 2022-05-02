@@ -1,6 +1,6 @@
 from .rssm.encoders import *
 from .rssm.decoders import *
-from .rssm.functions import dclamp, insert_dim, terminal_labels_to_mask, safe_normalize
+from .rssm.functions import dclamp, insert_dim, terminal_labels_to_mask
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
@@ -113,28 +113,8 @@ class AgentEnvironmentSimulator(nn.Module):
                              retain_grads=True,
                              env_grads=True,)
 
-        if calc_loss:
-            # # Loss for autoencoder bottleneck
-            # # pushes each vec away from others for best spread over hypersphere
-            # similarities = 1-torch.mm(bottleneck_vec, bottleneck_vec.transpose(0,1))
-            # eye = torch.eye(similarities.shape[0]).to(self.device)
-            # not_eye = -(eye-1)
-            # not_eye = not_eye.byte()
-            # nonauto_sims = torch.where(not_eye, similarities, eye)
-            # loss_bottleneck = - torch.log(1./torch.sum(torch.exp(nonauto_sims)))
-            # loss_bottleneck *= self.bottleneck_loss_weight
-            sq_dists = 2 * torch.mm(bottleneck_vec, bottleneck_vec.transpose(0,1)) - 2
-            eye = torch.eye(sq_dists.shape[0]).to(self.device)
-            not_eye = -(eye-1)
-            not_eye = not_eye.byte()
-            nonauto_sq_dists = torch.where(not_eye, sq_dists, eye)
-            loss_bottleneck = torch.log(torch.sum(torch.exp(nonauto_sq_dists)))
-            loss_bottleneck *= self.bottleneck_loss_weight
-            loss_dict_no_grad['loss_bottleneck'] = loss_bottleneck.item()
-
-        else:
-            loss_bottleneck = 0.
-            loss_dict_no_grad['loss_bottleneck'] = loss_bottleneck
+        loss_bottleneck = 0. # TODO remove loss_bottleneck when gen_model changes are all DEF complete.
+        loss_dict_no_grad['loss_bottleneck'] = loss_bottleneck
 
 
         return (
@@ -263,7 +243,7 @@ class AgentEnvironmentSimulator(nn.Module):
         # Finished getting initializing vectors.
 
         # Next, encode all the images to get the embeddings for the priors
-        if not calc_loss: #TODO remove this comment for its hubris # i.e. no need to calc loss therefore no need to have im_labels
+        if not calc_loss:
             embeds = [None] * self.num_sim_steps
         else:
             embeds = self.conv_in(im_labels)
@@ -744,8 +724,11 @@ class AEEncoder(nn.Module):
                                           self.rnn_hidden_size),
                                 nn.ELU())
 
-        self.bottleneck_mlp = nn.Linear(self.rnn_hidden_size,
-                                self.bottleneck_vec_size)
+        self.bottleneck_mlp = nn.Sequential(
+            nn.Linear(self.rnn_hidden_size, self.bottleneck_vec_size),
+            nn.LayerNorm(self.bottleneck_vec_size)
+        )
+
 
 
     def forward(self,
@@ -776,6 +759,5 @@ class AEEncoder(nn.Module):
         x = x[-1]  # get last ts
         pre_vec = self.mlp_out(x)
         bottleneck_vec = self.bottleneck_mlp(pre_vec)
-        bottleneck_vec = safe_normalize(bottleneck_vec)
 
         return bottleneck_vec

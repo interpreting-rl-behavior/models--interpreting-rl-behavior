@@ -2,7 +2,6 @@ from common.env.procgen_wrappers import *
 import os, argparse
 import torch
 from gen_model_experiment import GenerativeModelExperiment
-from generative.rssm.functions import safe_normalize
 from overlay_image import overlay_actions
 import torchvision as tv
 import torchvision.io as tvio
@@ -364,7 +363,6 @@ class SaliencyExperiment(GenerativeModelExperiment):
         perturbation = torch.randn_like(bottleneck_vecs) * self.perturbation_scale
         perturbation[0, :] = 0.  # So 0th batch is the unperturbed trajectory
         bottleneck_vecs = bottleneck_vecs + perturbation
-        bottleneck_vecs = safe_normalize(bottleneck_vecs)
         return bottleneck_vecs
 
     def combine_bottleneck_vecs(self, sample_ids):
@@ -382,17 +380,12 @@ class SaliencyExperiment(GenerativeModelExperiment):
                                        bottleneck_vecs] * self.saliency_batch_size)  # Create copies of the mean sample vec
         bottleneck_vecs = torch.tensor(bottleneck_vecs, device=self.device)
         bottleneck_vecs = torch.nn.Parameter(bottleneck_vecs)
-        # Normalize first so that adding the perturbation below doesn't cause
-        # major changes in direction, which might happen if, for instance, the
-        # mean of two bottleneck vecs was close to 0 in a particular dimension
-        bottleneck_vecs = safe_normalize(bottleneck_vecs)
         bottleneck_vecs.requires_grad = True
 
         # Add a slight perturbation to the mean sample vecs
         perturbation = torch.randn_like(bottleneck_vecs) * self.perturbation_scale
         perturbation[0, :] = 0.  # So 0th batch is the unperturbed trajectory
         bottleneck_vecs = bottleneck_vecs + perturbation
-        bottleneck_vecs = safe_normalize(bottleneck_vecs)
         return bottleneck_vecs
 
     def run_demo_saliency_differences(self, ):

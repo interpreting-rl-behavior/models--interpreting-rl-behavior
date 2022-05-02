@@ -1,7 +1,6 @@
 from gen_model_experiment import GenerativeModelExperiment
 import os
 import torch
-from generative.rssm.functions import safe_normalize
 import numpy as np
 from generative.procgen_dataset import ProcgenDataset
 from overlay_image import overlay_actions, overlay_box_var
@@ -92,7 +91,6 @@ class RecordingExperiment(GenerativeModelExperiment):
             bottleneck_vec = torch.randn(self.hp.gen_model.batch_size,
                                          self.gen_model.bottleneck_vec_size,
                                          device=self.device)
-            bottleneck_vec = safe_normalize(bottleneck_vec)
 
             (loss_dict_no_grad,
              loss_model,
