@@ -21,6 +21,7 @@ class xplot_manager:
         )  # number of generated samples to use
         self.num_samples_hx_grad = 4000
         self.num_samples_env_h = self.hp.analysis.env_h.num_samples
+        self.num_samples_clusters = self.hp.analysis.jacobian.num_samples
         self.ts_per_sample = self.hp.analysis.saliency.num_sim_steps
         self.direction_type = self.hp.analysis.saliency.direction_type
         self.num_ica_components = self.hp.analysis.agent_h.n_components_ica
@@ -30,9 +31,13 @@ class xplot_manager:
         self.grad_projector = self.hx_projector.project_gradients
 
         hx_precomp_data_path = os.path.join("analysis", "hx_analysis_precomp")
+        clusters_precomp_data_path = os.path.join("analysis", "jacob_analysis_precomp")
         self.env_h_precomp_path = os.path.join("analysis", "env_analysis_precomp")
         env_components = np.load(
             f"{self.env_h_precomp_path}/pcomponents_env_{self.num_samples_env_h}.npy"
+        )
+        self.cluster_ids = np.load(
+            f"{clusters_precomp_data_path}/clusters_jacob_{self.num_samples_clusters}.npy"
         )
         self.hx_pc_components = np.load(
             f"{hx_precomp_data_path}/pcomponents_{self.num_samples_hx}.npy"
@@ -84,7 +89,7 @@ class xplot_manager:
         """
         hx_ics = self.gather_hx_ic_data()
         extrema_types = ['high', 'low']
-        extrema_ts = [2, 4]
+        extrema_ts = [0, 2, 4]
         for direction_id in range(0, self.num_ica_components):
             for ext_ts in extrema_ts:
                 ext_ts_cond = hx_ics['timestep'] == ext_ts
@@ -97,14 +102,27 @@ class xplot_manager:
                         ic_cond = hx_ics[direction_id] > extr_value
                     if extr_type == 'low':
                         ic_cond = hx_ics[direction_id] < extr_value
+
                     combo_cond = ic_cond & ext_ts_cond
                     sample_ids = list(hx_ics[combo_cond]['sample_id'])
                     sample_ids = [int(id) for id in sample_ids]
-                    num_samples = len(sample_ids)
 
-                    stacked_samples_grads = self.collect_grads(sample_ids,
-                                                               standardize_scale_per_sample=True,
-                                                               clip_grads=True)
+                    # Get rid of outliers using cluster. First find clusters
+                    # that are strongly represented by this extrema group.
+                    # Then throw away any samples that are not in the
+                    # strongly represented cluster
+                    sample_cluster_ids = list(self.cluster_ids[sample_ids])
+                    sample_cluster_ids_set = list(set(sample_cluster_ids))
+                    cluster_counts = np.array([sample_cluster_ids.count(i) for i in sample_cluster_ids_set])
+                    kept_cluster_ids_inds = (cluster_counts > 2).nonzero()[0] # two is an arbitrary threshold for outlier clusters
+                    kept_cluster_ids = [sample_cluster_ids_set[i] for i in kept_cluster_ids_inds]
+                    kept_sample_ids = [sample_ids[i] for i in range(len(sample_ids))
+                                            if sample_cluster_ids[i] in kept_cluster_ids]
+
+                    num_samples = len(kept_sample_ids)
+                    stacked_samples_grads = self.collect_grads(kept_sample_ids,
+                                                               standardize_scale_per_sample=False,
+                                                               clip_grads=False)
 
                     for ts in range(stacked_samples_grads.shape[0]):
                         print("Timestep: %i " % ts)
@@ -118,7 +136,7 @@ class xplot_manager:
                             op_str_ext = '+'
                         else:
                             op_str_ext = ''
-                        title_name = f"Cross-causation matrix: grads of hx_direction at t=0 (x-axis) \nwith respect to hx_directions at (t{op_str}{ts_sub}) (y-axis)\n Only samples where direction {direction_id} is extremely {extr_type} at t{op_str_ext}{ts_sub_ext} (N={num_samples} samples)"
+                        title_name = f"Cross-causation matrix: grads of hx_direction at t=0 (x-axis) \nwith respect to hx_directions at (t{op_str}{ts_sub}) (y-axis)\n Only samples where direction {direction_id} is extremely {extr_type} at t{op_str_ext}{ts_sub_ext} (N={num_samples} samples)\n in clusters {kept_cluster_ids}"
                         heatmap_name = f"xcaus_hx_t{op_str}{ts_sub}_d{direction_id}_{extr_type}_at_t{op_str_ext}{ts_sub_ext}"
                         self.plot_heatmap(
                             ts_slice,

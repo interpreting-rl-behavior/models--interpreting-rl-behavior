@@ -113,8 +113,7 @@ defaults:
             grad_timestep: 3
             n_components_pca: 128
             n_components_tsne: 2
-            n_components_nmf: 64
-            n_clusters: 64
+            n_clusters: 32
             nmf_max_iter: 5000
             nmf_tol: 0.0001
             first_pc_ind: 0

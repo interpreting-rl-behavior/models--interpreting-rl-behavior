@@ -95,6 +95,46 @@ def clustering_after_pca(data, num_pcs, num_clusters, save_path, aux_name1,
 
     return clusters, cluster_means
 
+def clustering_after_tsne(data, num_pcs, num_tsne_components, num_clusters, save_path, aux_name1,
+                     aux_name2):
+    seed = 42
+
+    # Scale data
+    scaler = StandardScaler()
+    scaler = scaler.fit(data)
+    data = scaler.transform(data)
+
+    # PCA on scaled data (just to make the job of clustering easier by reducing
+    # dimensions)
+    pca_for_clust = PCA(n_components=num_pcs)
+    pca_for_clust = pca_for_clust.fit_transform(data)
+    tsne_for_clust = TSNE(n_components=num_tsne_components,
+                      random_state=seed,
+                      init=pca_for_clust[:,0:num_tsne_components]).fit_transform(pca_for_clust)
+
+    # Clustering
+    knn_graph = kneighbors_graph(tsne_for_clust, num_clusters, include_self=False)
+    agc_model = AgglomerativeClustering(linkage='ward',
+                                        connectivity=knn_graph,
+                                        n_clusters=num_clusters)
+    agc_model.fit(tsne_for_clust)
+
+    # Calculate the means of the clusters
+    clusters = agc_model.labels_
+    cluster_means = []
+    for cluster_id in list(set(clusters)):
+        cluster_mask = clusters == cluster_id
+        cluster_eles = data[cluster_mask]
+        cluster_mean = cluster_eles.mean(axis=0)
+        cluster_means.append(cluster_mean)
+    cluster_means = np.array(cluster_means)
+
+    # Save
+    np.save(save_path + f'clusters_{aux_name1}_{aux_name2}.npy', clusters)
+    np.save(save_path + f'cluster_means_{aux_name1}_{aux_name2}.npy', cluster_means)
+
+    return clusters, cluster_means
+
 def tsne_after_pca(data, num_pcs, num_tsne_components, save_path, aux_name1,
                      aux_name2):
     seed = 42
