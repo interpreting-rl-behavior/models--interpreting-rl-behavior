@@ -12,6 +12,7 @@ pd.options.mode.chained_assignment = None  # default='warn'
 COINRUN_ACTIONS = {0: 'downleft', 1: 'left', 2: 'upleft', 3: 'down', 4: None, 5: 'up',
                    6: 'downright', 7: 'right', 8: 'upright', 9: None, 10: None, 11: None,
                    12: None, 13: None, 14: None}
+
 def parse_args():
     parser = argparse.ArgumentParser(
         description='args for plotting')
@@ -81,18 +82,18 @@ def run():
                    save_path, "env", num_samples)
     print("tSNE finished.")
 
-    print('Starting UMAP...')
-    pca_for_umap = pca_for_tsne
-    reducer = umap.UMAP()
-    env_h_umap = reducer.fit_transform(pca_for_umap)
-    np.save(save_path + 'env_h_umap_%i.npy' % num_samples, env_h_umap)
-    print("tSNE finished.")
-
-    print('Starting NMF...')
-    nmf_then_save(env_h, n_components_nmf, save_path, "env", num_samples,
-                  max_iter=hp.analysis.env_h.nmf_max_iter,
-                  tol=hp.analysis.env_h.nmf_tol)
-    print("NMF finished.")
+    # print('Starting UMAP...')
+    # pca_for_umap = pca_for_tsne
+    # reducer = umap.UMAP()
+    # env_h_umap = reducer.fit_transform(pca_for_umap)
+    # np.save(save_path + 'env_h_umap_%i.npy' % num_samples, env_h_umap)
+    # print("tSNE finished.")
+    #
+    # print('Starting NMF...')
+    # nmf_then_save(env_h, n_components_nmf, save_path, "env", num_samples,
+    #               max_iter=hp.analysis.env_h.nmf_max_iter,
+    #               tol=hp.analysis.env_h.nmf_tol)
+    # print("NMF finished.")
 
 if __name__ == "__main__":
     run()
