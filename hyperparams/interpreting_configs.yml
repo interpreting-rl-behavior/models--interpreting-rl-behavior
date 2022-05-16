@@ -96,6 +96,13 @@ defaults:
             second_pc_ind: 1
             third_pc_ind: 2
             precomputed_analysis_data_path: analysis/env_analysis_precomp/
+        combined_agent_env_hx:
+            num_samples: 4000
+            n_components_pca: 64
+            n_components_tsne: 3
+            n_clusters: 32
+            timestep_differences: [2, 4]
+            precomputed_analysis_data_path: analysis/combined_agent_env_hx_analysis_precomp/
         bottleneck:
             num_samples: 1000
             n_components_pca: 128

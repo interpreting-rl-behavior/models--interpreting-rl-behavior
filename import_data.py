@@ -20,7 +20,7 @@ class DataImporter():
         self.sample_names = [f"sample_{i:05d}" for i in range(self.args.samples)]
 
         self.hx_analysis_dir = f"{self.args.input_directory}/analysis/hx_analysis_precomp"
-        self.grad_analysis_dir = f"{self.args.input_directory}/analysis/jacob_analysis_precomp"
+        self.cluster_dir = f"{self.args.input_directory}/analysis/combined_agent_env_hx_analysis_precomp"
         hp_path = f"{self.args.input_directory}/hyperparams/interpreting_configs.yml"
 
         print('[Loading interpretation hyperparameters]')
@@ -60,7 +60,7 @@ class DataImporter():
             self.data_name_root = 'ica_source_signals_hx_'
             self.num_ica_components = self.hp.analysis.agent_h.n_components_ica
 
-        self.cluster_ids = np.load(os.path.join(self.grad_analysis_dir, f"clusters_jacob_{self.n_suffix}.npy"))
+        self.cluster_ids = np.load(os.path.join(self.cluster_dir, f"clusters_per_sample_{self.n_suffix}.npy"))
         self.cluster_ids = self.cluster_ids
         self.cluster_dict = {}
         cluster_set = set(self.cluster_ids.tolist())
