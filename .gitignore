@@ -1,8 +1,9 @@
 generative/results/
-generative/data/
+generative/data*
 generative/analysis/agent_tsne
 generative/analysis/
 generative/*samples/
+generative/rec_gen_mod_data/
 agents/data/
 /data
 /logs
