@@ -1,5 +1,6 @@
  Understanding RL agents using generative visualisation and differentiable environment simulation
 ===============
+This repository contains the models and experiments that are used in the article https://interpreting-rl-behavior.github.io/. The code was originally forked from https://github.com/jbkjr/train-procgen-pytorch which contains code to run the Procgen environments (https://openai.com/blog/procgen-benchmark/) and the PPO agent we interpret in this work.
 
 This README provides instructions for how to replicate the results in our paper. 
 
@@ -15,8 +16,7 @@ Overview of steps:
 
 All scripts should be run from the root dir.
 
-First install the package locally. Navigate to the folder `train-procgen-pytorch`
-and use this command in the CLI to install in editable mode:
+First install the package locally, and use the following command to install in editable mode:
 > pip install -e .
 
 To train the agent on coinrun:
