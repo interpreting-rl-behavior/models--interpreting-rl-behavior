@@ -187,7 +187,7 @@ class ComboAnalysisManager:
 
 
 def run():
-    cam = combo_analysis_manager()
+    cam = ComboAnalysisManager()
     cam.analyse_data()
     print("boop")
 
