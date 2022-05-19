@@ -1,6 +1,10 @@
  Understanding RL agents using generative visualisation and differentiable environment simulation
 ===============
-This repository contains the models and experiments that are used in the article https://interpreting-rl-behavior.github.io/. The code was originally forked from https://github.com/jbkjr/train-procgen-pytorch which contains code to run the Procgen environments (https://openai.com/blog/procgen-benchmark/) and the PPO agent we interpret in this work.
+This repository contains the models and experiments that are used in the article 
+https://interpreting-rl-behavior.github.io/. The code was originally forked from 
+https://github.com/jbkjr/train-procgen-pytorch which contains code to run the 
+Procgen environments (https://openai.com/blog/procgen-benchmark/) and the PPO agent 
+we interpret in this work.
 
 This README provides instructions for how to replicate the results in our paper. 
 
@@ -17,6 +21,8 @@ Overview of steps:
 All scripts should be run from the root dir.
 
 First install the package locally, and use the following command to install in editable mode:
+
+
 > pip install -e .
 
 To train the agent on coinrun:
@@ -156,6 +162,23 @@ the flag ``--combine_samples_not_iterate``
 
 If we wanted to generate saliency maps for all samples from 0 to 100, we'd replace
 the ``--sample_ids 33 39 56 84`` flag with ``--sample_ids 0 to 100``.
+
+## Identifying causal stories for behaviours
+After we've calculated the saliency maps, we can use them to identify the 
+causal structure of the control algorithm used by the agent.
+
+First we cluster the agent-environment dynamics. These clusters 
+correspond to behaviours. 
+> python analysis/combined_agent_env_hx_analysis_precompute.py
+
+We need to summarise the IC dynamics for each behaviour. 
+> python xcorr_and_xcaus_plots.py
+
+Then we compare the magnitude and sign of the corresponding entries
+in the cross-correlation and Jacobian matrices to identify where
+gradients are consistent with the dynamics, both with and without
+passing gradients through the environment.
+> python analysis/dynamics_grads_consistency_plots.py
 
 
 ## Validating hypotheses by controlling the dynamics
