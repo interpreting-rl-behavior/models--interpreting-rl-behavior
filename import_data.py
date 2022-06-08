@@ -12,11 +12,11 @@ from dimred_projector import HiddenStateDimensionalityReducer
 
 
 
-class DataImporter():
-    def __init__(self):
+class DataImporter(object):
+    def __init__(self, args, threshold=None):
+        super().__init__()
 
-        self.args = self.parse_args()
-
+        self.args = args
         self.sample_names = [f"sample_{i:05d}" for i in range(self.args.samples)]
 
         self.hx_analysis_dir = f"{self.args.input_directory}/analysis/hx_analysis_precomp"
@@ -69,19 +69,8 @@ class DataImporter():
             samples = [f"sample_{i:05d}" for i in inds]
             self.cluster_dict[c] = samples
 
-    def parse_args(self, ):
-        parser = argparse.ArgumentParser(
-            description='args for plotting')
-        parser.add_argument(
-            '--samples', type=int, default=10)
-        parser.add_argument(
-            '--input_directory', type=str, default=".")
-        parser.add_argument(
-            '--output_directory', type=str, default="../Brewing1.github.io/static/localData")  # change to static/data if you don't want local?
-        parser.add_argument(
-            '--interpreting_params_name', type=str, default="defaults")
-        args = parser.parse_args()
-        return args
+        self.threshold = self.hp.analysis.saliency.extrema_threshold if threshold is None else threshold
+
 
     def find_extrema_values(self, hx):
         """
@@ -93,14 +82,13 @@ class DataImporter():
         # Sort the hxs for each component
         hx_sorted = np.sort(hx, axis=0)
 
-        threshold = self.hp.analysis.saliency.extrema_threshold
         n = hx_sorted.shape[0]
 
         self.extrema_values = {
-            "high": hx_sorted[n - int(n * threshold) - 1],
-            "middle_upper": hx_sorted[int(n / 2 + (n * (threshold / 2))) - 1],
-            "middle_lower": hx_sorted[int(n / 2 - (n * (threshold / 2))) - 1],
-            "low": hx_sorted[int(n * threshold) - 1],
+            "high": hx_sorted[n - int(n * self.threshold) - 1],
+            "middle_upper": hx_sorted[int(n / 2 + (n * (self.threshold / 2))) - 1],
+            "middle_lower": hx_sorted[int(n / 2 - (n * (self.threshold / 2))) - 1],
+            "low": hx_sorted[int(n * self.threshold) - 1],
         }
 
     def get_extrema_samples(self, data):
@@ -248,6 +236,19 @@ class DataImporter():
         # plt.tight_layout()
         # fig.savefig(os.path.join(outdir, "all.png"))
 
+    def run_to_get_extrema(self):
+        print("Collecting sample data")
+        data = {
+            sample_name: self.sample_info_for_panel_data(sample_name)
+            for sample_name in self.sample_names
+        }
+        hx_in_ica = np.concatenate([np.array(list(data.values())[i]['hx_loadings']) for i in range(len(data))], axis=0)
+        print(
+            "Making jsons in order to get extrema")
+
+        self.find_extrema_values(hx_in_ica)
+        return self.extrema_values
+
     def run(self, ):
 
         print(f"Output folder: {os.path.abspath(self.args.output_directory)}")
@@ -313,7 +314,21 @@ class DataImporter():
         comparisons = np.stack(comparisons, axis=-1)
         return comparisons
 
+def parse_args():
+    parser = argparse.ArgumentParser(
+        description='args for plotting')
+    parser.add_argument(
+        '--samples', type=int, default=10)
+    parser.add_argument(
+        '--input_directory', type=str, default=".")
+    parser.add_argument(
+        '--output_directory', type=str, default="../Brewing1.github.io/static/localData")  # change to static/data if you don't want local?
+    parser.add_argument(
+        '--interpreting_params_name', type=str, default="defaults")
+    args = parser.parse_args()
+    return args
 
 if __name__ == "__main__":
-    importer = DataImporter()
+    args = parse_args()
+    importer = DataImporter(args)
     importer.run()
