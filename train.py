@@ -4,27 +4,45 @@ from common.storage import Storage
 from common.model import NatureModel, ImpalaModel
 from common.policy import CategoricalPolicy
 from common import set_global_seeds, set_global_log_levels
+import custom_envs
+from custom_envs.wrappers import ResizeObservationVec
 
 import os, time, yaml, argparse
 import gym
+import gym3
 from procgen import ProcgenEnv
 import random
 import torch
 
 
 def create_venv(args, hyperparameters, is_valid=False):
-    venv = ProcgenEnv(num_envs=hyperparameters.get('n_envs', 256),
-                      env_name=args.env_name,
-                      num_levels=0 if is_valid else args.num_levels,
-                      start_level=0 if is_valid else args.start_level,
-                      distribution_mode=args.distribution_mode,
-                      use_backgrounds=False,
-                      num_threads=args.num_threads)
-    venv = VecExtractDictObs(venv, "rgb")
+    try:
+        env_cls = getattr(custom_envs, args.env_name)
+    except AttributeError:
+        # Assume Procgen Environment
+        venv = ProcgenEnv(num_envs=hyperparameters.get('n_envs', 256),
+                        env_name=args.env_name,
+                        num_levels=0 if is_valid else args.num_levels,
+                        start_level=0 if is_valid else args.start_level,
+                        distribution_mode=args.distribution_mode,
+                        use_backgrounds=False,
+                        num_threads=args.num_threads)
+        venv = VecExtractDictObs(venv, "rgb")
+    else:
+        # Load Env from custom_envs
+        env_cls = getattr(custom_envs, args.env_name)
+        venv = gym3.vectorize_gym(
+            num=hyperparameters.get('n_envs', 256),
+            env_fn=lambda: env_cls(),
+            render_mode="rgb_array",
+            seed=args.seed
+        )
+        venv = gym3.ToBaselinesVecEnv(venv)
+        venv = ResizeObservationVec(venv, (64, 64))
+
     normalize_rew = hyperparameters.get('normalize_rew', True)
     if normalize_rew:
-        venv = VecNormalize(venv, ob=False)  # normalizing returns, but not
-        # the img frames
+        venv = VecNormalize(venv, ob=False)  # normalizing returns, but not the img frames
     venv = TransposeFrame(venv)
     venv = ScaledFloatFrame(venv)
     return venv
