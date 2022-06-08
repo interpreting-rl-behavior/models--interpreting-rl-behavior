@@ -183,7 +183,7 @@ class SaliencyExperiment(GenerativeModelExperiment):
                                bottleneck_vec_name)
         # Save results
         self.save_results(preds_dict, grads_dict, bottleneck_vec_name,
-                     saliency_func_type, timesteps, savedir)
+                     saliency_func_type, timesteps, savedir, savedir)
 
     def save_results(self, preds_dict, grads_dict, bottleneck_vec_name,
                      saliency_func_type,
