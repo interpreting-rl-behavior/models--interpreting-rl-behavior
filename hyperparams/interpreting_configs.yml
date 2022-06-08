@@ -1,9 +1,9 @@
 defaults:
     device: gpu
     gpu_device: 0
-    data_dir: ./data/
+    data_dir: data/
     log_dir_base: generative/
-    generated_data_dir: ./generative/rec_gen_mod_data/
+    generated_data_dir: generative/rec_gen_mod_data/
 
     agent_gm: # Separate from the configs dedicated to training and rendering the agent because they're just dummy configs here for instantiating the agent
         log_level: 40
@@ -101,7 +101,7 @@ defaults:
             n_components_pca: 64
             n_components_tsne: 3
             n_clusters: 32
-            timestep_differences: [2, 4]
+            timestep_differences: [2, 4, 6]
             precomputed_analysis_data_path: analysis/combined_agent_env_hx_analysis_precomp/
         bottleneck:
             num_samples: 1000
@@ -138,9 +138,9 @@ defaults:
             num_sim_steps_manual_actions: 32
             common_timesteps: [4]
             direction_type: ica
-            func_type: [hx_direction] # [value, action, hx_direction]
+            func_type: [value, action, hx_direction]
             direction_ids: ['0', 'to', '16']
-            sample_ids: ['0', 'to', '400']
+            sample_ids: ['0', 'to', '4000']
             extrema_threshold: 0.01
             batch_size: 9
             combine_samples_not_iterate: False
