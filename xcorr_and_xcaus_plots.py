@@ -255,8 +255,8 @@ class XplotManager:
                     set_a_hx = hx_sample
                     set_b_hx = hx_sample
                 else:
-                    set_a_hx = hx_sample[:, :-k]
-                    set_b_hx = hx_sample[:, k:]
+                    set_a_hx = hx_sample[:, :-k]  # Gets the first k timesteps
+                    set_b_hx = hx_sample[:, k:]   # Gets the last k timesteps
 
                 ## Calculate the xcorr matrices
                 n = set_a_hx.shape[0]  # num elements in set
