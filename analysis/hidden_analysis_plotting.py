@@ -11,7 +11,7 @@ import os
 import time
 import imageio
 import hyperparam_functions as hpf
-import ipdb
+
 
 pd.options.mode.chained_assignment = None  # default='warn'
 
@@ -26,6 +26,26 @@ def parse_args():
         default='defaults')
     args = parser.parse_args()
     return args
+
+
+def bool_converter(str_or_bool):
+    if type(str_or_bool) == str:
+        if str_or_bool == 'False':
+            return False
+        elif str_or_bool == 'True':
+            return True
+        elif str_or_bool == '0.0':
+            return False
+        elif str_or_bool == '1.0':
+            return True
+        else:
+            raise ValueError(f"{str_or_bool} is an invalid string for bool_converter")
+    elif type(str_or_bool) == np.bool_ or type(str_or_bool) == bool:
+        return str_or_bool
+    elif type(str_or_bool) == np.int or type(str_or_bool) == int:
+        return bool(str_or_bool)
+    else:
+        raise ValueError(f"{str_or_bool} is an invalid type for bool_converter. It is type {type(str_or_bool)}")
 
 
 def run():
@@ -66,6 +86,9 @@ def run():
     print('data shape', data.shape)
     #level_seed, episode, global_step, episode_step, done, reward, value, action
 
+    bool_checker = lambda x: type(x) == np.bool_ or type(x) == bool
+    if not all(map(bool_checker, data['done'])):
+        data['done'] = pd.DataFrame(list(map(bool_converter, data['done'])))
 
     # Get hidden states
     if os.path.isfile(hx_presaved_filepath):

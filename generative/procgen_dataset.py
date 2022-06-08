@@ -8,7 +8,7 @@ from torch.utils.data import Dataset
 class ProcgenDataset(Dataset):
     """Coinrun dataset."""
 
-    def __init__(self, data_dir='generative/data/', initializer_seq_len=None, num_steps_full=None):
+    def __init__(self, data_dir='data/', initializer_seq_len=None, num_steps_full=None):
         """
         Args:
             csv_file (string): Path to the csv file with annotations.
@@ -96,6 +96,9 @@ class ProcgenDataset(Dataset):
         element_last_step = element_first_step + full_segment_len
 
         ## Make data_dict and put the parts you want in the batch element.
+        if not type(data['done'][0]) == np.bool_:
+            data['done'] = pd.DataFrame(list(map(bool, data['done'])))
+
         labels_done_rew_v_a = self.data_keys[:4]
         data_np = data[labels_done_rew_v_a]
         data_np = data_np.to_numpy().T.tolist()
@@ -127,8 +130,8 @@ class ProcgenDataset(Dataset):
                                                      full_segment_last_step])
             if key == 'ims':
                 data_array = data_array / 255.
-            batch_ele[key][element_first_step:
-                           element_first_step+data_array.shape[0]] = data_array
+            step_plus_len = element_first_step + data_array.shape[0]
+            batch_ele[key][element_first_step:step_plus_len] = data_array
 
         # Rename 'done' (from RL repo) to 'terminal' (from rssm/gen_model repo)
         batch_ele['terminal'] = batch_ele.pop('done')
