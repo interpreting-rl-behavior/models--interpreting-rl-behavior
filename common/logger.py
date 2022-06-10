@@ -91,7 +91,8 @@ class Logger(object):
             for key, value in episode_statistics.items():
                 self.writer.add_scalar(key, value, self.timesteps)
         else:
-            episode_statistics_list = [None] * 12
+            # Set None for all columns except for the 4 listed below
+            episode_statistics_list = [None] * (len(self.log.columns) - 4)
         log = [self.timesteps] + [wall_time] + [self.num_episodes] + [self.num_episodes_val] + episode_statistics_list
         self.log.loc[len(self.log)] = log
 
@@ -102,23 +103,30 @@ class Logger(object):
 
     def _get_episode_statistics(self):
         episode_statistics = {}
-        episode_statistics['Rewards/max_episodes']  = np.max(self.episode_reward_buffer)
-        episode_statistics['Rewards/mean_episodes'] = np.mean(self.episode_reward_buffer)
-        episode_statistics['Rewards/min_episodes']  = np.min(self.episode_reward_buffer)
-        episode_statistics['Len/max_episodes']  = np.max(self.episode_len_buffer)
-        episode_statistics['Len/mean_episodes'] = np.mean(self.episode_len_buffer)
-        episode_statistics['Len/min_episodes']  = np.min(self.episode_len_buffer)
+        episode_statistics['Rewards/max_episodes']  = self._safe_array_op(self.episode_reward_buffer, np.max)
+        episode_statistics['Rewards/mean_episodes'] = self._safe_array_op(self.episode_reward_buffer, np.mean)
+        episode_statistics['Rewards/min_episodes']  = self._safe_array_op(self.episode_reward_buffer, np.min)
+        episode_statistics['Len/max_episodes']  = self._safe_array_op(self.episode_len_buffer, np.max)
+        episode_statistics['Len/mean_episodes'] = self._safe_array_op(self.episode_len_buffer, np.mean)
+        episode_statistics['Len/min_episodes']  = self._safe_array_op(self.episode_len_buffer, np.min)
 
-        episode_statistics['Values/mean_episodes'] = np.mean(self.episode_value_buffer)
-        episode_statistics['Loss/value'] = np.mean(self.value_loss_buffer)
-        episode_statistics['Loss/policy'] = np.mean(self.policy_loss_buffer)
-        episode_statistics['Loss/entropy'] = np.mean(self.entropy_loss_buffer)
+        episode_statistics['Values/mean_episodes'] = self._safe_array_op(self.episode_value_buffer, np.mean)
+        episode_statistics['Loss/value'] = self._safe_array_op(self.value_loss_buffer, np.mean)
+        episode_statistics['Loss/policy'] = self._safe_array_op(self.policy_loss_buffer, np.mean)
+        episode_statistics['Loss/entropy'] = self._safe_array_op(self.entropy_loss_buffer, np.mean)
 
         # valid
-        episode_statistics['[Valid] Rewards/max_episodes'] = np.max(self.episode_reward_buffer_v)
-        episode_statistics['[Valid] Rewards/mean_episodes'] = np.mean(self.episode_reward_buffer_v)
-        episode_statistics['[Valid] Rewards/min_episodes'] = np.min(self.episode_reward_buffer_v)
-        episode_statistics['[Valid] Len/max_episodes'] = np.max(self.episode_len_buffer_v)
-        episode_statistics['[Valid] Len/mean_episodes'] = np.max(self.episode_len_buffer_v)
-        episode_statistics['[Valid] Len/min_episodes'] = np.max(self.episode_len_buffer_v)
+        episode_statistics['[Valid] Rewards/max_episodes'] = self._safe_array_op(self.episode_reward_buffer_v, np.max)
+        episode_statistics['[Valid] Rewards/mean_episodes'] = self._safe_array_op(self.episode_reward_buffer_v, np.mean)
+        episode_statistics['[Valid] Rewards/min_episodes'] = self._safe_array_op(self.episode_reward_buffer_v, np.min)
+        episode_statistics['[Valid] Len/max_episodes'] = self._safe_array_op(self.episode_len_buffer_v, np.max)
+        episode_statistics['[Valid] Len/mean_episodes'] = self._safe_array_op(self.episode_len_buffer_v, np.mean)
+        episode_statistics['[Valid] Len/min_episodes'] = self._safe_array_op(self.episode_len_buffer_v, np.min)
         return episode_statistics
+
+    @staticmethod
+    def _safe_array_op(arr, op):
+        try:
+            return op(arr)
+        except ValueError:
+            return np.nan

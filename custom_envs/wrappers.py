@@ -39,5 +39,6 @@ class ResizeObservationVec(gym.wrappers.ResizeObservation):
         return observation
 
     def step_wait(self):
-        obs, reward, done, info = self.env.step_wait()
-        return self.observation(obs), reward, done, info
+        # Also ignore the info to avoid receiving large arrays of rgb which would duplicate obs
+        obs, reward, done, _ = self.env.step_wait()
+        return self.observation(obs), reward, done, {}
