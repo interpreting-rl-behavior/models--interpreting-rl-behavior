@@ -6,6 +6,7 @@ from sklearn.manifold import TSNE
 from sklearn.decomposition import PCA, NMF, FastICA
 from sklearn.cluster import AgglomerativeClustering
 from sklearn.neighbors import kneighbors_graph
+from sklearn.neighbors import NearestNeighbors
 #import umap
 from sklearn.preprocessing import StandardScaler
 import matplotlib.pyplot as plt
@@ -251,14 +252,70 @@ def nmf_crossvalidation(data, save_path, aux_name1, aux_name2):
 
 
 
-def ica_then_save(whitened_data, save_path, aux_name1, aux_name2,
-                  max_iter=5000, tol=1e-4):
+def ica_then_save(pca_data, save_path, aux_name1, aux_name2, n_components_ica,
+                  max_iter=5000, tol=1e-4, outlier_mask=None):
+    pca_data_trans = pca_data
+    if outlier_mask is not None:
+        pca_data_fit = pca_data[outlier_mask]
+    else:
+        pca_data_fit = pca_data
 
+    mu = pca_data_fit.mean(axis=0)
+    std = pca_data_fit.std(axis=0)
+    whitened_data_fit = (pca_data_fit - mu) / std  # np.sqrt(centred_scaled_hx, dim=0)#
+    whitened_data_fit = whitened_data_fit[:, :n_components_ica]
+    whitened_data_trans = (pca_data_trans - mu) / std
+    whitened_data_trans = whitened_data_trans[:, :n_components_ica]
     model = FastICA(whiten=False, random_state=0, max_iter=max_iter, tol=tol)
-    data_ica = model.fit_transform(whitened_data)
+    model.fit(whitened_data_fit)
+    data_ica = model.transform(whitened_data_trans)
+
+    # Save results
     np.save(save_path + f'ica_unmixing_matrix_{aux_name1}_{aux_name2}.npy',
             model.components_)
     np.save(save_path + f'ica_mixing_matrix_{aux_name1}_{aux_name2}.npy',
             model.mixing_)
     np.save(save_path + f'ica_source_signals_{aux_name1}_{aux_name2}.npy',
             data_ica)
+    return model, data_ica
+
+
+def identify_outliers(data, save_path, max_k):
+    masks = []
+
+    # Run KNN to identify outliers for different values of k
+    for k in np.arange(5, max_k, 2):
+        print(f"Identifying outliers using K={k}")
+        masks.append(get_knn_masks(data, k, save_path))
+    num_masks = len(masks)
+    sum_mask = np.array(masks).sum(axis=0)
+
+    # Final mask identifies datapoints that were considered outliers
+    # for fewer than half of the KNN-outlier-detection k values.
+    final_mask = sum_mask > (num_masks//2)
+    return final_mask
+
+def get_knn_masks(data, k, save_path):
+    # Get pairwise distances between each point and its KNN.
+    neigh = NearestNeighbors(n_neighbors=k+1)
+    neigh.fit(data)
+    dists, inds = neigh.kneighbors(data)
+    dists, inds = dists[:, 1:], inds[:, 1:]  # Throws away the column of dists to self.
+
+    # Calculate the median distances for each point. (because
+    # median will only get those that are far away from LOTS of points)
+    median_dists = np.median(dists, axis=1)
+
+    # Identify outliers using distances that have a median distance
+    # away from other points that is 2 sigma larger than the
+    # average such distance
+    sigma_thresh = (median_dists.mean() + 2*median_dists.std())
+    sigma_mask = median_dists < sigma_thresh
+    plt.figure(figsize=(18, 4))
+    plt.hist(median_dists, bins=200)
+    # plt.rcParams["figure.figsize"] = (20, 3)
+    plt.axvline(sigma_thresh, color='red', linestyle='solid', linewidth=1)
+    plt.savefig(os.path.join(save_path, f"outlier_removal_median_dists_{k}NN.png"))
+    plt.close()
+    return sigma_mask
+

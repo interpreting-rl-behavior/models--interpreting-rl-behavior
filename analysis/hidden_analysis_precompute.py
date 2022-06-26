@@ -5,10 +5,13 @@ from sklearn.preprocessing import StandardScaler
 from precomput_analysis_funcs import \
     plot_variance_expl_plot, plot_cum_variance_expl_plot,\
     clustering_after_pca, tsne_after_pca, \
-    nmf_then_save, nmf_crossvalidation, ica_then_save
+    nmf_then_save, nmf_crossvalidation, ica_then_save, \
+    identify_outliers
 import argparse
 import os
+from sklearn.decomposition import PCA, NMF, FastICA
 import hyperparam_functions as hpf
+from dimred_projector import HiddenStateDimensionalityReducer
 
 pd.options.mode.chained_assignment = None  # default='warn'
 
@@ -67,8 +70,7 @@ def run():
                                          f'sample_{ep:05d}/agent_hs.npy'))
         gen_hx = np.concatenate((gen_hx, gen_hx_to_cat))
 
-    # PCA
-    print('Starting PCA...')
+    # Preprocessing
     uncentred_unscaled_hx = hx
     uncentred_unscaled_gen_hx = gen_hx
 
@@ -78,8 +80,28 @@ def run():
     centred_scaled_hx = (uncentred_unscaled_hx - mu ) / std
     centred_scaled_gen_hx = (uncentred_unscaled_gen_hx - mu) / std
 
+    # Outlier removal:
+    # - Get pairwise distances between each point and its KNN.
+    # - Calculate the median distances for each point. (because
+    #   median will only get those that are far away from LOTS of points)
+    # - Identify outliers using distances that have a median distance
+    #   away from other points that is 2 sigma larger than the
+    #   average such distance
+    print("Starting outlier removal")
+    outlier_mask = identify_outliers(centred_scaled_hx, save_path, max_k=hp.analysis.agent_h.outlier_max_k)
+    outlier_fraction = outlier_mask.sum()/outlier_mask.shape[0]
+    outlier_fraction_file_name = os.path.join(save_path, "hx_outlier_retention_fraction.npy")
+    np.save(outlier_fraction_file_name, outlier_fraction)
+    print(f"Outlier retention percentage is {outlier_fraction}")
+    outlier_mask_file_name = os.path.join(save_path, f"hx_outlier_mask_{num_episodes}.npy")
+    np.save(outlier_mask_file_name, outlier_mask)
+    centred_scaled_hx_wo_outliers = centred_scaled_hx[outlier_mask]
+
+    # PCA
+    print('Starting PCA...')
     pca_obj = PCA(n_components=n_components_pca)
-    centred_scaled_hx_pca = pca_obj.fit_transform(centred_scaled_hx)
+    pca_obj.fit(centred_scaled_hx_wo_outliers) # fit pca data without outliers
+    centred_scaled_hx_pca = pca_obj.transform(centred_scaled_hx) # but still keep the outlier data for completeness and compatbility
     centred_scaled_gen_hx_projected = pca_obj.transform(centred_scaled_gen_hx)
     pc_variances = centred_scaled_hx_pca.var(axis=0)
 
@@ -94,9 +116,11 @@ def run():
     np.save(save_path + 'hx_mu_%i.npy' % num_episodes, mu)
     np.save(save_path + 'hx_std_%i.npy' % num_episodes, std)
     np.save(save_path + 'hx_pca_%i.npy' % num_episodes, centred_scaled_hx_pca)
-    np.save(save_path + 'pcomponents_%i.npy' % num_episodes,pca_obj.components_)
+    np.save(save_path + 'pcomponents_%i.npy' % num_episodes, pca_obj.components_)
     np.save(save_path + 'pc_loading_variances_%i.npy' % num_episodes,
             pc_variances)
+    np.save(save_path + 'pc_singular_values_%i.npy' % num_episodes,
+            pca_obj.singular_values_)
     # And save the projections of the generated data onto the PCs of true data
     np.save(save_path + 'gen_hx_projected_real%i_gen%i.npy' % (num_episodes,
                                                         num_generated_samples),
@@ -113,13 +137,52 @@ def run():
     # ICA
     print("Starting ICA")
 
-    whitened_data = centred_scaled_hx_pca / np.sqrt(pc_variances)
-    whitened_data = whitened_data[:, :n_components_ica]
+    # # Dev only
+    # from scipy import linalg
+    # n_components = n_components_ica
+    # n_samples = num_episodes
+    # XT = uncentred_unscaled_hx.T
+    # X_mean = XT.mean(axis=-1)
+    # XT -= X_mean[:, np.newaxis]
+    #
+    # # Whitening and preprocessing by PCA
+    # u, d, _ = linalg.svd(XT, full_matrices=False, check_finite=False) # u is the
+    #
+    # K = (u / d).T[:n_components]  # see (6.33) p.140
+    # X1 = np.dot(K, XT)
+    # # see (13.6) p.267 Here X1 is white and data
+    # # in X has been projected onto a subspace by PCA
+    # X1 *= np.sqrt(n_samples)
+    #
+    #
+    # max_iter = hp.analysis.agent_h.ica_max_iter
+    # tol = hp.analysis.agent_h.ica_tol
+    # aux_name1, aux_name2 = "hx", num_episodes
+    # model1 = FastICA(whiten=False, n_components=n_components_ica, random_state=0, max_iter=max_iter, tol=tol)
+    # data_ica_whit = model1.fit_transform(whitened_data)
+    # np.save(save_path + f'ica_unmixing_matrix_{aux_name1}_{aux_name2}.npy',
+    #         model1.components_)
+    # np.save(save_path + f'ica_mixing_matrix_{aux_name1}_{aux_name2}.npy',
+    #         model1.mixing_)
+    # np.save(save_path + f'ica_source_signals_{aux_name1}_{aux_name2}.npy',
+    #         data_ica_whit)
+    # directions_transformer = \
+    #     HiddenStateDimensionalityReducer(hp,'ica',num_episodes,np.ndarray)
+    # ica_recon = directions_transformer.transform(uncentred_unscaled_hx)
+    #
+    # model2 = FastICA(whiten=False, random_state=0, max_iter=max_iter, tol=tol)
+    # data_ica_nowhit = model2.fit_transform(whitened_data)
 
-    ica_then_save(whitened_data, save_path,
+    # End dev
+
+    ica_then_save(centred_scaled_hx_pca, save_path,
                   "hx", num_episodes,
                   max_iter=hp.analysis.agent_h.ica_max_iter,
-                  tol=hp.analysis.agent_h.ica_tol)
+                  tol=hp.analysis.agent_h.ica_tol,
+                  n_components_ica=hp.analysis.agent_h.n_components_ica,
+                  outlier_mask=outlier_mask)
+    # BEWARE: if your tol is too high, then this just won't converge even though your
+    # input data may be perfectly fine. For instance, for me 0.02 converged but 0.01 didn't.
     print("ICA finished")
 
     # k-means clustering
@@ -135,12 +198,12 @@ def run():
     print("tSNE finished.")
 
     # # NMF
-    # print('Starting NMF...')
-    # nmf_then_save(hx, n_components_nmf, save_path, "hx", num_episodes,
-    #              max_iter=hp.analysis.agent_h.nmf_max_iter,
-    #              tol=hp.analysis.agent_h.nmf_tol)
-    # # nmf_crossvalidation(hx, save_path, "hx", num_episodes)
-    # print("NMF finished.")
+    print('Starting NMF...')
+    nmf_then_save(hx, n_components_nmf, save_path, "hx", num_episodes,
+                 max_iter=hp.analysis.agent_h.nmf_max_iter,
+                 tol=hp.analysis.agent_h.nmf_tol)
+    # nmf_crossvalidation(hx, save_path, "hx", num_episodes)
+    print("NMF finished.")
 
 
 
