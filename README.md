@@ -54,6 +54,7 @@ To begin interpretation, we need to record a bunch of agent-environment
 rollouts in order to train the generative model:
 
 > python record.py --exp_name [recording_experiment_name] --env_name coinrun --param_name hard-rec --num_levels 1000000 --distribution_mode hard --num_checkpoints 200 --model_file="logs/procgen/coinrun/[agent_training_experiment_name]/[agent_training_unique_seed]/[agent_name].pth" --logdir="[path_to_rollout_data_save_dir]"
+> python record.py --model_file=./logs/procgen/coinrun/trainhx_1Mlvls/seed_498_07-06-2021_23-26-27/model_80412672.pth --logdir=./ --env_name coinrun --param_name hard-rec-record --num_levels 1000000 --distribution_mode hard --num_checkpoints 200
 
 Note that ``--logdir`` should have plenty of storage space (100's of GB).
 
@@ -81,22 +82,30 @@ environment rollouts. It will be informative, therefore, to get a picture of
 what's going on inside the latent vector of the VAE, since this is the input
 to the decoder. 
 
-## Analysis of bottleneck vector
+[//]: # (## Analysis of bottleneck vector)
 
-In theory, the distribution of the VAE latent vector space is trained to be as close
-as possible to a standard multivariate gaussian distribution. In practice, however, the KL 
-divergence never reaches zero so the distribution of the latent vector never
-becomes a perfectly Gaussian We produce PCA and and tSNE plots of the VAE
-latent vectors to observe the structure of the distribution. 
+[//]: # ()
+[//]: # (In theory, the distribution of the VAE latent vector space is trained to be as close)
 
-> python bottleneck_vec_analysis_precompute.py
-> 
-> python bottleneck_vec_analysis_plotting.py
+[//]: # (as possible to a standard multivariate gaussian distribution. In practice, however, the KL )
+
+[//]: # (divergence never reaches zero so the distribution of the latent vector never)
+
+[//]: # (becomes a perfectly Gaussian We produce PCA and and tSNE plots of the VAE)
+
+[//]: # (latent vectors to observe the structure of the distribution. )
+
+[//]: # ()
+[//]: # (> python bottleneck_vec_analysis_precompute.py)
+
+[//]: # (> )
+
+[//]: # (> python bottleneck_vec_analysis_plotting.py)
 
 ## Analysis of agent's hidden state
 We'll next analyse the agent's hidden state with a few dimensionality reduction
 methods. First we precompute the dimensionality reduction analyses:
-> python hidden_analysis_precompute.py
+> python analysis/hidden_analysis_precompute.py
 
 with 10'000 episodes (not samples). Increase request for memory and compute time to cope with more episodes.  
 
@@ -104,20 +113,20 @@ which will save the analysis data in ``analysis/hx_analysis_precomp/``
 
 Next we'll make some plots from the precomputed analyses of the agent's hidden
 states:
-> python hidden_analysis_plotting.py
+> python analysis/hidden_analysis_plotting.py
 
 These depict what the agent is 'thinking' during many episodes, visualised
 using several different dimensionality reduction and clustering methods. 
 
 ## Analysis of environment hidden states
 
-> python env_h_analysis_precompute.py
+> python analysis/env_h_analysis_precompute.py
 
 with 20'000 samples of len 24.  Increase request for memory and compute time to cope with more samples.  
 
 then
 
-> python env_h_analysis_plotting.py
+> python analysis/env_h_analysis_plotting.py
 
 
 [//]: # (## Analysis of SensoriMotorLoop space)
@@ -142,7 +151,6 @@ then
 
 ## Calculating saliency maps
 
-
 Saliency maps calculate the gradient (averaged over noised samples) of some
 network quantity (e.g. the agent's value function output) with respect to inputs
 or intermediate network activations.
@@ -163,6 +171,8 @@ the flag ``--combine_samples_not_iterate``
 If we wanted to generate saliency maps for all samples from 0 to 100, we'd replace
 the ``--sample_ids 33 39 56 84`` flag with ``--sample_ids 0 to 100``.
 
+
+
 ## Identifying causal stories for behaviours
 After we've calculated the saliency maps, we can use them to identify the 
 causal structure of the control algorithm used by the agent.
@@ -171,7 +181,11 @@ First we cluster the agent-environment dynamics. These clusters
 correspond to behaviours. 
 > python analysis/combined_agent_env_hx_analysis_precompute.py
 
-We need to summarise the IC dynamics for each behaviour. 
+(Now would be a good time to look at the interpretability panel since we've just
+generated everything it needs to run.)
+
+We need to summarise the IC dynamics for each behaviour. We summarize them
+and plot them using xcorr plots between ICs at each timestep.
 > python xcorr_and_xcaus_plots.py
 
 Then we compare the magnitude and sign of the corresponding entries
