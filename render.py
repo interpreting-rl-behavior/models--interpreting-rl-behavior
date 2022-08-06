@@ -12,28 +12,66 @@ from procgen import ProcgenGym3Env
 import random
 import torch
 
+import gym3
 from gym3 import ViewerWrapper, VideoRecorderWrapper, ToBaselinesVecEnv
 
+import custom_envs
+from custom_envs.wrappers import ResizeObservationVec
+
+# def create_venv_render(args, hyperparameters, is_valid=False):
+#     venv = ProcgenGym3Env(num=n_envs,
+#                           env_name=args.env_name,
+#                           num_levels=0 if is_valid else args.num_levels,
+#                           start_level=0 if is_valid else args.start_level,
+#                           distribution_mode=args.distribution_mode,
+#                           num_threads=1,
+#                           use_backgrounds=False,
+#                           render_mode="rgb_array")
+#     venv = ViewerWrapper(venv, tps=args.tps, info_key="rgb")
+#     if args.vid_dir is not None:
+#         venv = VideoRecorderWrapper(venv, directory=args.vid_dir,
+#                                     info_key="rgb", fps=args.tps)
+#     venv = ToBaselinesVecEnv(venv)
+#     venv = VecExtractDictObs(venv, "rgb")
+#     normalize_rew = hyperparameters.get('normalize_rew', True)
+#     if normalize_rew:
+#         venv = VecNormalize(venv, ob=False)  # normalizing returns, but not
+#         # the img frames
+#     venv = TransposeFrame(venv)
+#     venv = ScaledFloatFrame(venv)
+#     return venv
 
 def create_venv_render(args, hyperparameters, is_valid=False):
-    venv = ProcgenGym3Env(num=n_envs,
-                          env_name=args.env_name,
-                          num_levels=0 if is_valid else args.num_levels,
-                          start_level=0 if is_valid else args.start_level,
-                          distribution_mode=args.distribution_mode,
-                          num_threads=1,
-                          use_backgrounds=False,
-                          render_mode="rgb_array")
+    try:
+        # Load Env from custom_envs
+        env_cls = getattr(custom_envs, args.env_name)
+    except AttributeError:
+        # Assume Procgen Environment
+        venv = ProcgenGym3Env(num=n_envs,
+                            env_name=args.env_name,
+                            num_levels=0 if is_valid else args.num_levels,
+                            start_level=0 if is_valid else args.start_level,
+                            distribution_mode=args.distribution_mode,
+                            num_threads=1,
+                            use_backgrounds=False,
+                            render_mode="rgb_array")
+    else:
+        venv = gym3.vectorize_gym(
+            num=hyperparameters.get('n_envs', 256),
+            env_fn=lambda: env_cls(),
+            render_mode="rgb_array",
+            seed=args.seed
+        )
+
     venv = ViewerWrapper(venv, tps=args.tps, info_key="rgb")
     if args.vid_dir is not None:
         venv = VideoRecorderWrapper(venv, directory=args.vid_dir,
                                     info_key="rgb", fps=args.tps)
-    venv = ToBaselinesVecEnv(venv)
-    venv = VecExtractDictObs(venv, "rgb")
+    venv = gym3.ToBaselinesVecEnv(venv)
+    venv = ResizeObservationVec(venv, (64, 64))
     normalize_rew = hyperparameters.get('normalize_rew', True)
     if normalize_rew:
-        venv = VecNormalize(venv, ob=False)  # normalizing returns, but not
-        # the img frames
+        venv = VecNormalize(venv, ob=False)  # normalizing returns, but not the img frames
     venv = TransposeFrame(venv)
     venv = ScaledFloatFrame(venv)
     return venv

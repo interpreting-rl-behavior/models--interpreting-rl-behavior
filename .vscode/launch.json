@@ -1,0 +1,34 @@
+{
+    // Use IntelliSense to learn about possible attributes.
+    // Hover to view descriptions of existing attributes.
+    // For more information, visit: https://go.microsoft.com/fwlink/?linkid=830387
+    "version": "0.2.0",
+    "configurations": [
+        {
+            "name": "Python: train",
+            "type": "python",
+            "request": "launch",
+            "program": "${workspaceRoot}/train.py",
+            "console": "integratedTerminal",
+            "args": [
+                "--device=cpu",
+                "--exp_name=mountaincar",
+                "--env_name=coinrun",
+                "--param_name=hard-local-dev-rec-mountain",
+                "--num_levels=1000000",
+                "--distribution_mode=hard",
+                "--num_timesteps=10000",
+                "--num_checkpoints=20",
+            ],
+            "justMyCode": false
+        },
+        {
+            "name": "Python: gym_play",
+            "type": "python",
+            "request": "launch",
+            "program": "${workspaceRoot}/gym_play.py",
+            "console": "integratedTerminal",
+            "justMyCode": false
+        }
+    ]
+}

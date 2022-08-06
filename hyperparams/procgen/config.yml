@@ -179,11 +179,11 @@ hard-local-dev-rec:
 
 hard-local-dev-rec-mountain2:
     algo: ppo
-    n_envs: 4
-    n_steps: 256
+    n_envs: 8
+    n_steps: 1000
     epoch: 3
     mini_batch_per_epoch: 4
-    mini_batch_size: 4000
+    mini_batch_size: 1000
     gamma: 0.999
     lmbda: 0.95
     learning_rate: 0.0005

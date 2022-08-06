@@ -9,6 +9,7 @@ from custom_envs.wrappers import ResizeObservationVec
 
 import os, time, yaml, argparse
 import gym
+from gym.wrappers.time_limit import TimeLimit
 import gym3
 from procgen import ProcgenEnv
 import random
@@ -17,6 +18,7 @@ import torch
 
 def create_venv(args, hyperparameters, is_valid=False):
     try:
+        # Load Env from custom_envs
         env_cls = getattr(custom_envs, args.env_name)
     except AttributeError:
         # Assume Procgen Environment
@@ -29,12 +31,29 @@ def create_venv(args, hyperparameters, is_valid=False):
                         num_threads=args.num_threads)
         venv = VecExtractDictObs(venv, "rgb")
     else:
-        # Load Env from custom_envs
-        env_cls = getattr(custom_envs, args.env_name)
+        def init_env(env_cls=env_cls, hyperparameters=hyperparameters):
+            env = env_cls()
+            env = TimeLimit(env, max_episode_steps=hyperparameters.get('n_steps', 1000))
+            return env
+        # Note that we can't use register if we want subprocessing (because we'd then need to
+        # register on each subprocess which isn't trivial without altering gym)
+        # gym.envs.register(
+        #     id=f"{args.env_name}-v0",
+        #     # entry_point='gym.envs.classic_control:MountainCarEnv',
+        #     entry_point=f"custom_envs:{args.env_name}",
+        #     max_episode_steps=hyperparameters.get('n_steps', 1000),  # MountainCar-v0 uses 200
+        #     reward_threshold=-110.0,
+        # )
+        # gym.make(args.env_name)
         venv = gym3.vectorize_gym(
             num=hyperparameters.get('n_envs', 256),
-            env_fn=lambda: env_cls(),
+            # env_fn=lambda: env_cls(),
+            env_fn=init_env,
             render_mode="rgb_array",
+            # env_kwargs={"id": "MountainCar-v0"},
+            # env_kwargs={"id": f"{args.env_name}-v0"},
+            env_kwargs={"env_cls": env_cls, "hyperparameters": hyperparameters},
+            # use_subproc=False,
             seed=args.seed
         )
         venv = gym3.ToBaselinesVecEnv(venv)
@@ -176,4 +195,10 @@ if __name__=='__main__':
     ## TRAINING ##
     ##############
     print('START TRAINING...')
+    # import time
+    # start = time.time()
+    # for i in range(1000):
+    #     act = np.array([env.action_space.sample() for _ in range(env.num_envs)])
+    #     env.step(act)
+    # print("taken:", time.time() - start)
     agent.train(num_timesteps)

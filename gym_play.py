@@ -1,7 +1,12 @@
-"""
-This is a version of https://github.com/openai/gym/blob/master/gym/envs/classic_control/mountain_car.py
-modified such that the observation space is a set of pixels instead of (position, velocity).
+import numpy as np
+import gym
+from gym3.interop import ToBaselinesVecEnv
+from common.env.procgen_wrappers import *
+import matplotlib.pyplot as plt
 
+from custom_envs import MountainCarPixelEnv
+
+"""
 http://incompleteideas.net/MountainCar/MountainCar1.cp
 permalink: https://perma.cc/6Z2N-PFWC
 """
@@ -15,7 +20,7 @@ from gym import spaces
 from gym.error import DependencyNotInstalled
 
 
-class MountainCarPixelEnv(gym.Env):
+class MountainCarEnvReward(gym.Env):
     """
     ### Description
 
@@ -118,9 +123,7 @@ class MountainCarPixelEnv(gym.Env):
         self.isopen = True
 
         self.action_space = spaces.Discrete(3)
-        self.observation_space = spaces.Box(
-            low=0, high=255, shape=(400, 600, 3), dtype=np.uint8
-        )
+        self.observation_space = spaces.Box(self.low, self.high, dtype=np.float32)
 
     def step(self, action: int):
         assert self.action_space.contains(
@@ -140,8 +143,7 @@ class MountainCarPixelEnv(gym.Env):
         reward = 10. if done else 0.
 
         self.state = (position, velocity)
-        obs = self.render(mode="rgb_array")
-        return obs, reward, done, {}
+        return np.array(self.state, dtype=np.float32), reward, done, {}
 
     def reset(
         self,
@@ -152,11 +154,10 @@ class MountainCarPixelEnv(gym.Env):
     ):
         super().reset(seed=seed)
         self.state = np.array([self.np_random.uniform(low=-0.6, high=-0.4), 0])
-
         if not return_info:
-            return self.render(mode="rgb_array")
+            return np.array(self.state, dtype=np.float32)
         else:
-            return self.render(mode="rgb_array"), {}
+            return np.array(self.state, dtype=np.float32), {}
 
     def _height(self, xs):
         return np.sin(3 * xs) * 0.45 + 0.55
@@ -177,7 +178,7 @@ class MountainCarPixelEnv(gym.Env):
         scale = screen_width / world_width
         carwidth = 40
         carheight = 20
-        if self.screen is None and mode == "human":
+        if self.screen is None:
             pygame.init()
             pygame.display.init()
             self.screen = pygame.display.set_mode((screen_width, screen_height))
@@ -242,15 +243,15 @@ class MountainCarPixelEnv(gym.Env):
         )
 
         self.surf = pygame.transform.flip(self.surf, False, True)
+        self.screen.blit(self.surf, (0, 0))
         if mode == "human":
-            self.screen.blit(self.surf, (0, 0))
             pygame.event.pump()
             self.clock.tick(self.metadata["render_fps"])
             pygame.display.flip()
 
         if mode == "rgb_array":
             return np.transpose(
-                np.array(pygame.surfarray.pixels3d(self.surf)), axes=(1, 0, 2)
+                np.array(pygame.surfarray.pixels3d(self.screen)), axes=(1, 0, 2)
             )
         else:
             return self.isopen
@@ -266,3 +267,141 @@ class MountainCarPixelEnv(gym.Env):
             pygame.display.quit()
             pygame.quit()
             self.isopen = False
+
+
+pub = lambda x: [i for i in dir(x) if not i.startswith("_")]
+# Must "make" the mountaincar in order for its module to be accessible
+# gym.make("MountainCar-v0")
+
+# class MountainCarPixel(gym.envs.classic_control.mountain_car.MountainCarEnv):
+#     def __init__(self):
+#         super().__init__()
+
+#     def step(self, action):
+#         _, reward, done, _ = super().step(action)
+#         obs = self.render(mode="rgb_array")
+#         return obs, reward, done, {}
+
+
+class ResizeObservationVec(gym.wrappers.ResizeObservation):
+    def observation(self, observation):
+        """Updates the observations by resizing the observation to shape given by :attr:`shape`.
+
+        Args:
+            observation: The observation to reshape
+
+        Returns:
+            The reshaped observations
+
+        Raises:
+            DependencyNotInstalled: opencv-python is not installed
+        """
+        try:
+            import cv2
+        except ImportError:
+            raise gym.error.DependencyNotInstalled(
+                "opencv is not install, run `pip install gym[other]`"
+            )
+
+        resized_imgs = []
+        for img_idx in range(observation.shape[0]):
+            resized_imgs.append(cv2.resize(
+                observation[img_idx], self.shape[::-1], interpolation=cv2.INTER_AREA
+            ))
+        observation = np.stack(resized_imgs, axis=0)
+
+        # observation = cv2.resize(
+        #     observation, self.shape[::-1], interpolation=cv2.INTER_AREA
+        # )
+
+        # if observation.ndim == 2:
+        if observation.ndim == 3:
+            observation = np.expand_dims(observation, -1)
+        return observation
+
+    def step_wait(self):
+        obs, reward, done, info = self.env.step_wait()
+        return self.observation(obs), reward, done, info
+
+# class TransformReward(gym.wrappers.RewardWrapper):
+#     def reward(self, reward):
+
+def sample_n(space, n=2):
+    samples = []
+    for i in range(n):
+        samples.append(space.sample())
+    return np.array(samples)
+
+if __name__ == "__main__":
+
+    max_steps = 200
+    gym.envs.register(
+        id='MountainCarLongHorizon-v0',
+        # entry_point='gym.envs.classic_control:MountainCarEnv',
+        entry_point='gym_play:MountainCarEnvReward',
+        max_episode_steps=max_steps,      # MountainCar-v0 uses 200
+        reward_threshold=-110.0,
+    )
+    # We should change the reward to 10 (like coinrun)
+    env = gym.make('MountainCarLongHorizon-v0')
+
+    # num_envs = 2
+    # # env = create_venv_gym({}, {})
+    # env = gym.make("MountainCar-v0")
+    # print(env.spec.max_episode_steps)
+    # env.spec.max_episode_steps = 50
+    # print(env.spec.max_episode_steps)
+    # env._max_episode_length = 30
+    # import gym3
+    # env_fn = lambda: MountainCarPixelEnv()
+    # # env = gym3.vectorize_gym(num=2, render_mode="human", env_kwargs={"id": "CartPole-v0"})
+    # venv = gym3.vectorize_gym(num=num_envs, env_fn=env_fn, render_mode="rgb_array")
+
+    # # env = MountainCarPixelEnv()
+    # venv = ToBaselinesVecEnv(venv)
+    # # venv = gym.wrappers.ResizeObservation(venv, (64, 64))
+    # venv = ResizeObservationVec(venv, (64, 64))
+    # venv = TransposeFrame(venv) # observation_space: Box(0., 255., (3, 64, 64), float32)
+    # venv = ScaledFloatFrame(venv) # observation_space: Box(0., 1., (3, 64, 64), float32)
+    # observation, info = env.reset(seed=42, return_info=True)
+    # This is only return one observation, not num=2.
+    # observation = venv.reset()
+    observation = env.reset()
+    dones = 0
+    num_steps = 1000000
+    # num_steps = 300
+    episode_steps = 0
+    for i in range(num_steps):
+        # venv.render()
+        # env.render()
+        # Multiple actions
+        # action = sample_n(venv.action_space, num_envs)
+        action = env.action_space.sample()
+        # policy(observation)  # User-defined policy function
+        observation, reward, done, info = env.step(action)
+        # if reward != -1:
+            # print("HERER")
+        # if i % 20 == 0:
+            # print(reward)
+            # for env_id in range(num_envs):
+            #     print(observation.shape)
+            #     print("Env: ", env_id)
+            #     plt.imshow(observation[env_id].transpose(1,2,0))
+            #     plt.show()
+        # if done.any():
+        # print(i)
+        episode_steps += 1
+        if done:
+            # if (i + 1) % max_steps > 0:
+            if episode_steps % max_steps > 0:
+                print("COMPLETED ONE")
+                dones += 1
+            observation, info = env.reset(return_info=True)
+            episode_steps = 0
+    env.close()
+    print(f"completed {dones}/{num_steps // max_steps} episodes")
+
+# OrderedDict([('rgb', Box(0, 255, (64, 64,...3), uint8))])
+# venv.observation_space["rgb"]
+# Box(0, 255, (64, 64, 3), uint8)
+# venv.observation_space.spaces["rgb"]
